@@ -5,7 +5,11 @@
    • "Open" hands the module's own student session to the module (same site, same browser), so the student does not
      sign in twice. Modules are not changed in any way; if a hand-over is not possible the module simply shows its
      own sign-in page.
-   • Teacher panel (#/teacher): change the status, titles, links and order of modules, add new ones.
+   • Teacher Sign-In (#/teacher): ONE teacher account (module "portal" on the platform backend) → Teacher Dashboard:
+       Teaching Modules   — open any module directly in teacher mode (the backend creates that module's own teacher
+                            session for the signed-in teacher; no second password, no student account needed);
+       Teacher Management — the front-page list (status, titles, links, order, add/remove) and, per module, its
+                            Teacher Portal (students, content, results…).
    No secrets are in this file. */
 (function () {
   'use strict';
@@ -71,8 +75,10 @@
     document.getElementById('foot').innerHTML = '<span>' + esc(CFG.title || 'Interactive Pathology Teaching Platform') + '</span><span>' + esc(CREATED) + '</span>';
     var who = document.getElementById('who'), s = session(), teacherView = /^#\/teacher/.test(location.hash);
     who.innerHTML = '';
-    var tp = h('<a class="btn tportal" href="' + (teacherView ? '#/' : '#/teacher') + '"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3l9 4-9 4-9-4 9-4z" fill="currentColor"/><path d="M6 9.5V14c0 1.7 2.7 3 6 3s6-1.3 6-3V9.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M21 7v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>' + (teacherView ? 'Student front page' : 'Teacher Module Portal') + '</span></a>');
+    var tLabel = teacherView ? 'Platform Home' : (tsess() ? 'Teacher Dashboard' : 'Teacher Sign-In');
+    var tp = h('<a class="btn tportal" href="' + (teacherView ? '#/' : '#/teacher') + '"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3l9 4-9 4-9-4 9-4z" fill="currentColor"/><path d="M6 9.5V14c0 1.7 2.7 3 6 3s6-1.3 6-3V9.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M21 7v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>' + tLabel + '</span></a>');
     who.appendChild(tp);
+    if (teacherView && tsess()) { var tb = h('<button class="btn ghost" type="button">Sign out</button>'); tb.onclick = teacherSignOut; who.appendChild(tb); }
     if (s && !teacherView) {
       who.appendChild(h('<span class="nm" title="Signed in">👤 ' + esc(s.student.name || s.student.username) + '</span>'));
       var b = h('<button class="btn ghost" type="button">Sign out</button>'); b.onclick = signOut; who.appendChild(b);
@@ -97,7 +103,7 @@
       else if (acc && acc.reason === 'unreachable') { pill = '<span class="pill warn">Could not check</span>'; msg = 'This module’s server could not be reached. Sign out and in again later.'; cta = '<a class="btn" href="' + esc(m.url) + '">Try the module’s sign-in</a>'; state = 'open'; }
       else { pill = '<span class="pill locked">🔒 Not registered for your account</span>'; msg = 'This module is open, but your account has not been registered for it yet. Please contact your teacher.'; }
       if (!cta) cta = '<button class="btn" type="button" disabled>🔒 Not available for your account</button>';
-      if (!m.url && (state === 'mine' || state === 'open')) { state = 'locked'; alt = ''; msg = 'The link to this module has not been set yet (Teacher Module Portal).'; cta = '<button class="btn" type="button" disabled>Link not set</button>'; }
+      if (!m.url && (state === 'mine' || state === 'open')) { state = 'locked'; alt = ''; msg = 'The link to this module has not been set yet (Teacher Dashboard → Teacher Management).'; cta = '<button class="btn" type="button" disabled>Link not set</button>'; }
     } else if (m.status === 'ready') { msg = 'This module is complete and will open when teaching starts.'; cta = '<button class="btn" type="button" disabled>Not yet released</button>'; }
     else { msg = 'This chapter is in preparation.'; cta = '<button class="btn" type="button" disabled>Coming soon</button>'; }
     var d = descOf(m);
@@ -190,37 +196,103 @@
     sdel(KEY); header(); viewHome(); toast('You have signed out.');
   }
 
-  /* ---------------- teacher panel ---------------- */
-  function tsess() { var t = sget(TKEY); return t && t.token && (!t.exp || t.exp > Date.now()) ? t.token : null; }
+  /* ---------------- teacher: one sign-in → Teacher Dashboard ---------------- */
+  function tget() { var t = sget(TKEY); return t && t.token && (!t.exp || t.exp > Date.now()) ? t : null; }
+  function tsess() { var t = tget(); return t ? t.token : null; }
+  function lsGet(k) { try { var v = window.localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
+  function lsSet(k, v) { try { window.localStorage.setItem(k, JSON.stringify(v)); } catch (e) { } }
+  function lsDel(k) { try { window.localStorage.removeItem(k); } catch (e) { } }
+  /** Modules the teacher can enter straight from the dashboard: platform modules on this backend. */
+  function teacherDirect(m) { return !!(m.url && m.moduleKey && m.handoff === 'neo' && m.storagePrefix && (!m.backend || m.backend === CFG.backendUrl)); }
+  function teacherKey(m) { return m.storagePrefix + 'backend_token_v1'; }   // the module's own teacher-session slot
+  function withHash(url, hash) { return hash ? url.replace(/#.*$/, '') + hash : url; }
+  /** Opens a module as the signed-in teacher: the backend creates that module's own teacher session (checked again by
+   *  the module on every request), it is placed where the module keeps its teacher session, and the module opens. */
+  function teacherOpen(m, hash, btn) {
+    if (!teacherDirect(m)) { location.href = withHash(m.url, hash); return; }
+    var t = tget(); if (!t) { viewTeacher(); return; }
+    var have = (t.mods || {})[m.moduleKey], cur = lsGet(teacherKey(m));
+    var ready = have && have.token && have.expiresAt > Date.now() + 60000 && cur && cur.token === have.token
+      ? Promise.resolve({ ok: true, modules: (function () { var o = {}; o[m.moduleKey] = have; return o; })() })
+      : post(CFG.backendUrl, { module: 'portal', action: 'portalTeacherOpen', token: t.token, modules: [m.moduleKey] });
+    if (btn) { btn.disabled = true; btn.dataset.l = btn.textContent; btn.textContent = 'Opening…'; }
+    ready.then(function (r) {
+      if (btn) { btn.disabled = false; btn.textContent = btn.dataset.l; }
+      if (!r.ok) { if (r.code === 'auth') { sdel(TKEY); toast('Your teacher session has ended — please sign in again.'); return route(); } toast(r.code === 'badaction' ? 'Update Portal.gs on the backend (see SETUP.md) to open modules from the dashboard.' : r.error); return; }
+      var acc = r.modules && r.modules[m.moduleKey]; if (!acc) { toast('This module is not on the front-page list.'); return; }
+      lsSet(teacherKey(m), { token: acc.token, expiresAt: acc.expiresAt });
+      sdel(m.storagePrefix + 'stu_session_v1');   // this browser opens the module as the teacher, not as a student
+      t.mods = t.mods || {}; t.mods[m.moduleKey] = { token: acc.token, expiresAt: acc.expiresAt, prefix: m.storagePrefix };
+      sset(TKEY, t, false);
+      location.href = withHash(m.url, hash);
+    });
+  }
+  function teacherSignOut() {
+    var t = tget() || sget(TKEY) || {}, list = [];
+    Object.keys(t.mods || {}).forEach(function (k) {
+      var x = t.mods[k]; list.push({ module: k, token: x.token });
+      var cur = x.prefix && lsGet(x.prefix + 'backend_token_v1'); if (cur && cur.token === x.token) lsDel(x.prefix + 'backend_token_v1');
+    });
+    // first the module teacher sessions it opened, then the dashboard session itself
+    (list.length ? post(CFG.backendUrl, { module: 'portal', action: 'portalTeacherClose', sessions: list }, { keepalive: true }) : Promise.resolve())
+      .then(function () { if (t.token) post(CFG.backendUrl, { module: 'portal', action: 'logout', token: t.token }, { keepalive: true }); });
+    sdel(TKEY); location.hash = '#/'; route(); toast('You have signed out.');
+  }
   function viewTeacher() {
-    main.innerHTML = '<p class="small"><a href="#/">← Student front page</a></p><h1 class="page-h">Teacher Module Portal</h1><p class="muted" style="margin-top:-6px">Manage the modules shown on the front page.</p>';
     var tok = tsess();
-    if (!tok) return main.appendChild(teacherLogin());
-    var box = h('<div><p class="muted">Loading…</p></div>'); main.appendChild(box);
+    main.innerHTML = '';
+    if (!tok) {
+      main.appendChild(h('<div class="t-head"><h1 class="page-h">Teacher Sign-In</h1><p class="muted">One teacher account for the whole platform: the Teacher Dashboard, every teaching module and all management functions.</p></div>'));
+      return main.appendChild(teacherLogin());
+    }
+    main.appendChild(h('<div class="t-head"><h1 class="page-h">Teacher Dashboard</h1><p class="muted">Signed in as teacher. Open any module directly, or manage the platform below.</p></div>'));
+    var tm = h('<section class="t-sec" id="t-modules"><div class="sec-head"><h2>Teaching Modules</h2><span class="small muted">Open in teacher mode — no second password</span></div><div class="grid t-grid"></div></section>');
+    var grid = $('.t-grid', tm);
+    MODULES.forEach(function (m) { grid.appendChild(teacherCard(m)); });
+    if (!MODULES.length) grid.appendChild(h('<p class="muted">No modules yet — add one under Teacher Management.</p>'));
+    main.appendChild(tm);
+    var mg = h('<section class="t-sec" id="t-manage"><div class="sec-head"><h2>Teacher Management</h2><span class="small muted">Front-page modules, statuses and links</span></div><div class="t-box"><p class="muted">Loading…</p></div></section>');
+    main.appendChild(mg);
+    var box = $('.t-box', mg);
     post(CFG.backendUrl, { module: 'portal', action: 'portalAdminGet', token: tok }).then(function (r) {
-      if (!r.ok) { if (r.code === 'auth') { sdel(TKEY); return viewTeacher(); } box.innerHTML = '<p class="err">' + esc(r.error) + '</p>'; return; }
+      if (!r.ok) { if (r.code === 'auth') { sdel(TKEY); return route(); } box.innerHTML = '<p class="err">' + esc(r.error) + '</p>'; return; }
       editor(box, r);
     });
   }
+  function teacherCard(m) {
+    var st = STATUS[m.status] || STATUS.soon, direct = teacherDirect(m), d = descOf(m);
+    var el = h('<article class="mod t-card ' + (m.url ? 'open' : 'locked') + ' st-' + esc(m.status) + '" style="--c:' + esc(m.color) + '" data-id="' + esc(m.id) + '">' +
+      '<div class="mod-top"><div class="mod-ico">' + iconHtml(m) + '</div><span class="pill ' + st.cls + '">' + st.icon + ' ' + esc(st.label) + '</span></div>' +
+      '<div class="mod-body">' + (m.subtitle ? '<div class="cat">' + esc(m.subtitle) + '</div>' : '') + '<h3>' + esc(m.title) + '</h3>' + (d ? '<p class="desc">' + esc(d) + '</p>' : '') +
+      '<p class="msg">' + esc(!m.url ? 'The link to this module has not been set yet (Teacher Management below).' : direct ? 'Opens in teacher mode with your teacher sign-in.' + (m.status !== 'available' ? ' Students cannot open it yet.' : '') : 'This module is not connected for direct teacher access; it opens on its own page.') + '</p>' +
+      '<div class="act">' + (m.url ? '<button class="btn primary t-open" type="button">Open module →</button>' + (direct ? '<button class="btn t-admin" type="button">Teacher Portal</button>' : '') : '<button class="btn" type="button" disabled>Link not set</button>') + '</div></div></article>');
+    var o = $('.t-open', el), a = $('.t-admin', el);
+    if (o) o.onclick = function () { teacherOpen(m, '', o); };
+    if (a) { a.title = 'Students, content, results and other management inside this module'; a.onclick = function () { teacherOpen(m, '#/teacher', a); }; }
+    return el;
+  }
   function teacherLogin() {
     var setup = INFO && !INFO.hasTeacher;
-    var f = h('<form class="card" style="max-width:420px" novalidate><h2 style="margin-top:0;color:var(--navy);font-size:18px">' + (setup ? 'Create the front-page teacher password' : 'Teacher sign-in') + '</h2><p class="small muted">' +
-      (setup ? 'The front page has its own teacher password (at least 8 characters). It only manages this page — module teacher passwords are unchanged.' : 'The front-page teacher password (module “portal” on the platform backend).') + '</p>' +
+    var f = h('<form class="card t-login" style="max-width:440px" novalidate><h2 style="margin-top:0;color:var(--navy);font-size:18px">' + (setup ? 'Create the teacher password' : 'Teacher sign-in') + '</h2><p class="small muted">' +
+      (setup ? 'No teacher account exists yet. Choose the platform teacher password (at least 8 characters).' : 'Enter the platform teacher password.') + '</p>' +
       '<label>Password<input id="t-p" type="password" autocomplete="' + (setup ? 'new-password' : 'current-password') + '"></label>' + (setup ? '<label>Repeat it<input id="t-p2" type="password" autocomplete="new-password"></label>' : '') +
-      '<p class="err" role="alert"></p><button class="btn primary full" type="submit">' + (setup ? 'Create password' : 'Sign in') + '</button></form>');
+      '<p class="err" role="alert"></p><button class="btn primary full" type="submit">' + (setup ? 'Create password' : 'Sign in') + '</button>' +
+      '<p class="small muted" style="margin:10px 0 0">Students do not sign in here — they use the Student sign-in on the Platform Home.</p></form>');
     f.onsubmit = function (e) {
       e.preventDefault();
-      var pw = $('#t-p', f).value, err = $('.err', f);
+      var pw = $('#t-p', f).value, err = $('.err', f), btn = $('button[type=submit]', f);
       if (setup) {
         if (pw.length < 8) { err.textContent = 'Use at least 8 characters.'; return; }
         if (pw !== $('#t-p2', f).value) { err.textContent = 'The two passwords are different.'; return; }
-        return post(CFG.backendUrl, { module: 'portal', action: 'setup', password: pw }).then(function (r) { if (!r.ok) { err.textContent = r.error; return; } INFO.hasTeacher = true; login(); });
+        btn.disabled = true;
+        return post(CFG.backendUrl, { module: 'portal', action: 'setup', password: pw }).then(function (r) { if (!r.ok) { btn.disabled = false; err.textContent = r.error; return; } INFO.hasTeacher = true; login(); });
       }
-      login();
+      btn.disabled = true; login();
       function login() {
         post(CFG.backendUrl, { module: 'portal', action: 'login', password: pw }).then(function (r) {
+          btn.disabled = false;
           if (!r.ok) { err.textContent = r.error || 'Sign-in failed.'; return; }
-          sset(TKEY, { token: r.token, exp: r.expiresAt }, false); viewTeacher();
+          sset(TKEY, { token: r.token, exp: r.expiresAt, mods: {} }, false); route();
         });
       }
     };
@@ -236,7 +308,7 @@
   function editor(box, r) {
     var list = r.modules.map(function (m) { return JSON.parse(JSON.stringify(m)); }), counts = r.counts || {};
     box.innerHTML = '';
-    box.appendChild(h('<div class="note" style="margin-bottom:14px"><b>Status is only what students see.</b> A student can enter a module only if their account is registered for it (Students in that module\'s Teacher portal). “Available” never opens a module to students without an account.</div>'));
+    box.appendChild(h('<div class="note" style="margin-bottom:14px"><b>Status is only what students see.</b> A student can enter a module only if their account is registered for it (Teaching Modules above → that module’s <b>Teacher Portal</b> → Students). “Available” never opens a module to students without an account.</div>'));
     var rows = h('<div></div>'); box.appendChild(rows);
     var bar = h('<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px"><button class="btn add" type="button">＋ Add a module</button><span style="flex:1"></span><button class="btn out" type="button">Sign out</button><button class="btn primary save" type="button">💾 Save changes</button></div>');
     box.appendChild(bar);
@@ -263,13 +335,13 @@
       });
     }
     $('.add', bar).onclick = function () { list.push({ id: 'module' + (list.length + 1), title: 'New module', subtitle: '', icon: '📘', color: '#0f2a4a', status: 'soon', url: '', moduleKey: '', handoff: 'link', storagePrefix: '', backend: '', note: '' }); draw(); rows.lastChild.scrollIntoView({ behavior: 'smooth' }); };
-    $('.out', bar).onclick = function () { var t = tsess(); if (t) post(CFG.backendUrl, { module: 'portal', action: 'logout', token: t }); sdel(TKEY); location.hash = '#/'; };
+    $('.out', bar).onclick = teacherSignOut;
     $('.save', bar).onclick = function () {
       var btn = this; btn.disabled = true; btn.textContent = 'Saving…';
       post(CFG.backendUrl, { module: 'portal', action: 'portalAdminSave', token: tsess(), modules: list }).then(function (x) {
         btn.disabled = false; btn.textContent = '💾 Save changes';
         if (!x.ok) { if (x.code === 'auth') { sdel(TKEY); return viewTeacher(); } toast(x.error); return; }
-        list = x.modules; MODULES = x.modules; draw(); toast('Saved. Students see the new list when they open or reload the front page.');
+        list = x.modules; MODULES = x.modules; draw(); var g = $('#t-modules .t-grid'); if (g) { g.innerHTML = ''; MODULES.forEach(function (m) { g.appendChild(teacherCard(m)); }); } toast('Saved. Students see the new list when they open or reload the front page.');
       });
     };
     draw();
@@ -285,6 +357,6 @@
       window.addEventListener('hashchange', route); route();
     });
   }
-  window.__portal = { handoffKey: handoffKey };
+  window.__portal = { handoffKey: handoffKey, teacherKey: teacherKey };
   boot();
 })();

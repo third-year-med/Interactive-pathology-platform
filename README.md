@@ -7,11 +7,12 @@ student sign-in that opens exactly the modules the student's account is register
 - **Access is decided by accounts, not by status.** After signing in, a student can open a module only if an active
   account with that **Student ID and password** exists in that module (created in the module's Teacher portal → Students).
   A completed — or even "Available" — module stays closed to a student without an account there.
-- **No change to the modules.** Cell Injury and Inflammation keep working exactly as before (their own
-  links, sign-in, content and accounts). "Open module" hands the module its own normal session, so students do not sign
-  in twice; if that is not possible, the module just shows its usual sign-in page.
-- **Teacher Module Portal** (the **Teacher Module Portal** button at the top right): change status, titles, links, icons and order, and add
-  new modules — no code needed.
+- **No second sign-in.** "Open module" hands the module its own normal session (student or teacher), so nobody
+  signs in twice. Module content, images, quizzes and student accounts are unchanged.
+- **One Teacher Sign-In** (yellow button, top right) → **Teacher Dashboard**: *Teaching Modules* (open any module
+  directly in teacher mode, or its Teacher Portal for students/content/results) and *Teacher Management* (status,
+  titles, links, icons, order, add/remove modules — no code needed). Modules no longer ask teachers for their own password.
+- **← Back to Platform Home** at the top of every module returns students and teachers to this page.
 
 Setting it up: **[SETUP.md](SETUP.md)**.
 

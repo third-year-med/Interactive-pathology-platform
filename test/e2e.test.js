@@ -149,6 +149,53 @@ test('teacher panel: status changes are shown at once, but never open a module w
   await p.context().close();
 });
 
+test('teacher: one sign-in → Teacher Dashboard → open any module directly as teacher; management still works', { skip: SKIP }, async function () {
+  const p = await page();
+  await p.goto(url);
+  await p.waitForSelector('.mod');
+  await p.click('.top a.tportal');
+  await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+  await p.waitForSelector('#t-modules .mod[data-id="cellinjury"] .t-open');
+  assert.match(await p.textContent('h1.page-h'), /Teacher Dashboard/);
+  assert.match(await p.textContent('.top a.tportal'), /Platform Home/);
+  assert.match(await p.textContent('#t-modules'), /Teaching Modules/);
+  await p.waitForSelector('#t-manage .modrow');
+  assert.match(await p.textContent('#t-manage'), /Teacher Management/);
+  if (process.env.SHOTS) { await p.screenshot({ path: path.join(process.env.SHOTS, 'dashboard.png'), fullPage: true }); await p.setViewportSize({ width: 390, height: 844 }); await p.screenshot({ path: path.join(process.env.SHOTS, 'dashboard-phone.png') }); assert.ok(await p.evaluate(function () { return document.documentElement.scrollWidth - window.innerWidth; }) <= 1, 'dashboard fits a phone'); await p.setViewportSize({ width: 1280, height: 900 }); }
+  // open Cell Injury as teacher: the module's own teacher session is created and placed in its slot
+  const before = navigations.length;
+  await p.click('#t-modules .mod[data-id="cellinjury"] .t-open');
+  await p.waitForTimeout(400);
+  assert.ok(navigations.slice(before).some(function (u) { return /cell-injury-teaching-platform\/$/.test(u); }), 'module opened');
+  const ci = JSON.parse(await p.evaluate(function () { return localStorage.getItem('ci_backend_token_v1'); }));
+  assert.ok(ci && ci.token && !ci.url, JSON.stringify(ci));
+  const ses = main.call({ module: 'cellinjury', action: 'studentSession', token: ci.token });
+  assert.ok(ses.ok && ses.role === 'teacher', 'the module recognises a TEACHER session');
+  assert.strictEqual(main.call({ module: 'inflhealing', action: 'studentSession', token: ci.token }).ok, false, 'only for that module');
+  // the module's Teacher Portal (students, content, results…) is reached the same way
+  await p.click('#t-modules .mod[data-id="inflhealing"] .t-admin');
+  await p.waitForTimeout(400);
+  assert.ok(navigations.slice(before).some(function (u) { return /inflammation-healing\/$/.test(u); }), "module opened (the #/teacher part is not sent in the request)");
+  const ih = JSON.parse(await p.evaluate(function () { return localStorage.getItem('ih_backend_token_v1'); }));
+  assert.ok(main.call({ module: 'inflhealing', action: 'listStudents', token: ih.token }).ok, 'module management works with it');
+  // a module that is not released yet can still be reviewed by the teacher, never by students
+  assert.ok(await p.$('#t-modules .mod[data-id="readytest"]'));
+  // front-page management is unchanged
+  await p.locator('.modrow', { hasText: 'Soon test module' }).locator('input[data-k=subtitle]').fill('Edited by teacher');
+  await p.click('.save');
+  await p.waitForFunction(function () { return /Saved/.test((document.querySelector('.toast') || {}).textContent || ''); });
+  assert.strictEqual(main.call({ module: 'portal', action: 'portalInfo' }).modules.filter(function (m) { return m.id === 'soontest'; })[0].subtitle, 'Edited by teacher');
+  // sign out ends the dashboard AND the module teacher sessions it opened
+  await p.click('#who button');
+  await p.waitForSelector('form.signin');
+  await p.waitForTimeout(300);
+  assert.strictEqual(await p.evaluate(function () { return localStorage.getItem('ci_backend_token_v1'); }), null);
+  assert.strictEqual(main.call({ module: 'cellinjury', action: 'studentSession', token: ci.token }).ok, false, 'module teacher session ended');
+  assert.strictEqual(main.call({ module: 'inflhealing', action: 'listStudents', token: ih.token }).ok, false);
+  assert.match(await p.textContent('.top a.tportal'), /Teacher Sign-In/);
+  await p.context().close();
+});
+
 test('the front page fits a phone screen', { skip: SKIP }, async function () {
   const p = await page({ width: 390, height: 844 });
   await p.goto(url);
@@ -157,7 +204,7 @@ test('the front page fits a phone screen', { skip: SKIP }, async function () {
   await p.context().close();
 });
 
-test('branding: heading, "Created by", no department line; Teacher Module Portal at the top', { skip: SKIP }, async function () {
+test('branding: heading, "Created by", no department line; Teacher Sign-In at the top', { skip: SKIP }, async function () {
   const p = await page();
   await p.goto(url);
   await p.waitForSelector('.mod');
@@ -167,11 +214,11 @@ test('branding: heading, "Created by", no department line; Teacher Module Portal
   const all = await p.textContent('body');
   assert.ok(!/Misurata|Pathology Department|College of Medicine/.test(all), 'department line removed');
   const tp = await p.$('.top a.tportal');
-  assert.ok(tp, 'Teacher Module Portal button in the top bar');
-  assert.match(await tp.textContent(), /Teacher Module Portal/);
+  assert.ok(tp, 'Teacher Sign-In button in the top bar');
+  assert.match(await tp.textContent(), /Teacher Sign-In/);
   await tp.click();
   await p.waitForSelector('#t-p');
-  assert.match(await p.textContent('h1.page-h'), /Teacher Module Portal/);
+  assert.match(await p.textContent('h1.page-h'), /Teacher Sign-In/);
   await p.context().close();
 });
 
@@ -195,30 +242,115 @@ test('an Available card works before sign-in: "Sign in to open" → sign in → 
 
 // Uses the REAL module pages (CI_MODULE_HTML / IH_MODULE_HTML → their index.html; skipped when absent): the front page and
 // the module are served on the same https://third-year-med.github.io origin, exactly as on GitHub Pages.
-[['cellinjury', 'cell-injury-teaching-platform', process.env.CI_MODULE_HTML || '/home/user/third-year-med/cell-injury-teaching-platform/index.html'],
- ['inflhealing', 'inflammation-healing', process.env.IH_MODULE_HTML || '/home/user/third-year-med/inflammation-healing/index.html']].forEach(function (M) {
+// CI_CONTENT_KEY / IH_CONTENT_KEY (optional, never committed): the modules' real content keys, so the course itself opens
+// and the in-module header can be tested too.
+const REAL = [['cellinjury', 'cell-injury-teaching-platform', process.env.CI_MODULE_HTML || '/home/user/cell-injury-teaching-platform/index.html', process.env.CI_CONTENT_KEY],
+ ['inflhealing', 'inflammation-healing', process.env.IH_MODULE_HTML || '/home/user/inflammation-healing/index.html', process.env.IH_CONTENT_KEY]];
+const HOME = 'https://third-year-med.github.io/Interactive-pathology-platform/';
+async function realPage(M, calls) {
+  if (M[3]) main.ctx.CONTENT_KEYS[M[0]] = M[3];
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const p = await ctx.newPage();
+  p.on('pageerror', function (e) { if (!/content key|decrypt/i.test(e.message)) errors.push(M[1] + ': ' + e.message); });
+  p.on('dialog', function (d) { d.accept(); });
+  await p.route('https://script.google.com/**', async function (route) {
+    const body = route.request().postData() || '';
+    calls.push(JSON.parse(body));
+    await route.fulfill({ status: 200, contentType: 'application/json', body: main.ctx.doPost({ postData: { contents: body } }).getContent() });
+  });
+  await p.route('https://third-year-med.github.io/**', function (route) {
+    const u = new URL(route.request().url());
+    const own = REAL.filter(function (R) { return u.pathname.indexOf('/' + R[1] + '/') === 0; })[0];
+    if (own) return route.fulfill({ status: 200, contentType: 'text/html', body: fs.readFileSync(own[2]) });
+    const rel = u.pathname.replace(/^\/Interactive-pathology-platform\/?/, '') || 'index.html';
+    if (rel === 'config.js') return route.fulfill({ status: 200, contentType: 'text/javascript', body: 'window.PORTAL_CONFIG = ' + JSON.stringify({ backendUrl: MAIN }) + ';' });
+    const f = path.join(ROOT, rel);
+    if (!fs.existsSync(f) || rel.indexOf('..') >= 0) return route.fulfill({ status: 404, body: '' });
+    return route.fulfill({ status: 200, contentType: { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' }[path.extname(f)], body: fs.readFileSync(f) });
+  });
+  return p;
+}
+/** In the module: "← Back to Platform Home" is visible (header once the course is open, else the sign-in card) and goes to the front page. */
+async function backHome(p, M) {
+  const sel = M[3] ? '#app-header #pf-bar a.pf-home' : '#neo-boot a.pf-home';
+  await p.waitForSelector(sel, { state: 'visible', timeout: 15000 });
+  assert.match(await p.textContent(sel), /Back to Platform Home/);
+  assert.strictEqual(await p.getAttribute(sel, 'href'), HOME);
+  await p.click(sel);
+  await p.waitForURL(HOME);
+  await p.waitForSelector('.hero h1');
+}
+REAL.forEach(function (M) {
+  test('teacher: Teacher Sign-In → Dashboard → the real ' + M[1] + ' opens in teacher mode (no module password) → Back to Platform Home', { skip: SKIP || (!fs.existsSync(M[2]) && 'module page not available') }, async function () {
+    const calls = [];
+    const p = await realPage(M, calls);
+    await p.goto(HOME + '#/teacher');
+    await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+    await p.waitForSelector('#t-modules .mod[data-id="' + M[0] + '"] .t-open');
+    await p.click('#t-modules .mod[data-id="' + M[0] + '"] .t-open');
+    await p.waitForURL(new RegExp(M[1]));
+    await p.waitForFunction(function () { return window.NEO_BOOT && (window.NEO_BOOT.role || document.querySelector('#neo-boot .nb-msg.bad')); }, null, { timeout: 15000 });
+    const sess = calls.filter(function (c) { return c.module === M[0] && c.action === 'studentSession' && c.token; });
+    assert.ok(sess.length, 'the module checked the teacher session with its backend');
+    assert.strictEqual(calls.filter(function (c) { return c.module === M[0] && (c.action === 'login' || c.action === 'studentLogin'); }).length, 0, 'no module sign-in');
+    assert.strictEqual(await p.$('#nb-tpass'), null); assert.strictEqual(await p.$('#nb-user'), null);
+    if (M[3]) assert.strictEqual(await p.evaluate(function () { return window.NEO_BOOT.role; }), 'teacher');
+    if (process.env.SHOTS) { await p.waitForTimeout(800); await p.screenshot({ path: path.join(process.env.SHOTS, M[0] + '-teacher.png') }); }
+    await backHome(p, M);
+    assert.match(await p.textContent('.top a.tportal'), /Teacher Dashboard/, 'still signed in as teacher on the Platform Home');
+    await p.context().close();
+  });
+  test('student: front page → the real ' + M[1] + ' → Back to Platform Home → front page (still signed in)', { skip: SKIP || (!fs.existsSync(M[2]) && 'module page not available') }, async function () {
+    main.addStudents('cellinjury', [{ username: 'home-' + M[0], name: 'Home Student', password: PW, mustChange: false }]);
+    main.addStudents('inflhealing', [{ username: 'home-' + M[0], name: 'Home Student', password: PW, mustChange: false }]);
+    const calls = [];
+    const p = await realPage(M, calls);
+    await p.goto(HOME);
+    await p.waitForSelector('.mod[data-id="' + M[0] + '"]');
+    await signIn(p, 'home-' + M[0], PW);
+    await p.waitForSelector('.mod[data-id="' + M[0] + '"] .go');
+    await p.click('.mod[data-id="' + M[0] + '"] .go');
+    await p.waitForURL(new RegExp(M[1]));
+    await p.waitForFunction(function () { return window.NEO_BOOT && (window.NEO_BOOT.role || document.querySelector('#neo-boot .nb-msg.bad')); }, null, { timeout: 15000 });
+    if (M[3]) {
+      assert.strictEqual(await p.evaluate(function () { return window.NEO_BOOT.role; }), 'student');
+      // the module's Teacher Portal page has no password box of its own any more: it points to the single Teacher Sign-In
+      await p.evaluate(function () { location.hash = '#/teacher'; });
+      await p.waitForSelector('#view-teacher .portal-gate a[href="' + HOME + '#/teacher"]');
+      assert.strictEqual(await p.$('#view-teacher input[type=password]'), null);
+      if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, M[0] + '-student-teacherpage.png') });
+    }
+    assert.strictEqual(calls.filter(function (c) { return c.action === 'studentLogin'; }).length, 0, 'no second sign-in');
+    await backHome(p, M);
+    await p.waitForSelector('.card.welcome');
+    assert.match(await p.textContent('.card.welcome'), /Home Student/, 'back on the front page, still signed in');
+    await p.context().close();
+  });
+  test('the real ' + M[1] + ' sign-in page: Back to Platform Home, and the Teacher tab points to the single Teacher Sign-In', { skip: SKIP || (!fs.existsSync(M[2]) && 'module page not available') }, async function () {
+    const calls = [];
+    const p = await realPage(M, calls);
+    await p.goto('https://third-year-med.github.io/' + M[1] + '/');
+    await p.waitForSelector('#neo-boot #nb-user');
+    assert.ok(await p.$('#neo-boot a.pf-home[href="' + HOME + '"]'), 'Back to Platform Home on the sign-in screen');
+    await p.click('#neo-boot .nb-tab:nth-child(2)');
+    await p.waitForSelector('#nb-tgo');
+    assert.strictEqual(await p.$('#nb-tpass'), null, 'no module teacher password field');
+    assert.strictEqual(await p.getAttribute('#nb-tgo', 'href'), HOME + '#/teacher');
+    assert.ok(await p.$('#neo-boot a.pf-home'), 'still there after switching tabs');
+    await p.click('#nb-tgo');
+    await p.waitForURL(HOME + '#/teacher');
+    await p.waitForSelector('#t-p');
+    assert.strictEqual(calls.filter(function (c) { return c.module === M[0] && c.action === 'login'; }).length, 0);
+    await p.context().close();
+  });
+});
+
+REAL.forEach(function (M) {
   test('the real ' + M[1] + ' module accepts the hand-over (no second sign-in)', { skip: SKIP || (!fs.existsSync(M[2]) && 'module page not available') }, async function () {
     main.addStudents('cellinjury', [{ username: 'both-' + M[0], name: 'Both Modules', password: PW, mustChange: false }]);
     main.addStudents('inflhealing', [{ username: 'both-' + M[0], name: 'Both Modules', password: PW, mustChange: false }]);
-    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-    const p = await ctx.newPage();
-    p.on('pageerror', function (e) { if (!/content key|decrypt/i.test(e.message)) errors.push(M[1] + ': ' + e.message); });
     const calls = [];
-    // the module talks to ITS configured backend (the real URL); the front page to MAINTEST — both answered by the test backend
-    await p.route('https://script.google.com/**', async function (route) {
-      const body = route.request().postData() || '';
-      calls.push(JSON.parse(body));
-      await route.fulfill({ status: 200, contentType: 'application/json', body: main.ctx.doPost({ postData: { contents: body } }).getContent() });
-    });
-    await p.route('https://third-year-med.github.io/**', function (route) {
-      const u = new URL(route.request().url());
-      if (u.pathname.indexOf('/' + M[1] + '/') === 0) return route.fulfill({ status: 200, contentType: 'text/html', body: fs.readFileSync(M[2]) });
-      const rel = u.pathname.replace(/^\/Interactive-pathology-platform\/?/, '') || 'index.html';
-      if (rel === 'config.js') return route.fulfill({ status: 200, contentType: 'text/javascript', body: 'window.PORTAL_CONFIG = ' + JSON.stringify({ backendUrl: MAIN }) + ';' });
-      const f = path.join(ROOT, rel);
-      if (!fs.existsSync(f) || rel.indexOf('..') >= 0) return route.fulfill({ status: 404, body: '' });
-      return route.fulfill({ status: 200, contentType: { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' }[path.extname(f)], body: fs.readFileSync(f) });
-    });
+    const p = await realPage(M, calls), ctx = p.context();
     await p.goto('https://third-year-med.github.io/Interactive-pathology-platform/');
     await p.waitForSelector('.mod[data-id="' + M[0] + '"]');
     await signIn(p, 'both-' + M[0], PW);

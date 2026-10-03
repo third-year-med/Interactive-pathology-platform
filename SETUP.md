@@ -1,8 +1,12 @@
 # Setting up the front page
 
 You need: the Apps Script project behind **Cell Injury / Inflammation** (the "main" backend). The front page itself is
-this repository on GitHub Pages. Nothing in the existing modules changes. The front page starts with two modules:
-**Cell Injury & Cell Death** and **Inflammation & Healing** (both *Available*); more can be added later in the Teacher Module Portal.
+this repository on GitHub Pages. The front page starts with two modules: **Cell Injury & Cell Death** and
+**Inflammation & Healing** (both *Available*); more can be added later in the Teacher Dashboard.
+
+> **Updating from an earlier version?** Replace the contents of the `Portal` file in Apps Script with the new
+> [`backend/Portal.gs`](backend/Portal.gs) (version 1.1 — adds the single teacher sign-in for modules), save, and deploy
+> a **new version** (step 1.4). The Code.gs line from step 1.3 stays as it is.
 
 ## 1. Main backend (Cell Injury, Inflammation …)
 
@@ -22,38 +26,59 @@ this repository on GitHub Pages. Nothing in the existing modules changes. The fr
 ## 2. (Later, only if needed) a module on another backend
 
 If you later add a module whose student accounts live on a **different** Apps Script deployment, do steps 1.2–1.4 in
-that project too and enter its web-app URL as the module's *Other backend URL* in the Teacher Module Portal.
+that project too and enter its web-app URL as the module's *Other backend URL* in Teacher Management. (Such a module
+opens from the Teacher Dashboard on its own page; direct teacher entry works for modules on the main backend.)
 
 ## 3. Turn on GitHub Pages
 
 Repository **Settings → Pages → Deploy from a branch → `main` / `(root)` → Save**. The front page is then at
 `https://third-year-med.github.io/Interactive-pathology-platform/`.
 
-## 4. First teacher sign-in and the module list
+## 4. Teacher Sign-In, Teacher Dashboard and the module list
 
-1. Open the front page → **Teacher Module Portal** (yellow button, top right).
-2. The first time, create the **front-page teacher password** (at least 8 characters). It only manages this page.
+There is **one teacher account** for the whole platform: Platform Home → **Teacher Sign-In** (yellow button, top right).
+
+1. The first time, create the **teacher password** (at least 8 characters).
    *If it says a teacher password already exists:* your main backend still has the old shared teacher password from
    before per-module passwords — sign in with that one.
-3. For every module set: **status**, title, subtitle, icon, colour and link. Under **Advanced**:
+2. After signing in you are on the **Teacher Dashboard**:
+   - **Teaching Modules** — **Open module →** enters the module directly in teacher mode (no module password; it does
+     not depend on student accounts and works for modules that are not yet released). **Teacher Portal** opens that
+     module's own Teacher Portal (students, content, results, assessments, attendance …).
+   - **Teacher Management** — the front-page list (below).
+3. Teachers no longer use a module's own teacher password: on the modules' sign-in page the *Teacher* tab, and the
+   module's Teacher Portal page, now point to this Teacher Sign-In.
+4. **Sign out** (top right) ends the dashboard and the module teacher sessions opened from it.
+
+The module list (Teacher Management):
+1. For every module set: **status**, title, subtitle, icon, colour and link. Under **Advanced**:
    - *Backend module key* — the module's key on the backend (`cellinjury`, `inflhealing`, …); student
      access is checked against that module's accounts.
    - *Open students straight in* — **Platform modules** for Cell Injury / Inflammation / later chapters built the same way
      (with their *storage prefix*, e.g. `ci_`, `ih_`); **New-edition sites** for sites that keep a `vp_<key>_session`;
      **No** for any site that should show its own sign-in.
    - *Other backend URL* — only for modules on another Apps Script deployment.
-4. **Save changes.** Students see the new list the next time they open or reload the page.
+2. **Save changes.** Students see the new list the next time they open or reload the page.
 
 ## 5. Give students access
 
 Status never opens a module by itself. A student can enter a module when their account exists there:
-**that module's Teacher portal → Students** (same Student ID; for one sign-in to open several modules the student
+**Teacher Dashboard → that module's Teacher Portal → Students** (same Student ID; for one sign-in to open several modules the student
 needs the **same password** in each — otherwise the card says "Registered — different password" and links to the
 module's own sign-in).
 
+## "← Back to Platform Home" inside the modules
+
+Every module shows **← Back to Platform Home** at the top of its header (all views, students and teachers) and on its
+sign-in screen. It is one small shared component in each module's `index.html`:
+- `"platformHome": "https://third-year-med.github.io/Interactive-pathology-platform/"` in the module's `NEO_CONFIG`;
+- the `<script id="platform-nav">…</script>` block (just before `<script id="neo-data"`), copied unchanged from
+  Cell Injury or Inflammation. It also routes teacher access to the single Teacher Sign-In.
+
 ## Adding a new module later
 
-1. Build/publish the module as usual (its own site and its key in `STUDENT_AUTH_MODULES` on the backend).
-2. Front page → Teacher Module Portal → **＋ Add a module**, fill in the fields, status **Coming soon** or **Completed – not yet
+1. Build/publish the module as usual (its own site and its key in `STUDENT_AUTH_MODULES` on the backend), including the
+   `platformHome` setting and the `platform-nav` block above.
+2. Platform Home → Teacher Sign-In → Teacher Management → **＋ Add a module**, fill in the fields, status **Coming soon** or **Completed – not yet
    released**, Save.
 3. When teaching starts: create the student accounts in that module, then set its status to **Available**.

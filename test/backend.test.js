@@ -109,3 +109,50 @@ test('input is cleaned: bad links, colours and duplicate ids are refused', funct
   assert.strictEqual(r.modules[0].url, ''); assert.strictEqual(r.modules[0].color, '#0f2a4a'); assert.strictEqual(r.modules[0].status, 'soon'); assert.strictEqual(r.modules[0].backend, '');
   assert.strictEqual(S.call({ module: 'portal', action: 'portalAdminSave', token: t, modules: [{ id: 'a' }, { id: 'a' }] }).ok, false);
 });
+
+test('one teacher sign-in opens every listed module as teacher — no module password, no student accounts needed', function () {
+  const b = createBackend({ files: FILES });
+  const call = function (o) { return b.doPost(o); };
+  // a fresh backend: no module teacher password, no student accounts at all
+  assert.ok(call({ module: 'portal', action: 'setup', password: 'portal-teacher-1' }).ok);
+  const t = call({ module: 'portal', action: 'login', password: 'portal-teacher-1' }).token;
+  const r = call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['cellinjury', 'inflhealing', 'notlisted', 'portal'] });
+  assert.ok(r.ok, JSON.stringify(r));
+  assert.deepStrictEqual(Object.keys(r.modules).sort(), ['cellinjury', 'inflhealing'], 'only modules on the front-page list');
+  // each is a real teacher session of THAT module, recognised by the module's own session check
+  const ses = call({ module: 'cellinjury', action: 'studentSession', token: r.modules.cellinjury.token });
+  assert.ok(ses.ok && ses.role === 'teacher', JSON.stringify(ses));
+  assert.ok(call({ module: 'cellinjury', action: 'listStudents', token: r.modules.cellinjury.token }).ok, 'module teacher functions work');
+  // …and not by another module
+  const cross = call({ module: 'inflhealing', action: 'listStudents', token: r.modules.cellinjury.token });
+  assert.strictEqual(cross.ok, false);
+  // signing the teacher out of a module ends that session
+  assert.ok(call({ module: 'cellinjury', action: 'logout', token: r.modules.cellinjury.token }).ok);
+  assert.strictEqual(call({ module: 'cellinjury', action: 'listStudents', token: r.modules.cellinjury.token }).ok, false);
+});
+
+test('portalTeacherOpen is refused without a front-page teacher session', function () {
+  const S = setup();
+  const stu = S.call({ module: 'portal', action: 'portalCheck', username: 's1', password: PW, modules: ['cellinjury'] }).modules.cellinjury.token;
+  [{ stoken: stu }, { token: stu }, { token: S.tokens.cellinjury }, {}].forEach(function (auth) {
+    const r = S.call(Object.assign({ module: 'portal', action: 'portalTeacherOpen', modules: ['cellinjury'] }, auth));
+    assert.strictEqual(r.ok, false, JSON.stringify(auth));
+    assert.ok(!r.modules);
+  });
+});
+
+test('portalTeacherClose ends module teacher sessions at once (also their cached check), and nothing else', function () {
+  const S = setup();
+  S.call({ module: 'portal', action: 'setup', password: 'portal-teacher-1' });
+  const t = S.call({ module: 'portal', action: 'login', password: 'portal-teacher-1' }).token;
+  const r = S.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['cellinjury', 'inflhealing'] });
+  const ci = r.modules.cellinjury.token, ih = r.modules.inflhealing.token;
+  assert.strictEqual(S.call({ module: 'cellinjury', action: 'studentSession', token: ci }).role, 'teacher');   // fills the cache
+  // a token sent with the wrong module, or the portal session itself, is not touched
+  assert.strictEqual(S.call({ module: 'portal', action: 'portalTeacherClose', sessions: [{ module: 'cellinjury', token: ih }, { module: 'portal', token: t }] }).closed, 0);
+  assert.strictEqual(S.call({ module: 'portal', action: 'portalTeacherClose', sessions: [{ module: 'cellinjury', token: ci }] }).closed, 1);
+  assert.strictEqual(S.call({ module: 'cellinjury', action: 'studentSession', token: ci }).ok, false, 'no longer accepted, even from the cache');
+  assert.strictEqual(S.call({ module: 'inflhealing', action: 'studentSession', token: ih }).role, 'teacher');
+  assert.ok(S.call({ module: 'portal', action: 'portalAdminGet', token: t }).ok);
+  assert.ok(S.call({ module: 'cellinjury', action: 'listStudents', token: S.tokens.cellinjury }).ok, 'the module\'s other teacher sessions are untouched');
+});

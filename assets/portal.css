@@ -114,3 +114,8 @@ details.adv summary{cursor:pointer;font-size:13px;color:var(--muted);margin-top:
 @media (max-width:880px){.hero{grid-template-columns:1fr;padding:28px 22px}.hero-side{max-width:460px}}
 @media (max-width:560px){main{padding:18px 14px 40px}.top-in{padding:9px 14px}.brand-s{display:none}.nm{display:none}.tportal span{display:none}.tportal{padding:9px 11px}.hero{padding:24px 18px;border-radius:18px}.grid{grid-template-columns:1fr}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
+/* Teacher Dashboard */
+.t-head{margin:28px 0 0}
+.t-head .muted{margin:-4px 0 0}
+.t-sec .sec-head{margin-top:26px}
+.t-sec .t-box{background:var(--card,#fff)}

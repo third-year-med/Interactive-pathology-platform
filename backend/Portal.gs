@@ -14,6 +14,12 @@
  *                              exactly as if the student had signed in on the module itself.
  *   portalAdminGet    teacher  the list + how many active student accounts each module has (on this backend)
  *   portalAdminSave   teacher  change the list (status, title, link, icon, order, add/remove modules)
+ *   portalTeacherOpen teacher  open modules as the teacher: for each requested module of the list, a normal TEACHER
+ *                              session of that module is created (the same kind of session as the module's own teacher
+ *                              sign-in creates), so the module opens in teacher mode with no second password. It does
+ *                              not depend on student accounts. It ends when the front-page teacher session ends.
+ *   portalTeacherClose public  sign-out: ends the module teacher sessions whose tokens are sent (holding the token is
+ *                              the proof, as for logout) and also clears their cached check, so they stop at once.
  *
  * Teacher = a valid teacher session of the "portal" module (Code.gs login/setup with module:"portal").
  *
@@ -29,7 +35,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '1.0';
+var PORTAL_VERSION = '1.1';
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
 var PORTAL_MAX_FAILS = 10, PORTAL_FAIL_WINDOW_S = 900;   // per Student ID: 10 failed front-page sign-ins → wait 15 min
@@ -55,6 +61,8 @@ function portalHook_(module, p) {
     case 'portalCheck': return portalCheck_(p);
     case 'portalAdminGet': return authed_(PORTAL_MODULE, p, function () { return portalAdminGet_(); });
     case 'portalAdminSave': return authed_(PORTAL_MODULE, p, function () { return portalAdminSave_(p); });
+    case 'portalTeacherClose': return portalTeacherClose_(p);
+    case 'portalTeacherOpen': return authed_(PORTAL_MODULE, p, function (tok) { return portalTeacherOpen_(p, tok); });
     default: return { ok: false, code: 'badaction', error: 'This action is not available on the front page.' };
   }
 }
@@ -140,4 +148,39 @@ function portalAdminSave_(p) {
   var lock = LockService.getScriptLock(); lock.waitLock(20000);
   try { setSetting_(PORTAL_SETTING, JSON.stringify(list)); } finally { lock.releaseLock(); }
   return { ok: true, modules: list };
+}
+
+/* ---------------- teacher: one sign-in → every module ---------------- */
+function portalTeacherOpen_(p, portalToken) {
+  var listed = {};
+  portalRegistry_().forEach(function (m) { if (m.moduleKey && m.handoff === 'neo') listed[m.moduleKey] = 1; });
+  var keys = (Array.isArray(p.modules) ? p.modules : []).map(function (k) { return String(k || '').toLowerCase().replace(/[^a-z0-9_-]/g, ''); })
+    .filter(function (k, i, arr) { return k && k !== PORTAL_MODULE && listed[k] && arr.indexOf(k) === i; }).slice(0, 40);
+  var now = Date.now(), exp = now + SESSION_TTL_MS;
+  readAll_(SHEETS.SESSIONS).forEach(function (r) { if (r.token === portalToken && Number(r.expiresAt) > now) exp = Math.min(exp, Number(r.expiresAt)); });
+  var out = {};
+  keys.forEach(function (key) {
+    var token = Utilities.getUuid() + '-' + randomHex_(16);
+    appendRow_(SHEETS.SESSIONS, { module: key, token: token, createdAt: now, expiresAt: exp });
+    out[key] = { token: token, expiresAt: exp };
+  });
+  return { ok: true, modules: out };
+}
+function portalTeacherClose_(p) {
+  var want = {};
+  (Array.isArray(p.sessions) ? p.sessions : []).slice(0, 40).forEach(function (x) {
+    var m = String((x && x.module) || '').toLowerCase().replace(/[^a-z0-9_-]/g, ''), t = String((x && x.token) || '');
+    if (m && t && m !== PORTAL_MODULE) want[t] = m;
+  });
+  if (!Object.keys(want).length) return { ok: true, closed: 0 };
+  var c = CacheService.getScriptCache(), rows = readAll_(SHEETS.SESSIONS), n = 0;
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    for (var i = rows.length - 1; i >= 0; i--) {
+      var m = want[rows[i].token];
+      if (m && rows[i].module === m) { deleteRow_(SHEETS.SESSIONS, rows[i]._row); n++; }
+    }
+  } finally { lock.releaseLock(); }
+  Object.keys(want).forEach(function (t) { c.remove('tok:' + want[t] + ':' + t); });
+  return { ok: true, closed: n };
 }
