@@ -1,0 +1,15 @@
+{
+  "name": "interactive-pathology-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Shared front page of the Interactive Pathology Teaching Platform: module list with status, one student sign-in with per-module access control, teacher panel.",
+  "license": "UNLICENSED",
+  "scripts": {
+    "test": "node --test test/backend.test.js",
+    "test:e2e": "node --test --test-concurrency=1 test/e2e.test.js",
+    "test:all": "npm test && npm run test:e2e"
+  },
+  "devDependencies": {
+    "playwright-core": "1.56"
+  }
+}
