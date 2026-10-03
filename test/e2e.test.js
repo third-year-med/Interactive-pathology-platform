@@ -352,6 +352,41 @@ REAL.forEach(function (M) {
 });
 
 REAL.forEach(function (M) {
+  test('teacher + group link: Teacher Management → Groups "B" → open the real ' + M[1] + ' as ?g=B in teacher mode → back to the dashboard → sign out ends it', { skip: SKIP || (!fs.existsSync(M[2]) && 'module page not available') }, async function () {
+    const calls = [];
+    const p = await realPage(M, calls);
+    const pfx = M[0] === 'cellinjury' ? 'ci_' : 'ih_';
+    await p.goto(HOME + '#/teacher');
+    await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+    await p.waitForSelector('#t-manage .modrow');
+    const row = p.locator('#t-manage .modrow', { hasText: M[0] === 'cellinjury' ? 'Cell Injury & Cell Death' : 'Inflammation & Healing' });
+    await p.evaluate(function (k) { document.querySelectorAll('#t-manage details.adv').forEach(function (d) { d.open = true; }); }, M[0]);
+    await row.locator('input[data-k=groups]').fill('B');
+    await p.click('.save');
+    await p.waitForFunction(function () { return /Saved/.test((document.querySelector('.toast') || {}).textContent || ''); });
+    const card = '#t-modules .mod[data-id="' + M[0] + '"]';
+    await p.waitForSelector(card + ' select.t-g');
+    await p.selectOption(card + ' select.t-g', 'B');
+    await p.click(card + ' .t-open');
+    await p.waitForURL(new RegExp(M[1] + '/\\?g=B'));
+    await p.waitForFunction(function () { return window.NEO_BOOT && (window.NEO_BOOT.role || document.querySelector('#neo-boot .nb-msg.bad')); }, null, { timeout: 15000 });
+    assert.strictEqual(await p.evaluate(function () { return window.NEO_BOOT.module; }), M[0] + '-B', 'the module runs as its group B');
+    const tok = JSON.parse(await p.evaluate(function (k) { return localStorage.getItem(k); }, pfx + 'B_backend_token_v1'));
+    assert.ok(tok && tok.token, 'teacher session in the group\'s own slot');
+    assert.ok(calls.some(function (c) { return c.module === M[0] + '-B' && c.action === 'studentSession' && c.token === tok.token; }), 'checked with the backend as group B');
+    assert.strictEqual(calls.filter(function (c) { return c.action === 'login' && c.module !== 'portal'; }).length, 0, 'no module password');
+    assert.strictEqual(await p.$('#nb-tpass'), null); assert.strictEqual(await p.$('#nb-user'), null);
+    if (M[3]) assert.strictEqual(await p.evaluate(function () { return window.NEO_BOOT.role; }), 'teacher');
+    await backHome(p, M, 'teacher');
+    if (!/#\/teacher$/.test(p.url())) await p.goto(HOME + '#/teacher');   // without the content key the course (and its role) cannot open
+    await p.click('#who button');
+    await p.waitForSelector('form.signin');
+    await p.waitForTimeout(400);
+    assert.strictEqual(await p.evaluate(function (k) { return localStorage.getItem(k); }, pfx + 'B_backend_token_v1'), null);
+    assert.strictEqual(main.call({ module: M[0] + '-B', action: 'studentSession', token: tok.token }).ok, false, 'group teacher session ended');
+    await p.context().close();
+  });
+
   test('the real ' + M[1] + ' module accepts the hand-over (no second sign-in)', { skip: SKIP || (!fs.existsSync(M[2]) && 'module page not available') }, async function () {
     main.addStudents('cellinjury', [{ username: 'both-' + M[0], name: 'Both Modules', password: PW, mustChange: false }]);
     main.addStudents('inflhealing', [{ username: 'both-' + M[0], name: 'Both Modules', password: PW, mustChange: false }]);

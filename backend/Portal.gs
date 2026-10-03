@@ -18,6 +18,9 @@
  *                              session of that module is created (the same kind of session as the module's own teacher
  *                              sign-in creates), so the module opens in teacher mode with no second password. It does
  *                              not depend on student accounts. It ends when the front-page teacher session ends.
+ *                              Group links (?g=TAG): ask for {module:"cellinjury", group:"B"} → a teacher session of the
+ *                              group module "cellinjury-B" (the module's own name for that group), so the teacher can
+ *                              open any group of a listed module.
  *   portalTeacherClose public  sign-out: ends the module teacher sessions whose tokens are sent (holding the token is
  *                              the proof, as for logout) and also clears their cached check, so they stop at once.
  *
@@ -35,7 +38,8 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '1.1';
+var PORTAL_VERSION = '1.2';
+var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
 var PORTAL_MAX_FAILS = 10, PORTAL_FAIL_WINDOW_S = 900;   // per Student ID: 10 failed front-page sign-ins → wait 15 min
@@ -82,7 +86,9 @@ function portalClean_(m, i) {
     handoff: PORTAL_HANDOFF[m.handoff] ? m.handoff : 'link',
     storagePrefix: s(m.storagePrefix, 20).replace(/[^A-Za-z0-9_]/g, ''),
     backend: /^https:\/\/script\.google(usercontent)?\.com\//.test(backend) ? backend : '',
-    note: s(m.note, 240)
+    note: s(m.note, 240),
+    groups: (Array.isArray(m.groups) ? m.groups : String(m.groups || '').split(/[\s,;]+/)).map(function (g) { return String(g || '').trim(); })
+      .filter(function (g, i, arr) { return PORTAL_GROUP_RE.test(g) && arr.indexOf(g) === i; }).slice(0, 30)
   };
 }
 function portalRegistry_() {
@@ -154,8 +160,16 @@ function portalAdminSave_(p) {
 function portalTeacherOpen_(p, portalToken) {
   var listed = {};
   portalRegistry_().forEach(function (m) { if (m.moduleKey && m.handoff === 'neo') listed[m.moduleKey] = 1; });
-  var keys = (Array.isArray(p.modules) ? p.modules : []).map(function (k) { return String(k || '').toLowerCase().replace(/[^a-z0-9_-]/g, ''); })
-    .filter(function (k, i, arr) { return k && k !== PORTAL_MODULE && listed[k] && arr.indexOf(k) === i; }).slice(0, 40);
+  // each request: "cellinjury" (the module) or {module:"cellinjury", group:"B"} (its ?g=B group → module "cellinjury-B")
+  var keys = [];
+  (Array.isArray(p.modules) ? p.modules : []).slice(0, 40).forEach(function (x) {
+    var base = String((x && typeof x === 'object' ? x.module : x) || '').toLowerCase().replace(/[^a-z0-9_-]/g, '');
+    var group = x && typeof x === 'object' && x.group != null && x.group !== '' ? String(x.group) : '';
+    if (!base || base === PORTAL_MODULE || !listed[base]) return;
+    if (group && !PORTAL_GROUP_RE.test(group)) return;
+    var key = base + (group ? '-' + group : '');
+    if (keys.indexOf(key) < 0) keys.push(key);
+  });
   var now = Date.now(), exp = now + SESSION_TTL_MS;
   readAll_(SHEETS.SESSIONS).forEach(function (r) { if (r.token === portalToken && Number(r.expiresAt) > now) exp = Math.min(exp, Number(r.expiresAt)); });
   var out = {};
@@ -169,7 +183,7 @@ function portalTeacherOpen_(p, portalToken) {
 function portalTeacherClose_(p) {
   var want = {};
   (Array.isArray(p.sessions) ? p.sessions : []).slice(0, 40).forEach(function (x) {
-    var m = String((x && x.module) || '').toLowerCase().replace(/[^a-z0-9_-]/g, ''), t = String((x && x.token) || '');
+    var m = String((x && x.module) || '').replace(/[^A-Za-z0-9_-]/g, ''), t = String((x && x.token) || '');   // group names keep their case
     if (m && t && m !== PORTAL_MODULE) want[t] = m;
   });
   if (!Object.keys(want).length) return { ok: true, closed: 0 };

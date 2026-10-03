@@ -5,7 +5,7 @@ this repository on GitHub Pages. The front page starts with two modules: **Cell 
 **Inflammation & Healing** (both *Available*); more can be added later in the Teacher Dashboard.
 
 > **Updating from an earlier version?** Replace the contents of the `Portal` file in Apps Script with the new
-> [`backend/Portal.gs`](backend/Portal.gs) (version 1.1 — adds the single teacher sign-in for modules), save, and deploy
+> [`backend/Portal.gs`](backend/Portal.gs) (version 1.2 — single teacher sign-in for modules, including group links), save, and deploy
 > a **new version** (step 1.4). The Code.gs line from step 1.3 stays as it is.
 
 ## 1. Main backend (Cell Injury, Inflammation …)
@@ -58,6 +58,9 @@ The module list (Teacher Management):
      (with their *storage prefix*, e.g. `ci_`, `ih_`); **New-edition sites** for sites that keep a `vp_<key>_session`;
      **No** for any site that should show its own sign-in.
    - *Other backend URL* — only for modules on another Apps Script deployment.
+   - *Group links* — the `?g=` groups of this module the teacher wants to open (e.g. `A, B`). The module's card on the
+     Teacher Dashboard then gets a **Group link** chooser: pick a group and press **Open module →** or **Teacher Portal**
+     to enter that group (its own students, results and attendance) in teacher mode — no group password.
 2. **Save changes.** Students see the new list the next time they open or reload the page.
 
 ## 5. Give students access

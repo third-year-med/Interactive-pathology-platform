@@ -204,27 +204,38 @@
   function lsDel(k) { try { window.localStorage.removeItem(k); } catch (e) { } }
   /** Modules the teacher can enter straight from the dashboard: platform modules on this backend. */
   function teacherDirect(m) { return !!(m.url && m.moduleKey && m.handoff === 'neo' && m.storagePrefix && (!m.backend || m.backend === CFG.backendUrl)); }
-  function teacherKey(m) { return m.storagePrefix + 'backend_token_v1'; }   // the module's own teacher-session slot
+  /* Group links (?g=TAG): the module then uses module "<key>-TAG" and storage prefix "<prefix>TAG_" (its own rule). */
+  function grpOk(g) { return /^[A-Za-z0-9_-]{1,24}$/.test(g || ''); }
+  function sessKey(m, g) { return m.moduleKey + (g ? '-' + g : ''); }
+  function pfxOf(m, g) { return m.storagePrefix + (g ? g + '_' : ''); }
+  function teacherKey(m, g) { return pfxOf(m, g) + 'backend_token_v1'; }   // the module's own teacher-session slot
   function withHash(url, hash) { return hash ? url.replace(/#.*$/, '') + hash : url; }
+  function withGroup(url, g) {
+    if (!g) return url;
+    var hm = /#.*$/.exec(url), hash = hm ? hm[0] : '', base = url.replace(/#.*$/, '').replace(/([?&])g=[^&]*&?/, '$1').replace(/[?&]$/, '');
+    return base + (base.indexOf('?') >= 0 ? '&' : '?') + 'g=' + encodeURIComponent(g) + hash;
+  }
   /** Opens a module as the signed-in teacher: the backend creates that module's own teacher session (checked again by
    *  the module on every request), it is placed where the module keeps its teacher session, and the module opens. */
-  function teacherOpen(m, hash, btn) {
-    if (!teacherDirect(m)) { location.href = withHash(m.url, hash); return; }
+  function teacherOpen(m, hash, btn, group) {
+    var g = grpOk(group) ? group : '', dest = withHash(withGroup(m.url, g), hash);
+    if (!teacherDirect(m)) { location.href = dest; return; }
     var t = tget(); if (!t) { viewTeacher(); return; }
-    var have = (t.mods || {})[m.moduleKey], cur = lsGet(teacherKey(m));
+    var sk = sessKey(m, g), have = (t.mods || {})[sk], cur = lsGet(teacherKey(m, g));
     var ready = have && have.token && have.expiresAt > Date.now() + 60000 && cur && cur.token === have.token
-      ? Promise.resolve({ ok: true, modules: (function () { var o = {}; o[m.moduleKey] = have; return o; })() })
-      : post(CFG.backendUrl, { module: 'portal', action: 'portalTeacherOpen', token: t.token, modules: [m.moduleKey] });
+      ? Promise.resolve({ ok: true, modules: (function () { var o = {}; o[sk] = have; return o; })() })
+      : post(CFG.backendUrl, { module: 'portal', action: 'portalTeacherOpen', token: t.token, modules: [g ? { module: m.moduleKey, group: g } : m.moduleKey] });
     if (btn) { btn.disabled = true; btn.dataset.l = btn.textContent; btn.textContent = 'Opening…'; }
     ready.then(function (r) {
       if (btn) { btn.disabled = false; btn.textContent = btn.dataset.l; }
       if (!r.ok) { if (r.code === 'auth') { sdel(TKEY); toast('Your teacher session has ended — please sign in again.'); return route(); } toast(r.code === 'badaction' ? 'Update Portal.gs on the backend (see SETUP.md) to open modules from the dashboard.' : r.error); return; }
-      var acc = r.modules && r.modules[m.moduleKey]; if (!acc) { toast('This module is not on the front-page list.'); return; }
-      lsSet(teacherKey(m), { token: acc.token, expiresAt: acc.expiresAt });
-      sdel(m.storagePrefix + 'stu_session_v1');   // this browser opens the module as the teacher, not as a student
-      t.mods = t.mods || {}; t.mods[m.moduleKey] = { token: acc.token, expiresAt: acc.expiresAt, prefix: m.storagePrefix };
+      var acc = r.modules && r.modules[sk];
+      if (!acc) { toast(g ? 'Group links need the updated Portal.gs on the backend (see SETUP.md).' : 'This module is not on the front-page list.'); return; }
+      lsSet(teacherKey(m, g), { token: acc.token, expiresAt: acc.expiresAt });
+      sdel(pfxOf(m, g) + 'stu_session_v1');   // this browser opens the module as the teacher, not as a student
+      t.mods = t.mods || {}; t.mods[sk] = { token: acc.token, expiresAt: acc.expiresAt, prefix: pfxOf(m, g) };
       sset(TKEY, t, false);
-      location.href = withHash(m.url, hash);
+      location.href = dest;
     });
   }
   function teacherSignOut() {
@@ -265,10 +276,12 @@
       '<div class="mod-top"><div class="mod-ico">' + iconHtml(m) + '</div><span class="pill ' + st.cls + '">' + st.icon + ' ' + esc(st.label) + '</span></div>' +
       '<div class="mod-body">' + (m.subtitle ? '<div class="cat">' + esc(m.subtitle) + '</div>' : '') + '<h3>' + esc(m.title) + '</h3>' + (d ? '<p class="desc">' + esc(d) + '</p>' : '') +
       '<p class="msg">' + esc(!m.url ? 'The link to this module has not been set yet (Teacher Management below).' : direct ? 'Opens in teacher mode with your teacher sign-in.' + (m.status !== 'available' ? ' Students cannot open it yet.' : '') : 'This module is not connected for direct teacher access; it opens on its own page.') + '</p>' +
+      (m.url && direct && (m.groups || []).length ? '<label class="t-grp">Group link<select class="t-g"><option value="">All students (no group)</option>' + m.groups.map(function (g) { return '<option value="' + esc(g) + '">Group ' + esc(g) + ' (?g=' + esc(g) + ')</option>'; }).join('') + '</select></label>' : '') +
       '<div class="act">' + (m.url ? '<button class="btn primary t-open" type="button">Open module →</button>' + (direct ? '<button class="btn t-admin" type="button">Teacher Portal</button>' : '') : '<button class="btn" type="button" disabled>Link not set</button>') + '</div></div></article>');
-    var o = $('.t-open', el), a = $('.t-admin', el);
-    if (o) o.onclick = function () { teacherOpen(m, '', o); };
-    if (a) { a.title = 'Students, content, results and other management inside this module'; a.onclick = function () { teacherOpen(m, '#/teacher', a); }; }
+    var o = $('.t-open', el), a = $('.t-admin', el), gs = $('.t-g', el);
+    var grp = function () { return gs ? gs.value : ''; };
+    if (o) o.onclick = function () { teacherOpen(m, '', o, grp()); };
+    if (a) { a.title = 'Students, content, results and other management inside this module'; a.onclick = function () { teacherOpen(m, '#/teacher', a, grp()); }; }
     return el;
   }
   function teacherLogin() {
@@ -303,7 +316,8 @@
   ];
   var ADV = [
     ['id', 'Id (unique, letters/digits)'], ['moduleKey', 'Backend module key (student accounts)'], ['handoff', 'Open students straight in', 'select', [['neo', 'Platform modules (Cell Injury, Inflammation…)'], ['vp', 'New-edition sites (vp_<key>_session)'], ['link', 'No — student signs in on the module']]],
-    ['storagePrefix', 'Storage prefix (platform modules, e.g. ci_)'], ['backend', 'Other backend URL (empty = this platform backend)']
+    ['storagePrefix', 'Storage prefix (platform modules, e.g. ci_)'], ['backend', 'Other backend URL (empty = this platform backend)'],
+    ['groups', 'Group links (?g=…) the teacher can open, e.g. A, B']
   ];
   function editor(box, r) {
     var list = r.modules.map(function (m) { return JSON.parse(JSON.stringify(m)); }), counts = r.counts || {};
@@ -324,7 +338,7 @@
           '<details class="adv"><summary>Advanced (connection to the module)</summary><div class="rowed">' + ADV.map(function (f) {
             return '<label>' + esc(f[1]) + (f[2] === 'select' ? '<select data-k="' + f[0] + '">' + f[3].map(function (o) { return '<option value="' + o[0] + '">' + esc(o[1]) + '</option>'; }).join('') + '</select>' : '<input data-k="' + f[0] + '">') + '</label>';
           }).join('') + '</div></details></section>');
-        $$('[data-k]', el).forEach(function (inp) { inp.value = m[inp.dataset.k] == null ? '' : m[inp.dataset.k]; inp.oninput = inp.onchange = function () { m[inp.dataset.k] = inp.value; if (inp.dataset.k === 'color') el.style.setProperty('--c', inp.value); }; });
+        $$('[data-k]', el).forEach(function (inp) { var v = m[inp.dataset.k]; inp.value = v == null ? '' : Array.isArray(v) ? v.join(', ') : v; inp.oninput = inp.onchange = function () { m[inp.dataset.k] = inp.value; if (inp.dataset.k === 'color') el.style.setProperty('--c', inp.value); }; });
         el.onclick = function (e) {
           var a = e.target.dataset.a; if (!a) return;
           if (a === 'up' && i > 0) { list.splice(i - 1, 0, list.splice(i, 1)[0]); draw(); }
@@ -334,7 +348,7 @@
         rows.appendChild(el);
       });
     }
-    $('.add', bar).onclick = function () { list.push({ id: 'module' + (list.length + 1), title: 'New module', subtitle: '', icon: '📘', color: '#0f2a4a', status: 'soon', url: '', moduleKey: '', handoff: 'link', storagePrefix: '', backend: '', note: '' }); draw(); rows.lastChild.scrollIntoView({ behavior: 'smooth' }); };
+    $('.add', bar).onclick = function () { list.push({ id: 'module' + (list.length + 1), title: 'New module', subtitle: '', icon: '📘', color: '#0f2a4a', status: 'soon', url: '', moduleKey: '', handoff: 'link', storagePrefix: '', backend: '', note: '', groups: [] }); draw(); rows.lastChild.scrollIntoView({ behavior: 'smooth' }); };
     $('.out', bar).onclick = teacherSignOut;
     $('.save', bar).onclick = function () {
       var btn = this; btn.disabled = true; btn.textContent = 'Saving…';

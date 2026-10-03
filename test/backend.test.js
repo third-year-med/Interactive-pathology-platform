@@ -156,3 +156,31 @@ test('portalTeacherClose ends module teacher sessions at once (also their cached
   assert.ok(S.call({ module: 'portal', action: 'portalAdminGet', token: t }).ok);
   assert.ok(S.call({ module: 'cellinjury', action: 'listStudents', token: S.tokens.cellinjury }).ok, 'the module\'s other teacher sessions are untouched');
 });
+
+test('group links (?g=): the teacher opens any group of a listed module as teacher; sign-out ends it', function () {
+  const b = createBackend({ files: FILES });
+  const call = function (o) { return b.doPost(o); };
+  call({ module: 'portal', action: 'setup', password: 'portal-teacher-1' });
+  const t = call({ module: 'portal', action: 'login', password: 'portal-teacher-1' }).token;
+  const r = call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: [{ module: 'cellinjury', group: 'B' }, { module: 'cellinjury', group: 'bad tag!' }, { module: 'notlisted', group: 'B' }, 'inflhealing'] });
+  assert.ok(r.ok, JSON.stringify(r));
+  assert.deepStrictEqual(Object.keys(r.modules).sort(), ['cellinjury-B', 'inflhealing']);
+  const g = r.modules['cellinjury-B'].token;
+  // the module page opened with ?g=B talks to module "cellinjury-B": the session is a teacher session there…
+  const ses = call({ module: 'cellinjury-B', action: 'studentSession', token: g });
+  assert.ok(ses.ok && ses.role === 'teacher' && ses.contentKey !== undefined, JSON.stringify(ses));
+  assert.ok(call({ module: 'cellinjury-B', action: 'listStudents', token: g }).ok, 'group management works');
+  // …and nowhere else (not the plain module, not another group)
+  assert.strictEqual(call({ module: 'cellinjury', action: 'listStudents', token: g }).ok, false);
+  assert.strictEqual(call({ module: 'cellinjury-A', action: 'listStudents', token: g }).ok, false);
+  assert.strictEqual(call({ module: 'portal', action: 'portalTeacherClose', sessions: [{ module: 'cellinjury-B', token: g }] }).closed, 1);
+  assert.strictEqual(call({ module: 'cellinjury-B', action: 'studentSession', token: g }).ok, false, 'ended at once');
+});
+
+test('the module list keeps a clean list of group tags', function () {
+  const S = setup();
+  S.call({ module: 'portal', action: 'setup', password: 'portal-teacher-1' });
+  const t = S.call({ module: 'portal', action: 'login', password: 'portal-teacher-1' }).token;
+  const r = S.call({ module: 'portal', action: 'portalAdminSave', token: t, modules: [{ id: 'x', groups: 'A, B;B  <x> Year-3' }] });
+  assert.deepStrictEqual(r.modules[0].groups, ['A', 'B', 'Year-3']);
+});

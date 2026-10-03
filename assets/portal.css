@@ -119,3 +119,5 @@ details.adv summary{cursor:pointer;font-size:13px;color:var(--muted);margin-top:
 .t-head .muted{margin:-4px 0 0}
 .t-sec .sec-head{margin-top:26px}
 .t-sec .t-box{background:var(--card,#fff)}
+.t-grp{display:block;margin:4px 0 0;font-size:13px;font-weight:600;color:var(--muted)}
+.t-grp select{display:block;width:100%;margin-top:4px}
