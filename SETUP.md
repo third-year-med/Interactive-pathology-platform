@@ -69,8 +69,9 @@ module's own sign-in).
 
 ## "← Back to Platform Home" inside the modules
 
-Every module shows **← Back to Platform Home** at the top of its header (all views, students and teachers) and on its
-sign-in screen. It is one small shared component in each module's `index.html`:
+Every module shows a return button at the top of its header (all views) and on its sign-in screen. It follows the role
+the class server confirmed for the session: students see **← Back to Platform Home** (the student front page);
+teachers who opened the module from the Teacher Dashboard see **← Back to Teacher Dashboard**. It is one small shared component in each module's `index.html`:
 - `"platformHome": "https://third-year-med.github.io/Interactive-pathology-platform/"` in the module's `NEO_CONFIG`;
 - the `<script id="platform-nav">…</script>` block (just before `<script id="neo-data"`), copied unchanged from
   Cell Injury or Inflammation. It also routes teacher access to the single Teacher Sign-In.

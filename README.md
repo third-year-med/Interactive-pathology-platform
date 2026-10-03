@@ -12,7 +12,7 @@ student sign-in that opens exactly the modules the student's account is register
 - **One Teacher Sign-In** (yellow button, top right) → **Teacher Dashboard**: *Teaching Modules* (open any module
   directly in teacher mode, or its Teacher Portal for students/content/results) and *Teacher Management* (status,
   titles, links, icons, order, add/remove modules — no code needed). Modules no longer ask teachers for their own password.
-- **← Back to Platform Home** at the top of every module returns students and teachers to this page.
+- **Role-aware return button** at the top of every module: students get **← Back to Platform Home** (front page), teachers **← Back to Teacher Dashboard**.
 
 Setting it up: **[SETUP.md](SETUP.md)**.
 

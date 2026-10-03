@@ -270,15 +270,20 @@ async function realPage(M, calls) {
   });
   return p;
 }
-/** In the module: "← Back to Platform Home" is visible (header once the course is open, else the sign-in card) and goes to the front page. */
-async function backHome(p, M) {
+/** In the module: the return link is visible (header once the course is open, else the sign-in card) and goes, by the
+ *  role the server confirmed, to the student front page or (teacher) to the Teacher Dashboard. Without the content key
+ *  the course cannot open, so no role is confirmed and the link stays the plain Platform Home one. */
+async function backHome(p, M, role) {
   const sel = M[3] ? '#app-header #pf-bar a.pf-home' : '#neo-boot a.pf-home';
+  const teacher = role === 'teacher' && !!M[3];
   await p.waitForSelector(sel, { state: 'visible', timeout: 15000 });
-  assert.match(await p.textContent(sel), /Back to Platform Home/);
-  assert.strictEqual(await p.getAttribute(sel, 'href'), HOME);
+  if (teacher) await p.waitForFunction(function (s) { return document.querySelector(s).dataset.role === 'teacher'; }, sel);
+  assert.match(await p.textContent(sel), teacher ? /Back to Teacher Dashboard/ : /Back to Platform Home/);
+  assert.strictEqual(await p.getAttribute(sel, 'href'), teacher ? HOME + '#/teacher' : HOME);
+  if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, M[0] + '-' + role + '-back.png'), clip: { x: 0, y: 0, width: 1280, height: 200 } });
   await p.click(sel);
-  await p.waitForURL(HOME);
-  await p.waitForSelector('.hero h1');
+  if (teacher) { await p.waitForURL(HOME + '#/teacher'); await p.waitForSelector('#t-modules .t-open'); assert.match(await p.textContent('h1.page-h'), /Teacher Dashboard/); }
+  else { await p.waitForURL(HOME); await p.waitForSelector('.hero h1'); assert.strictEqual(await p.$('#t-modules'), null, 'the student front page, not the dashboard'); }
 }
 REAL.forEach(function (M) {
   test('teacher: Teacher Sign-In → Dashboard → the real ' + M[1] + ' opens in teacher mode (no module password) → Back to Platform Home', { skip: SKIP || (!fs.existsSync(M[2]) && 'module page not available') }, async function () {
@@ -296,8 +301,9 @@ REAL.forEach(function (M) {
     assert.strictEqual(await p.$('#nb-tpass'), null); assert.strictEqual(await p.$('#nb-user'), null);
     if (M[3]) assert.strictEqual(await p.evaluate(function () { return window.NEO_BOOT.role; }), 'teacher');
     if (process.env.SHOTS) { await p.waitForTimeout(800); await p.screenshot({ path: path.join(process.env.SHOTS, M[0] + '-teacher.png') }); }
-    await backHome(p, M);
-    assert.match(await p.textContent('.top a.tportal'), /Teacher Dashboard/, 'still signed in as teacher on the Platform Home');
+    await backHome(p, M, 'teacher');
+    assert.match(await p.textContent('.top a.tportal'), M[3] ? /Platform Home/ : /Teacher Dashboard/, 'still signed in as teacher (on the dashboard when the course opened as teacher)');
+    if (M[3]) await p.waitForSelector('#t-manage .modrow');   // Teacher Management still there
     await p.context().close();
   });
   test('student: front page → the real ' + M[1] + ' → Back to Platform Home → front page (still signed in)', { skip: SKIP || (!fs.existsSync(M[2]) && 'module page not available') }, async function () {
@@ -321,7 +327,7 @@ REAL.forEach(function (M) {
       if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, M[0] + '-student-teacherpage.png') });
     }
     assert.strictEqual(calls.filter(function (c) { return c.action === 'studentLogin'; }).length, 0, 'no second sign-in');
-    await backHome(p, M);
+    await backHome(p, M, 'student');
     await p.waitForSelector('.card.welcome');
     assert.match(await p.textContent('.card.welcome'), /Home Student/, 'back on the front page, still signed in');
     await p.context().close();
