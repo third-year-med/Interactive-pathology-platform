@@ -48,59 +48,99 @@
   }
   function handOver(m, acc, remember) {
     var k = handoffKey(m); if (!k || !acc || !acc.token) return;
-    if (m.handoff === 'neo') sset(k, { token: acc.token, expiresAt: acc.expiresAt, url: backendOf(m), student: acc.student }, remember);
+    // no "url" field: the module then uses its own backend address (it rejects a session whose recorded address differs
+    // from its configuration, which would silently send the student back to the module's sign-in page); the session
+    // token itself is still verified by that backend.
+    if (m.handoff === 'neo') sset(k, { token: acc.token, expiresAt: acc.expiresAt, student: acc.student }, remember);
     else if (m.handoff === 'vp') sset(k, { role: 'student', stoken: acc.token, username: acc.student.username, name: acc.student.name, remember: !!remember }, remember);
   }
 
   /* ---------------- rendering ---------------- */
+  var CREATED = CFG.createdBy || 'Created by Dr. Wesam Alzwawy';
+  var PENDING = null;   // module the student clicked before signing in (opened after a successful sign-in)
+  /* pathology-themed icons for the known chapters (other modules use their emoji) */
+  var ICONS = {
+    cellinjury: '<svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="17" fill="currentColor" opacity=".14"/><path d="M24 7a17 17 0 1 1-12 5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-dasharray="3 4"/><circle cx="22" cy="23" r="6.5" fill="currentColor" opacity=".85"/><path d="M33 13l-4 5 3 1-4 5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="34" cy="31" r="2" fill="currentColor"/><circle cx="14" cy="32" r="1.6" fill="currentColor"/></svg>',
+    inflhealing: '<svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="17" fill="currentColor" opacity=".14"/><path d="M24 9c5 6 10 10 10 17a10 10 0 0 1-20 0c0-4 2-7 4-9 0 3 1 5 3 6 0-6 1-10 3-14z" fill="currentColor" opacity=".85"/><path d="M20 30a4 4 0 0 0 8 0c0-2-1-3-2-4 0 1-1 2-2 2 0-2 0-3-1-4-2 2-3 4-3 6z" fill="#fff" opacity=".9"/></svg>'
+  };
+  function iconHtml(m) { return ICONS[m.id] || ICONS[m.moduleKey] || '<span class="emo">' + esc(m.icon) + '</span>'; }
+  function descOf(m) { return m.note || (CFG.descriptions || {})[m.id] || ''; }
   function header() {
     $('.brand-t').textContent = CFG.title || 'Interactive Pathology Teaching Platform';
-    $('.brand-s').textContent = CFG.subtitle || '';
-    document.getElementById('foot').textContent = (CFG.title || '') + (CFG.author ? ' · ' + CFG.author : '') + (CFG.subtitle ? ' · ' + CFG.subtitle : '');
-    var who = document.getElementById('who'), s = session();
+    $('.brand-s').textContent = CREATED;
+    document.getElementById('foot').innerHTML = '<span>' + esc(CFG.title || 'Interactive Pathology Teaching Platform') + '</span><span>' + esc(CREATED) + '</span>';
+    var who = document.getElementById('who'), s = session(), teacherView = /^#\/teacher/.test(location.hash);
     who.innerHTML = '';
-    if (s) {
-      who.appendChild(h('<span class="nm">👤 ' + esc(s.student.name || s.student.username) + '</span>'));
-      var b = h('<button class="btn" type="button">Sign out</button>'); b.onclick = signOut; who.appendChild(b);
+    var tp = h('<a class="btn tportal" href="' + (teacherView ? '#/' : '#/teacher') + '"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3l9 4-9 4-9-4 9-4z" fill="currentColor"/><path d="M6 9.5V14c0 1.7 2.7 3 6 3s6-1.3 6-3V9.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M21 7v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>' + (teacherView ? 'Student front page' : 'Teacher Module Portal') + '</span></a>');
+    who.appendChild(tp);
+    if (s && !teacherView) {
+      who.appendChild(h('<span class="nm" title="Signed in">👤 ' + esc(s.student.name || s.student.username) + '</span>'));
+      var b = h('<button class="btn ghost" type="button">Sign out</button>'); b.onclick = signOut; who.appendChild(b);
     }
   }
   function card(m, s) {
     var st = STATUS[m.status] || STATUS.soon, acc = s && s.modules ? s.modules[m.moduleKey] : null;
-    var pill = '<span class="pill ' + st.cls + '">' + st.icon + ' ' + esc(st.label) + '</span>', msg = '', act = '', off = true;
+    var state = 'locked', pill = '<span class="pill ' + st.cls + '">' + st.icon + ' ' + esc(st.label) + '</span>', msg = '', cta = '', alt = '';
     if (m.status === 'available') {
-      if (!s) { msg = m.moduleKey ? 'Sign in to see whether this module is open for you.' : ''; if (!m.moduleKey && m.url) { act = '<a class="btn" href="' + esc(m.url) + '">Open</a>'; off = false; } }
-      else if (!m.moduleKey) { if (m.url) { act = '<a class="btn" href="' + esc(m.url) + '">Open (sign in on the module)</a>'; off = false; } }
-      else if (acc && acc.access) { pill = '<span class="pill available">✓ Available to you</span>'; act = '<button class="btn primary go" type="button">Open module →</button>'; off = false; if (acc.mustChange) msg = 'You will be asked to choose your own password first.'; }
-      else if (acc && acc.reason === 'otherpassword') { pill = '<span class="pill warn">Registered — different password</span>'; msg = 'You have an account here, but with a different password. Sign in on the module itself.'; if (m.url) act = '<a class="btn" href="' + esc(m.url) + '">Go to its sign-in</a>'; off = false; }
+      if (!s) {
+        state = 'open';
+        msg = m.moduleKey ? 'Sign in with your Student ID to open this module.' : 'Open the module and sign in there.';
+        cta = m.moduleKey ? '<button class="btn primary signfirst" type="button">Sign in to open</button>' : '<a class="btn primary" href="' + esc(m.url) + '">Open module →</a>';
+        if (m.moduleKey) alt = '<a class="alt" href="' + esc(m.url) + '">or use the module’s own sign-in page</a>';
+      }
+      else if (!m.moduleKey) { state = 'open'; cta = '<a class="btn primary" href="' + esc(m.url) + '">Open module →</a>'; msg = 'You will sign in on the module itself.'; }
+      else if (acc && acc.access) { state = 'mine'; pill = '<span class="pill mine">✓ Available to you</span>'; cta = '<button class="btn primary go" type="button">Open module →</button>'; msg = acc.mustChange ? 'You will be asked to choose your own password first.' : 'Your account is registered for this module.'; }
+      else if (acc && acc.reason === 'otherpassword') { state = 'open'; pill = '<span class="pill warn">Registered — different password</span>'; msg = 'You have an account here, but with a different password.'; cta = '<a class="btn" href="' + esc(m.url) + '">Go to the module’s sign-in</a>'; }
       else if (acc && acc.reason === 'inactive') { pill = '<span class="pill locked">🔒 Account deactivated</span>'; msg = 'Your account for this module is deactivated. Please contact your teacher.'; }
       else if (acc && acc.reason === 'locked') { pill = '<span class="pill locked">🔒 Temporarily locked</span>'; msg = 'Too many wrong passwords on this module. Wait 15 minutes or ask your teacher to unlock it.'; }
       else if (acc && acc.reason === 'examlock') { pill = '<span class="pill locked">🔒 Closed during an exam</span>'; msg = acc.message || 'Closed while an official exam is running.'; }
-      else if (acc && acc.reason === 'unreachable') { pill = '<span class="pill warn">Could not check</span>'; msg = 'This module\'s server could not be reached. Sign out and in again later.'; }
+      else if (acc && acc.reason === 'unreachable') { pill = '<span class="pill warn">Could not check</span>'; msg = 'This module’s server could not be reached. Sign out and in again later.'; cta = '<a class="btn" href="' + esc(m.url) + '">Try the module’s sign-in</a>'; state = 'open'; }
       else { pill = '<span class="pill locked">🔒 Not registered for your account</span>'; msg = 'This module is open, but your account has not been registered for it yet. Please contact your teacher.'; }
-    } else if (m.status === 'ready') msg = 'This module is complete and will open when teaching starts.';
-    else msg = 'In preparation.';
-    var el = h('<article class="mod' + (off ? ' off' : '') + '" style="--c:' + esc(m.color) + '" data-id="' + esc(m.id) + '"><div class="ico" aria-hidden="true">' + esc(m.icon) + '</div><h3>' + esc(m.title) + '</h3>' + (m.subtitle ? '<div class="sub">' + esc(m.subtitle) + '</div>' : '') + pill +
-      (msg ? '<div class="msg">' + esc(msg) + '</div>' : '') + (m.note ? '<div class="msg">' + esc(m.note) + '</div>' : '') + '<div class="act">' + act + '</div></article>');
+      if (!cta) cta = '<button class="btn" type="button" disabled>🔒 Not available for your account</button>';
+      if (!m.url && (state === 'mine' || state === 'open')) { state = 'locked'; alt = ''; msg = 'The link to this module has not been set yet (Teacher Module Portal).'; cta = '<button class="btn" type="button" disabled>Link not set</button>'; }
+    } else if (m.status === 'ready') { msg = 'This module is complete and will open when teaching starts.'; cta = '<button class="btn" type="button" disabled>Not yet released</button>'; }
+    else { msg = 'This chapter is in preparation.'; cta = '<button class="btn" type="button" disabled>Coming soon</button>'; }
+    var d = descOf(m);
+    var el = h('<article class="mod ' + state + ' st-' + esc(m.status) + '" style="--c:' + esc(m.color) + '" data-id="' + esc(m.id) + '">' +
+      '<div class="mod-top"><div class="mod-ico">' + iconHtml(m) + '</div>' + pill + '</div>' +
+      '<div class="mod-body">' + (m.subtitle ? '<div class="cat">' + esc(m.subtitle) + '</div>' : '') + '<h3>' + esc(m.title) + '</h3>' + (d ? '<p class="desc">' + esc(d) + '</p>' : '') +
+      (msg ? '<p class="msg">' + esc(msg) + '</p>' : '') + '<div class="act">' + cta + '</div>' + alt + '</div></article>');
     var go = $('.go', el);
-    if (go) go.onclick = function () { handOver(m, acc, s.remember); location.href = m.url; };
+    if (go) {
+      var open = function () { openModule(m, acc, s.remember); };
+      go.onclick = function (e) { e.stopPropagation(); open(); };
+      el.addEventListener('click', function (e) { if (!e.target.closest('a,button')) open(); });
+    }
+    var sf = $('.signfirst', el);
+    if (sf) sf.onclick = function () { PENDING = m.id; var f = $('form.signin'); if (f) { f.scrollIntoView({ behavior: 'smooth', block: 'center' }); f.classList.add('pulse'); setTimeout(function () { f.classList.remove('pulse'); }, 1200); var i = $('#p-u', f); if (i) i.focus({ preventScroll: true }); var n = $('.pending', f); if (n) n.textContent = 'Sign in to open “' + m.title + '”.'; } };
     return el;
+  }
+  /** Opens a module the student may enter: hands over the module's own session, then goes to the module. */
+  function openModule(m, acc, remember) {
+    if (!m.url) { toast('The link to this module has not been set yet.'); return; }
+    handOver(m, acc, remember);
+    location.href = m.url;
   }
   function viewHome() {
     var s = session();
     main.innerHTML = '';
-    var hero = h('<section class="hero"><div class="grow"><h1>' + esc(CFG.title || 'Interactive Pathology Teaching Platform') + '</h1><p>' +
-      (s ? 'Welcome, <b>' + esc(s.student.name || s.student.username) + '</b>. Modules marked <b>✓ Available to you</b> are open for your account.' : 'All pathology chapters in one place. Sign in with your Student ID and password to see which modules are open for you.') + '</p></div></section>');
-    if (!s) hero.appendChild(signInForm());
+    var avail = MODULES.filter(function (m) { return m.status === 'available'; }).length;
+    var mine = s ? MODULES.filter(function (m) { var a = s.modules && s.modules[m.moduleKey]; return m.status === 'available' && a && a.access; }).length : 0;
+    var hero = h('<section class="hero"><div class="hero-txt"><div class="eyebrow">Medical education · Pathology</div><h1>' + esc(CFG.title || 'Interactive Pathology Teaching Platform') + '</h1><p class="by">' + esc(CREATED) + '</p>' +
+      '<p class="lead">Interactive lectures, practice questions, case-based learning and assessments for every pathology chapter, in one place.</p>' +
+      '<ul class="facts"><li><b>' + MODULES.length + '</b> chapter' + (MODULES.length === 1 ? '' : 's') + '</li><li><b>' + avail + '</b> available now</li><li>🔒 Secure student sign-in</li></ul></div><div class="hero-side"></div></section>');
+    var side = $('.hero-side', hero);
+    if (s) side.appendChild(h('<div class="card welcome"><div class="small muted">Signed in as</div><div class="wname">' + esc(s.student.name || s.student.username) + '</div><div class="small muted">Student ID ' + esc(s.student.username) + '</div><p>You can open <b>' + mine + '</b> of the ' + avail + ' available module' + (avail === 1 ? '' : 's') + '.</p><p class="small muted">Modules not registered for your account stay locked — ask your teacher if one is missing.</p></div>'));
+    else side.appendChild(signInForm());
     main.appendChild(hero);
-    main.appendChild(h('<div class="legend"><span><span class="pill available">● Available</span> released to students</span><span><span class="pill ready">◆ Completed – not yet released</span> ready, teaching not started</span><span><span class="pill soon">○ Coming soon</span> in preparation</span></div>'));
-    var grid = h('<div class="grid" aria-label="Modules"></div>');
+    main.appendChild(h('<div class="sec-head"><h2>Pathology modules</h2><div class="legend"><span class="pill available">● Available</span><span class="pill ready">◆ Completed – not yet released</span><span class="pill soon">○ Coming soon</span></div></div>'));
+    var grid = h('<div class="grid" aria-label="Pathology modules"></div>');
     MODULES.forEach(function (m) { grid.appendChild(card(m, s)); });
     if (!MODULES.length) grid.appendChild(h('<p class="muted">No modules yet.</p>'));
     main.appendChild(grid);
-    main.appendChild(h('<p class="small muted" style="margin-top:22px">Teacher? <a href="#/teacher">Manage modules</a></p>'));
   }
   function signInForm() {
-    var f = h('<form class="card signin" novalidate><h2>Student sign-in</h2><label>Student ID<input id="p-u" autocomplete="username" autocapitalize="none" spellcheck="false" required></label><label>Password<input id="p-p" type="password" autocomplete="current-password" required></label><label class="chk"><input id="p-r" type="checkbox"> Keep me signed in on this device</label><p class="err" role="alert"></p><button class="btn primary full" type="submit">Sign in</button><p class="small muted" style="margin:8px 0 0">Use the Student ID and password your teacher gave you. Forgotten? Ask your teacher to reset it.</p></form>');
+    var f = h('<form class="card signin" novalidate><h2>Student sign-in</h2><p class="pending small"></p><label>Student ID<input id="p-u" autocomplete="username" autocapitalize="none" spellcheck="false" required></label><label>Password<input id="p-p" type="password" autocomplete="current-password" required></label><label class="chk"><input id="p-r" type="checkbox"> Keep me signed in on this device</label><p class="err" role="alert"></p><button class="btn primary full" type="submit">Sign in</button><p class="small muted" style="margin:10px 0 0">Use the Student ID and password your teacher gave you. Forgotten? Ask your teacher to reset it.</p></form>');
     f.onsubmit = function (e) {
       e.preventDefault();
       var u = $('#p-u', f).value.trim(), p = $('#p-p', f).value, r = $('#p-r', f).checked, err = $('.err', f), btn = $('button[type=submit]', f);
@@ -109,10 +149,15 @@
       signIn(u, p, r).then(function (x) {
         btn.disabled = false; btn.textContent = 'Sign in';
         if (!x.ok) { err.textContent = x.error; $('#p-p', f).select(); return; }
+        var want = PENDING; PENDING = null;
+        if (want) {
+          var m = MODULES.filter(function (y) { return y.id === want; })[0], s = session(), acc = m && s.modules[m.moduleKey];
+          if (m && acc && acc.access) return openModule(m, acc, s.remember);
+          if (m) toast('“' + m.title + '” is not registered for your account.');
+        }
         header(); viewHome();
       });
     };
-    setTimeout(function () { var i = $('#p-u', f); if (i && !location.hash.replace(/^#\/?/, '')) i.focus(); }, 0);
     return f;
   }
   /** Asks each backend about its own released modules (in parallel) and merges the answers. */
@@ -148,7 +193,7 @@
   /* ---------------- teacher panel ---------------- */
   function tsess() { var t = sget(TKEY); return t && t.token && (!t.exp || t.exp > Date.now()) ? t.token : null; }
   function viewTeacher() {
-    main.innerHTML = '<p class="small"><a href="#/">← Front page</a></p><h1 style="color:var(--navy);margin:0 0 12px">Manage modules</h1>';
+    main.innerHTML = '<p class="small"><a href="#/">← Student front page</a></p><h1 class="page-h">Teacher Module Portal</h1><p class="muted" style="margin-top:-6px">Manage the modules shown on the front page.</p>';
     var tok = tsess();
     if (!tok) return main.appendChild(teacherLogin());
     var box = h('<div><p class="muted">Loading…</p></div>'); main.appendChild(box);

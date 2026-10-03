@@ -10,7 +10,7 @@ student sign-in that opens exactly the modules the student's account is register
 - **No change to the modules.** Cell Injury and Inflammation keep working exactly as before (their own
   links, sign-in, content and accounts). "Open module" hands the module its own normal session, so students do not sign
   in twice; if that is not possible, the module just shows its usual sign-in page.
-- **Teacher panel** (`Manage modules` at the bottom of the page): change status, titles, links, icons and order, and add
+- **Teacher Module Portal** (the **Teacher Module Portal** button at the top right): change status, titles, links, icons and order, and add
   new modules — no code needed.
 
 Setting it up: **[SETUP.md](SETUP.md)**.

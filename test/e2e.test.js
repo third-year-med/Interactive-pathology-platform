@@ -50,7 +50,7 @@ test.before(async function () {
   main.call({ module: 'portal', action: 'logout', token: t });
   server = http.createServer(function (req, res) {
     const u = new URL(req.url, 'http://x');
-    if (u.pathname === '/config.js') { res.writeHead(200, { 'Content-Type': 'text/javascript' }); res.end('window.PORTAL_CONFIG = ' + JSON.stringify({ backendUrl: MAIN, title: 'Test Pathology Platform', subtitle: 'Test Dept' }) + ';'); return; }
+    if (u.pathname === '/config.js') { res.writeHead(200, { 'Content-Type': 'text/javascript' }); res.end('window.PORTAL_CONFIG = ' + JSON.stringify({ backendUrl: MAIN }) + ';'); return; }
     const rel = decodeURIComponent(u.pathname).replace(/^\/+/, '') || 'index.html';
     const f = path.join(ROOT, rel);
     if (rel.indexOf('..') >= 0 || !/^(index\.html|assets\/)/.test(rel) || !fs.existsSync(f)) { res.writeHead(404); res.end(); return; }
@@ -112,7 +112,7 @@ test('sign-in: wrong password refused; right one unlocks only the modules regist
   await p.waitForTimeout(300);
   assert.ok(navigations.some(function (u) { return /cell-injury-teaching-platform/.test(u); }));
   const ci = JSON.parse(await p.evaluate(function () { return sessionStorage.getItem('ci_stu_session_v1'); }));
-  assert.ok(ci && ci.token && ci.url === MAIN && ci.student.username === 's1', JSON.stringify(ci));
+  assert.ok(ci && ci.token && !ci.url && ci.student.username === 's1', JSON.stringify(ci));
   assert.strictEqual(main.call({ module: 'cellinjury', action: 'studentSession', stoken: ci.token }).ok, true, 'the module accepts the handed-over session');
   await p.click('.mod[data-id="gyntest"] .go');
   await p.waitForTimeout(300);
@@ -155,6 +155,83 @@ test('the front page fits a phone screen', { skip: SKIP }, async function () {
   await p.waitForSelector('.mod');
   assert.ok(await p.evaluate(function () { return document.documentElement.scrollWidth - window.innerWidth; }) <= 1);
   await p.context().close();
+});
+
+test('branding: heading, "Created by", no department line; Teacher Module Portal at the top', { skip: SKIP }, async function () {
+  const p = await page();
+  await p.goto(url);
+  await p.waitForSelector('.mod');
+  assert.strictEqual((await p.textContent('.hero h1')).trim(), 'Interactive Pathology Teaching Platform');
+  assert.strictEqual((await p.textContent('.hero .by')).trim(), 'Created by Dr. Wesam Alzwawy');
+  assert.match(await p.textContent('.top'), /Created by Dr\. Wesam Alzwawy/);
+  const all = await p.textContent('body');
+  assert.ok(!/Misurata|Pathology Department|College of Medicine/.test(all), 'department line removed');
+  const tp = await p.$('.top a.tportal');
+  assert.ok(tp, 'Teacher Module Portal button in the top bar');
+  assert.match(await tp.textContent(), /Teacher Module Portal/);
+  await tp.click();
+  await p.waitForSelector('#t-p');
+  assert.match(await p.textContent('h1.page-h'), /Teacher Module Portal/);
+  await p.context().close();
+});
+
+test('an Available card works before sign-in: "Sign in to open" → sign in → the module opens', { skip: SKIP }, async function () {
+  const p = await page();
+  await p.goto(url);
+  await p.waitForSelector('.mod[data-id="cellinjury"] .signfirst');
+  assert.ok(await p.$('.mod[data-id="cellinjury"] a.alt[href^="https://third-year-med.github.io/cell-injury-teaching-platform/"]'), 'the module\'s own sign-in page stays reachable');
+  await p.click('.mod[data-id="cellinjury"] .signfirst');
+  assert.strictEqual(await p.evaluate(function () { return document.activeElement && document.activeElement.id; }), 'p-u', 'sign-in form gets the focus');
+  assert.match(await p.textContent('form.signin .pending'), /Cell Injury/);
+  const before = navigations.length;
+  await signIn(p, 's1', PW);
+  await p.waitForFunction(function (n) { return true; }, before);
+  await p.waitForTimeout(600);
+  assert.ok(navigations.slice(before).some(function (u) { return /cell-injury-teaching-platform/.test(u); }), 'opened right after signing in');
+  const ci = JSON.parse(await p.evaluate(function () { return sessionStorage.getItem('ci_stu_session_v1'); }));
+  assert.strictEqual(main.call({ module: 'cellinjury', action: 'studentSession', stoken: ci.token }).ok, true);
+  await p.context().close();
+});
+
+// Uses the REAL module pages (CI_MODULE_HTML / IH_MODULE_HTML → their index.html; skipped when absent): the front page and
+// the module are served on the same https://third-year-med.github.io origin, exactly as on GitHub Pages.
+[['cellinjury', 'cell-injury-teaching-platform', process.env.CI_MODULE_HTML || '/home/user/third-year-med/cell-injury-teaching-platform/index.html'],
+ ['inflhealing', 'inflammation-healing', process.env.IH_MODULE_HTML || '/home/user/third-year-med/inflammation-healing/index.html']].forEach(function (M) {
+  test('the real ' + M[1] + ' module accepts the hand-over (no second sign-in)', { skip: SKIP || (!fs.existsSync(M[2]) && 'module page not available') }, async function () {
+    main.addStudents('cellinjury', [{ username: 'both-' + M[0], name: 'Both Modules', password: PW, mustChange: false }]);
+    main.addStudents('inflhealing', [{ username: 'both-' + M[0], name: 'Both Modules', password: PW, mustChange: false }]);
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const p = await ctx.newPage();
+    p.on('pageerror', function (e) { if (!/content key|decrypt/i.test(e.message)) errors.push(M[1] + ': ' + e.message); });
+    const calls = [];
+    // the module talks to ITS configured backend (the real URL); the front page to MAINTEST — both answered by the test backend
+    await p.route('https://script.google.com/**', async function (route) {
+      const body = route.request().postData() || '';
+      calls.push(JSON.parse(body));
+      await route.fulfill({ status: 200, contentType: 'application/json', body: main.ctx.doPost({ postData: { contents: body } }).getContent() });
+    });
+    await p.route('https://third-year-med.github.io/**', function (route) {
+      const u = new URL(route.request().url());
+      if (u.pathname.indexOf('/' + M[1] + '/') === 0) return route.fulfill({ status: 200, contentType: 'text/html', body: fs.readFileSync(M[2]) });
+      const rel = u.pathname.replace(/^\/Interactive-pathology-platform\/?/, '') || 'index.html';
+      if (rel === 'config.js') return route.fulfill({ status: 200, contentType: 'text/javascript', body: 'window.PORTAL_CONFIG = ' + JSON.stringify({ backendUrl: MAIN }) + ';' });
+      const f = path.join(ROOT, rel);
+      if (!fs.existsSync(f) || rel.indexOf('..') >= 0) return route.fulfill({ status: 404, body: '' });
+      return route.fulfill({ status: 200, contentType: { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' }[path.extname(f)], body: fs.readFileSync(f) });
+    });
+    await p.goto('https://third-year-med.github.io/Interactive-pathology-platform/');
+    await p.waitForSelector('.mod[data-id="' + M[0] + '"]');
+    await signIn(p, 'both-' + M[0], PW);
+    await p.waitForSelector('.mod[data-id="' + M[0] + '"] .go');
+    await p.click('.mod[data-id="' + M[0] + '"] .go');
+    await p.waitForURL(new RegExp(M[1]));
+    await p.waitForTimeout(2500);
+    const sess = calls.filter(function (c) { return c.module === M[0] && c.action === 'studentSession'; });
+    assert.ok(sess.length, 'the module checked the handed-over session with its backend');
+    assert.strictEqual(calls.filter(function (c) { return c.action === 'studentLogin'; }).length, 0, 'no second sign-in');
+    assert.strictEqual(await p.$('#nb-user'), null, 'the module did not show its sign-in form');
+    await ctx.close();
+  });
 });
 
 test('no JavaScript errors', { skip: SKIP }, function () { assert.deepStrictEqual(errors, []); });

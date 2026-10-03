@@ -2,7 +2,7 @@
 
 You need: the Apps Script project behind **Cell Injury / Inflammation** (the "main" backend). The front page itself is
 this repository on GitHub Pages. Nothing in the existing modules changes. The front page starts with two modules:
-**Cell Injury & Cell Death** and **Inflammation & Healing** (both *Available*); more can be added later in the teacher panel.
+**Cell Injury & Cell Death** and **Inflammation & Healing** (both *Available*); more can be added later in the Teacher Module Portal.
 
 ## 1. Main backend (Cell Injury, Inflammation …)
 
@@ -22,7 +22,7 @@ this repository on GitHub Pages. Nothing in the existing modules changes. The fr
 ## 2. (Later, only if needed) a module on another backend
 
 If you later add a module whose student accounts live on a **different** Apps Script deployment, do steps 1.2–1.4 in
-that project too and enter its web-app URL as the module's *Other backend URL* in the teacher panel.
+that project too and enter its web-app URL as the module's *Other backend URL* in the Teacher Module Portal.
 
 ## 3. Turn on GitHub Pages
 
@@ -31,7 +31,7 @@ Repository **Settings → Pages → Deploy from a branch → `main` / `(root)` �
 
 ## 4. First teacher sign-in and the module list
 
-1. Open the front page → **Manage modules** (bottom of the page).
+1. Open the front page → **Teacher Module Portal** (yellow button, top right).
 2. The first time, create the **front-page teacher password** (at least 8 characters). It only manages this page.
    *If it says a teacher password already exists:* your main backend still has the old shared teacher password from
    before per-module passwords — sign in with that one.
@@ -54,6 +54,6 @@ module's own sign-in).
 ## Adding a new module later
 
 1. Build/publish the module as usual (its own site and its key in `STUDENT_AUTH_MODULES` on the backend).
-2. Front page → Manage modules → **＋ Add a module**, fill in the fields, status **Coming soon** or **Completed – not yet
+2. Front page → Teacher Module Portal → **＋ Add a module**, fill in the fields, status **Coming soon** or **Completed – not yet
    released**, Save.
 3. When teaching starts: create the student accounts in that module, then set its status to **Available**.
