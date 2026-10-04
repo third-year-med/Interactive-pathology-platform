@@ -87,6 +87,14 @@
  *                     + their own assessments/exams; teacher edits inside a module go to that group's local layer.
  *                     OFF: everything exactly as before (instant switch-back). Each switch sends browsers a complete refresh.
  *   Storage names containing "@" are internal: any request using one is refused.
+ * Draft → Preview → Publish (2.0, Step 8 — Admin):
+ *   contentEditDraft  a teacher session of the module's main storage that EDITS AND SHOWS the master draft
+ *                     ("<module>@draft"); every other session keeps the published version
+ *   contentDraft      what changed in the draft compared with the published version
+ *   contentPublish    the draft becomes a new immutable version ("<module>@vN"), checked after writing, then made current
+ *   contentDiscardDraft    the draft goes back to the published version
+ *   contentRestore    publishes a copy of an older version as a new version (history is never rewritten)
+ *   contentFreeze     blocks / allows publishing
  *
  * Teacher = a valid teacher session of the "portal" module (Code.gs login/setup with module:"portal").
  * Admin   = the same account (the only platform teacher account until personal teacher accounts exist).
@@ -103,7 +111,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '1.9';
+var PORTAL_VERSION = '2.0';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -161,6 +169,12 @@ function portalHook_(module, p) {
     case 'contentMigrate': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentMigrate_(p); }); });
     case 'contentUndoMigration': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentUndoMigration_(p); }); });
     case 'contentSetMode': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentSetMode_(p); }); });
+    case 'contentEditDraft': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentEditDraft_(p); }); });
+    case 'contentDraft': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentDraft_(p); }); });
+    case 'contentPublish': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentPublish_(p); }); });
+    case 'contentDiscardDraft': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentDiscardDraft_(p); }); });
+    case 'contentRestore': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentRestore_(p); }); });
+    case 'contentFreeze': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentFreeze_(p); }); });
     case 'contentReport': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentReport_(p); }); });
     case 'portalEndModuleSessions': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return portalEndModuleSessions_(); }); });
     case 'teacherMe': return tAuthed_(p, function (u) { return teacherMe_(u); });
@@ -1148,7 +1162,12 @@ function contentStatus_() {
       rows.forEach(function (r) { c[contentKind_(r.collection)]++; });
       return { storage: k, registered: !!bm[k] || k === m.moduleId, master: c.master, group: c.group, other: c.other };
     });
-    return { moduleId: m.moduleId, title: m.title, mode: contentMode_(m.moduleId), publishedVersion: m.publishedVersion || '', migrated: !!getSetting_('content:pub:' + m.moduleId),
+    var vlist = versions.filter(function (v) { return v.moduleId === m.moduleId; }).sort(function (a, b) { return Number(b.version) - Number(a.version); })
+      .map(function (v) { return { version: Number(v.version), label: v.label, publishedAt: Number(v.publishedAt) || 0, publishedBy: v.publishedBy, notes: v.notes, itemCount: Number(v.itemCount) || 0, fingerprint: v.fingerprint }; });
+    var migrated = !!getSetting_('content:pub:' + m.moduleId);
+    return { moduleId: m.moduleId, title: m.title, mode: contentMode_(m.moduleId), publishedVersion: m.publishedVersion || '', migrated: migrated,
+      currentVersion: Number(getSetting_('content:pub:' + m.moduleId) || 0), versionList: vlist, frozen: getSetting_('content:freeze:' + m.moduleId) === '1',
+      draftChanges: migrated ? cvDiff_(m.moduleId).count : 0,
       versions: versions.filter(function (v) { return v.moduleId === m.moduleId; }).length, storages: st };
   }) };
 }
@@ -1265,6 +1284,7 @@ function contentSetMode_(p) {
 function contentHook_(module, act, p) {
   if (act !== 'getAllContent' && act !== 'upsert' && act !== 'delete' && act !== 'importCourse') return null;
   var M = cvBaseOf_(module), st = cvState_(M), mode = st.mode, changed = st.changed;
+  if (module === M && p.token && st.pub && cvIsDraftToken_(M, String(p.token))) return contentDraftHook_(M, act, p);   // master draft editing / preview
   if (!mode) return null;                                              // never switched on: untouched
   if (act === 'getAllContent') {
     var since = Number(p.since || 0);
@@ -1312,4 +1332,121 @@ function contentResolve_(S, M, on, since, changed) {
     seen[k] = 1; items.push({ collection: r.collection, id: r.id, data: null, deleted: true });
   });
   return { ok: true, items: items, serverTime: now };
+}
+
+/* ======================================================================
+ * Step 8: Draft → Preview → Publish, version history, restore, freeze.
+ * ====================================================================== */
+function cvLive_(rows, module) { var o = {}; rows.forEach(function (r) { if (r.module === module && cvKey_(r.collection) && !isTrue_(r.deleted)) o[r.collection + '|' + r.id] = r; }); return o; }
+function cvFingerprint_(map) { var keys = Object.keys(map).sort(); return sha256Hex_(JSON.stringify(keys.map(function (k) { return [k, cvJson_(map[k])]; }))); }
+/** Draft vs. published: added / changed / removed items (keys only). */
+function cvDiff_(M, rows) {
+  rows = rows || readAll_(SHEETS.CONTENT);
+  var pub = cvLive_(rows, M + '@v' + (getSetting_('content:pub:' + M) || '1')), dr = cvLive_(rows, M + '@draft'), out = { added: [], changed: [], removed: [] };
+  Object.keys(dr).forEach(function (k) { if (!pub[k]) out.added.push(k); else if (cvJson_(pub[k]) !== cvJson_(dr[k])) out.changed.push(k); });
+  Object.keys(pub).forEach(function (k) { if (!dr[k]) out.removed.push(k); });
+  out.count = out.added.length + out.changed.length + out.removed.length;
+  return out;
+}
+/** A draft-editing session is a teacher session of the main storage whose token is registered as a draft grant. */
+function cvIsDraftToken_(M, token) {
+  var h = tHash_('pg', token), c = CacheService.getScriptCache(), k = 'cvdraft:' + h, hit = c.get(k);
+  if (hit) return hit === M;
+  if (!tSheetsReady_()) return false;
+  var g = null; dirAll_(DIR.GRANTS).some(function (x) { if (x.tokenHash === h) { g = x; return true; } return false; });
+  var res = g && g.deliveryId === 'draft:' + M && Number(g.expiresAt) > Date.now() ? M : '-';
+  c.put(k, res, 600);
+  return res === M;
+}
+function contentEditDraft_(p) {
+  var M = String(p.moduleId || ''), mod = dirFind_(DIR.MOD, 'moduleId', M); if (!mod) return dirErr_('Choose a module.');
+  if (!getSetting_('content:pub:' + M)) return dirErr_('Create the master copy first (migration).');
+  var now = Date.now(), exp = now + SESSION_TTL_MS, token = Utilities.getUuid() + '-' + randomHex_(16);
+  appendRow_(SHEETS.SESSIONS, { module: M, token: token, createdAt: now, expiresAt: exp });
+  appendRow_(DIR.GRANTS, { userId: 'admin', deliveryId: 'draft:' + M, backendModule: M, tokenHash: tHash_('pg', token), sessionHash: '', createdAt: now, expiresAt: exp });
+  return { ok: true, token: token, expiresAt: exp, moduleId: M, url: mod.url, storagePrefix: mod.storagePrefix };
+}
+/** Draft session: writes of educational items go to the draft; reads show the draft (+ the main storage's own assessments etc.). */
+function contentDraftHook_(M, act, p) {
+  var D = M + '@draft';
+  if (act === 'getAllContent') {
+    var gate = typeof studentAuthOn_ === 'function' && studentAuthOn_(M) ? gateRequest_(M, p) : null; if (gate) return gate;
+    var rows = readAll_(SHEETS.CONTENT), items = [], present = {}, now = Date.now();
+    var visible = function (r) { return r.collection !== 'history' && String(r.collection).indexOf('priv:') !== 0; };
+    var item = function (r) { return { collection: r.collection, id: r.id, data: isTrue_(r.deleted) ? null : unpackJson_(r), deleted: isTrue_(r.deleted) }; };
+    rows.forEach(function (r) {
+      if (r.module === D && cvKey_(r.collection)) { items.push(item(r)); if (!isTrue_(r.deleted)) present[r.collection + '|' + r.id] = 1; }
+      else if (r.module === M && visible(r) && !cvKey_(r.collection)) items.push(item(r));
+    });
+    var seen = {};
+    rows.forEach(function (r) {   // remove anything else this browser may hold (published version, local layer, original rows)
+      var m = String(r.module || ''); if (!cvKey_(r.collection) || (m !== M && m !== M + '@local' && m.indexOf(M + '@v') !== 0)) return;
+      var k = r.collection + '|' + r.id; if (present[k] || seen[k]) return; seen[k] = 1; items.push({ collection: r.collection, id: r.id, data: null, deleted: true });
+    });
+    return { ok: true, items: items, serverTime: now, draft: true };
+  }
+  if (act === 'importCourse') return authed_(M, p, function () {
+    (p.items || []).forEach(function (it) { actionUpsert_(cvKey_(it.collection) ? D : M, { collection: it.collection, id: it.id, data: it.data }); });
+    return { ok: true, count: (p.items || []).length };
+  });
+  if (!cvKey_(p.collection)) return null;
+  return authed_(M, p, function () { return act === 'upsert' ? actionUpsert_(D, p) : actionDelete_(D, p); });
+}
+function contentDraft_(p) {
+  var M = String(p.moduleId || ''); if (!getSetting_('content:pub:' + M)) return dirErr_('No master copy yet.');
+  var d = cvDiff_(M); return { ok: true, moduleId: M, added: d.added, changed: d.changed, removed: d.removed, count: d.count };
+}
+/** Writes version N from a map of rows, verifies it, then makes it current. Nothing changes for anyone if verification fails. */
+function cvPublishMap_(M, map, notes, label) {
+  var mod = dirFind_(DIR.MOD, 'moduleId', M), now = Date.now();
+  var N = 1 + dirAll_(DIR.CVER).filter(function (v) { return v.moduleId === M; }).reduce(function (mx, v) { return Math.max(mx, Number(v.version) || 0); }, 0);
+  var V = M + '@v' + N, fp = cvFingerprint_(map), keys = Object.keys(map).sort();
+  keys.forEach(function (k) { appendRow_(SHEETS.CONTENT, cvCopy_(map[k], V, now)); });
+  var check = cvLive_(readAll_(SHEETS.CONTENT), V);   // verify before switching
+  if (Object.keys(check).length !== keys.length || cvFingerprint_(check) !== fp) {
+    var rows = readAll_(SHEETS.CONTENT); for (var i = rows.length - 1; i >= 0; i--) if (rows[i].module === V) deleteRow_(SHEETS.CONTENT, rows[i]._row);
+    return dirErr_('Publishing could not be verified — nothing was changed. Please try again.');
+  }
+  label = String(label || '').trim().slice(0, 20) || ('1.' + (N - 1));
+  appendRow_(DIR.CVER, { moduleId: M, version: N, label: label, build: '', publishedAt: now, publishedBy: 'admin', notes: String(notes || '').slice(0, 1000), fingerprint: fp, itemCount: keys.length, status: 'published' });
+  setSetting_('content:pub:' + M, String(N));
+  var mr = dirPublic_(mod); mr.publishedVersion = label; mr.updatedAt = now; updateRow_(DIR.MOD, mod._row, mr);
+  cvTouch_(M);   // every browser gets the new version at its next sync
+  return { ok: true, moduleId: M, version: N, label: label, itemCount: keys.length, fingerprint: fp };
+}
+function contentPublish_(p) {
+  var M = String(p.moduleId || ''); if (!getSetting_('content:pub:' + M)) return dirErr_('No master copy yet.');
+  if (getSetting_('content:freeze:' + M) === '1') return dirErr_('Publishing is frozen for this module. Unfreeze it first.');
+  var rows = readAll_(SHEETS.CONTENT), d = cvDiff_(M, rows);
+  if (!d.count) return dirErr_('The draft has no changes compared with the published version.');
+  var notes = String(p.notes || '').trim() || (d.added.length + ' added, ' + d.changed.length + ' changed, ' + d.removed.length + ' removed');
+  var r = cvPublishMap_(M, cvLive_(rows, M + '@draft'), notes, p.label);
+  if (r.ok) { r.added = d.added.length; r.changed = d.changed.length; r.removed = d.removed.length; }
+  return r;
+}
+function cvResetDraftTo_(M, V) {
+  var rows = readAll_(SHEETS.CONTENT), now = Date.now();
+  for (var i = rows.length - 1; i >= 0; i--) if (rows[i].module === M + '@draft') deleteRow_(SHEETS.CONTENT, rows[i]._row);
+  var src = cvLive_(readAll_(SHEETS.CONTENT), V);
+  Object.keys(src).sort().forEach(function (k) { appendRow_(SHEETS.CONTENT, cvCopy_(src[k], M + '@draft', now)); });
+}
+function contentDiscardDraft_(p) {
+  var M = String(p.moduleId || ''), N = getSetting_('content:pub:' + M); if (!N) return dirErr_('No master copy yet.');
+  cvResetDraftTo_(M, M + '@v' + N);
+  return { ok: true };
+}
+function contentRestore_(p) {
+  var M = String(p.moduleId || ''), K = Number(p.version || 0); if (!getSetting_('content:pub:' + M)) return dirErr_('No master copy yet.');
+  if (getSetting_('content:freeze:' + M) === '1') return dirErr_('Publishing is frozen for this module. Unfreeze it first.');
+  var ver = dirAll_(DIR.CVER).filter(function (v) { return v.moduleId === M && Number(v.version) === K; })[0]; if (!ver) return dirErr_('That version does not exist.');
+  var map = cvLive_(readAll_(SHEETS.CONTENT), M + '@v' + K);
+  if (cvFingerprint_(map) !== ver.fingerprint) return dirErr_('Version ' + ver.label + ' does not match its fingerprint — it cannot be restored safely.');
+  var r = cvPublishMap_(M, map, 'Restored from version ' + ver.label + (p.notes ? ' — ' + String(p.notes) : ''), '');
+  if (r.ok) cvResetDraftTo_(M, M + '@v' + r.version);
+  return r;
+}
+function contentFreeze_(p) {
+  var M = String(p.moduleId || ''); if (!dirFind_(DIR.MOD, 'moduleId', M)) return dirErr_('Choose a module.');
+  setSetting_('content:freeze:' + M, p.frozen ? '1' : '');
+  return { ok: true, frozen: !!p.frozen };
 }

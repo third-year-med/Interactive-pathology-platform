@@ -5,7 +5,7 @@ this repository on GitHub Pages. The front page starts with two modules: **Cell 
 **Inflammation & Healing** (both *Available*); more can be added later in the Teacher Dashboard.
 
 > **Updating from an earlier version?** Replace the contents of the `Portal` file in Apps Script with the new
-> [`backend/Portal.gs`](backend/Portal.gs) (version 1.9 — content migration, versioned content on/off), save, and deploy
+> [`backend/Portal.gs`](backend/Portal.gs) (version 2.0 — draft, publish, version history), save, and deploy
 > a **new version** (step 1.4). The Code.gs line from step 1.3 stays as it is.
 
 ## 1. Main backend (Cell Injury, Inflammation …)
@@ -149,6 +149,17 @@ Platform directory → **Content**, per module (do Cell Injury first, then Infla
    the master copy itself comes in the next step).
 5. **Switch OFF** at any time — every group goes back to exactly what it had before (edits made meanwhile are kept and
    return when switched on again). Browsers receive a complete refresh at their next sync after each switch.
+
+**Editing the master copy (Draft → Preview → Publish)** — Content tab, once the master copy exists:
+- **✏️ Edit master draft** opens the module (normal link) in teacher mode on the **draft**: a yellow banner says so. Use the
+  module's usual editing tools; every change goes into the draft, which only this session shows. Students and all
+  groups keep the published version.
+- **Changes in draft** lists what was added, changed or removed. **Discard draft** throws the draft changes away.
+- **⬆ Publish draft** freezes the draft as a new version (1.1, 1.2, …) with your notes; it is checked after writing, then
+  every group receives it at its next sync (their kept items stay on top). Assessments, results and attendance are untouched.
+- **Version history** lists every version; **Restore** publishes a copy of an older version as a new version (nothing is
+  deleted). **🔒 Freeze publishing** blocks publishing and restoring until unfrozen.
+- A rebuild of a module's packaged course on GitHub is not covered here (see the plan: separate procedure).
 
 Records are never deleted (deactivate them instead). The directory uses its own sheets — Institutions, Groups, Modules,
 Deliveries, TeacherAssignments, ModuleContentRoles — created on first use; no existing sheet is changed.

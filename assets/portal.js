@@ -316,6 +316,8 @@
     if (!teacherDirect(m)) { location.href = dest; return; }
     var t = tget(); if (!t) { viewTeacher(); return; }
     var sk = sessKey(m, g), have = (t.mods || {})[sk], cur = lsGet(teacherKey(m, g));
+    if (have && have.draft) have = null;   // a master-draft session is never reused for normal teaching
+    try { sessionStorage.removeItem('pf_draft:' + sk); } catch (e) { }
     var ready = have && have.token && have.expiresAt > Date.now() + 60000 && cur && cur.token === have.token
       ? Promise.resolve({ ok: true, modules: (function () { var o = {}; o[sk] = have; return o; })() })
       : post(CFG.backendUrl, { module: 'portal', action: 'portalTeacherOpen', token: t.token, modules: [g ? { module: m.moduleKey, group: g } : m.moduleKey] });
@@ -468,6 +470,7 @@
     var t = tteach(); if (!t) return route();
     var pfx = d.storagePrefix + (d.group ? d.group + '_' : ''), sk = d.moduleId + (d.group ? '-' + d.group : ''), dest = withHash(withGroup(d.url, d.group), hash);
     var have = (t.mods || {})[sk], cur = lsGet(pfx + 'backend_token_v1');
+    try { sessionStorage.removeItem('pf_draft:' + sk); } catch (e) { }
     var ready = have && have.token && have.expiresAt > Date.now() + 60000 && cur && cur.token === have.token ? Promise.resolve({ ok: true, token: have.token, expiresAt: have.expiresAt })
       : post(CFG.backendUrl, { module: 'portal', action: 'teacherOpen', ttoken: t.ttoken, deliveryId: d.deliveryId });
     if (btn) { btn.disabled = true; btn.dataset.l = btn.textContent; btn.textContent = 'Opening…'; }
@@ -923,14 +926,20 @@
         r.modules.forEach(function (m) {
           var card = h('<div class="dir-row content-mod" data-module="' + esc(m.moduleId) + '"><div class="dir-main"><b>' + esc(m.title) + '</b> <code>' + esc(m.moduleId) + '</code> ' +
             (m.mode === 'on' ? '<span class="pill available">Versioned content: on</span>' : '<span class="pill soon">Versioned content: off</span>') +
-            '<div class="small muted">Master copy: ' + (m.publishedVersion ? 'v' + esc(m.publishedVersion) : 'not created yet') + ' · ' + m.versions + ' version(s) · content stored in ' + m.storages.filter(function (x) { return x.storage.indexOf('@') < 0; }).length + ' place(s)</div>' +
-            (m.mode === 'on' ? '<p class="small">Every group of this module now receives the master copy plus its own kept items. Teacher edits inside a module stay with that group (editing the master copy comes next).</p>' : m.migrated ? '<p class="small">The master copy exists but is <b>not used yet</b>. Press “Switch versioned content ON” to use it — or “Undo migration” to redo your decisions.</p>' : '') +
+            '<div class="small muted">Master copy: ' + (m.publishedVersion ? 'v' + esc(m.publishedVersion) + ' published' : 'not created yet') + (m.migrated ? ' · draft: ' + (m.draftChanges || 0) + ' unpublished change(s)' + (m.frozen ? ' · <b>publishing frozen</b>' : '') : '') + ' · ' + m.versions + ' version(s) · content stored in ' + m.storages.filter(function (x) { return x.storage.indexOf('@') < 0; }).length + ' place(s)</div>' +
+            (m.mode === 'on' ? '<p class="small">Every group of this module receives the published master copy plus its own kept items. <b>✏️ Edit master draft</b> opens the module to change the master copy: your changes go into a draft that only you see, until you press <b>⬆ Publish draft</b>.</p>' : m.migrated ? '<p class="small">The master copy exists but is <b>not used yet</b>. Press “Switch versioned content ON” to use it — or “Undo migration” to redo your decisions.</p>' : '') +
             (m.storages.length ? '<div class="tbl-wrap"><table class="dir-tbl"><thead><tr><th>Storage</th><th>Educational rows</th><th>Group activity rows</th><th>Other</th></tr></thead><tbody>' +
               m.storages.filter(function (x) { return x.storage.indexOf('@') < 0; }).map(function (x) { return '<tr><td><code>' + esc(x.storage) + '</code>' + (x.storage === m.moduleId ? ' <span class="small muted">(main / normal link)</span>' : x.registered ? '' : ' <span class="small muted">(not registered)</span>') + '</td><td>' + x.master + '</td><td>' + x.group + '</td><td>' + x.other + '</td></tr>'; }).join('') + '</tbody></table></div>'
               : '<p class="small muted">No content edits stored on the backend yet — the module shows its built-in content only.</p>') +
             '<div class="report"></div></div><div class="dir-btns">' +
-            (m.migrated ? (m.mode === 'on' ? '<button class="btn danger" type="button" data-a="off">Switch OFF (back to before)</button>'
-              : '<button class="btn primary" type="button" data-a="on">Switch versioned content ON</button><button class="btn" type="button" data-a="undo">Undo migration</button>')
+            (m.migrated ? '<button class="btn primary" type="button" data-a="edit">✏️ Edit master draft</button>' +
+              '<button class="btn" type="button" data-a="chg">Changes in draft (' + (m.draftChanges || 0) + ')</button>' +
+              '<button class="btn primary" type="button" data-a="pub"' + (m.draftChanges && !m.frozen ? '' : ' disabled') + '>⬆ Publish draft</button>' +
+              '<button class="btn" type="button" data-a="disc"' + (m.draftChanges ? '' : ' disabled') + '>Discard draft</button>' +
+              '<button class="btn" type="button" data-a="hist">Version history</button>' +
+              '<button class="btn" type="button" data-a="frz">' + (m.frozen ? '🔓 Unfreeze publishing' : '🔒 Freeze publishing') + '</button>' +
+              (m.mode === 'on' ? '<button class="btn danger" type="button" data-a="off">Switch OFF (back to before)</button>'
+              : '<button class="btn primary" type="button" data-a="on">Switch versioned content ON</button>' + ((m.versionList || []).length <= 1 ? '<button class="btn" type="button" data-a="undo">Undo migration</button>' : ''))
               : '<button class="btn" type="button" data-a="rep">📋 Migration report</button>') + '</div></div>');
           var act = function (sel, action, extra, question, done) {
             var b = $(sel, card); if (!b) return;
@@ -943,6 +952,51 @@
           act('[data-a=on]', 'contentSetMode', { mode: 'on' }, 'Switch versioned content ON for ' + m.title + '? Every group of this module then receives the master copy (v' + (m.publishedVersion || '1.0') + ') plus its own kept items. Switching off again is instant.', function () { return 'Versioned content is ON for ' + m.title + '.'; });
           act('[data-a=off]', 'contentSetMode', { mode: 'off' }, 'Switch versioned content OFF for ' + m.title + '? Every group goes back to exactly what it had before (edits made meanwhile are kept and return when you switch on again).', function () { return 'Versioned content is OFF — back to before.'; });
           act('[data-a=undo]', 'contentUndoMigration', {}, 'Undo the migration of ' + m.title + '? The master copy and the kept group items are removed; your original content was never changed.', function (x) { return 'Migration undone (' + x.removedRows + ' copied row(s) removed).'; });
+          act('[data-a=disc]', 'contentDiscardDraft', {}, 'Throw away all changes in the draft of ' + m.title + '? The draft goes back to the published version ' + (m.publishedVersion || '') + '.', function () { return 'Draft discarded.'; });
+          act('[data-a=frz]', 'contentFreeze', { frozen: !m.frozen }, null, function (x) { return x.frozen ? 'Publishing is frozen for ' + m.title + '.' : 'Publishing is allowed again.'; });
+          var bPub = $('[data-a=pub]', card);
+          if (bPub) bPub.onclick = function () {
+            var notes = window.prompt('Publish the draft of ' + m.title + ' as a new version for every group.\nWhat changed? (shown in the version history — optional)', ''); if (notes == null) return;
+            bPub.disabled = true;
+            dirCall('contentPublish', { moduleId: m.moduleId, notes: notes }).then(function (x) { bPub.disabled = false; if (!x.ok) return toast(x.error); toast('Version ' + x.label + ' published (' + x.added + ' added, ' + x.changed + ' changed, ' + x.removed + ' removed). Every group receives it at its next sync.'); draw(); });
+          };
+          var bChg = $('[data-a=chg]', card);
+          if (bChg) bChg.onclick = function () {
+            var out = $('.report', card); out.innerHTML = '<p class="muted small">Loading…</p>';
+            dirCall('contentDraft', { moduleId: m.moduleId }).then(function (x) {
+              if (!x.ok) { out.innerHTML = '<p class="err">' + esc(x.error) + '</p>'; return; }
+              var li = function (arr, label) { return arr.length ? '<li><b>' + label + ' (' + arr.length + '):</b> ' + arr.map(function (k) { return '<code>' + esc(k.replace('|', ' · ')) + '</code>'; }).join(' ') + '</li>' : ''; };
+              out.innerHTML = '<div class="note roster-res"><b>Changes in the draft compared with the published version ' + esc(m.publishedVersion) + '</b>' +
+                (x.count ? '<ul class="small">' + li(x.added, 'Added') + li(x.changed, 'Changed') + li(x.removed, 'Removed') + '</ul>' : '<p class="small">No changes — the draft is the same as the published version.</p>') + '</div>';
+            });
+          };
+          var bHist = $('[data-a=hist]', card);
+          if (bHist) bHist.onclick = function () {
+            var out = $('.report', card);
+            out.innerHTML = '<div class="note roster-res"><b>Version history</b><div class="tbl-wrap"><table class="dir-tbl"><thead><tr><th>Version</th><th>Published</th><th>Items</th><th>Notes</th><th></th></tr></thead><tbody>' +
+              (m.versionList || []).map(function (v) { return '<tr><td><b>' + esc(v.label) + '</b>' + (v.version === m.currentVersion ? ' <span class="pill available">current</span>' : '') + '</td><td>' + esc(fmtDay(v.publishedAt)) + '</td><td>' + v.itemCount + '</td><td class="small">' + esc(v.notes || '') + '</td><td>' + (v.version === m.currentVersion ? '' : '<button class="btn" type="button" data-v="' + v.version + '" data-l="' + esc(v.label) + '">Restore</button>') + '</td></tr>'; }).join('') +
+              '</tbody></table></div><p class="small muted">Restore publishes a copy of that version as a new version — nothing in the history is deleted.</p></div>';
+            $$('button[data-v]', out).forEach(function (b) {
+              b.onclick = function () {
+                if (!window.confirm('Restore version ' + b.dataset.l + ' of ' + m.title + '? It is published again as a new version and every group receives it at its next sync. The current draft is replaced by it.')) return;
+                b.disabled = true;
+                dirCall('contentRestore', { moduleId: m.moduleId, version: Number(b.dataset.v) }).then(function (x) { b.disabled = false; if (!x.ok) return toast(x.error); toast('Version ' + b.dataset.l + ' restored as version ' + x.label + '.'); draw(); });
+              };
+            });
+          };
+          var bEdit = $('[data-a=edit]', card);
+          if (bEdit) bEdit.onclick = function () {
+            bEdit.disabled = true;
+            dirCall('contentEditDraft', { moduleId: m.moduleId }).then(function (x) {
+              bEdit.disabled = false; if (!x.ok) return toast(x.error);
+              if (!x.url || !x.storagePrefix) return toast('This module has no link or storage prefix (Modules tab).');
+              lsSet(x.storagePrefix + 'backend_token_v1', { token: x.token, expiresAt: x.expiresAt });
+              sdel(x.storagePrefix + 'stu_session_v1');
+              try { sessionStorage.setItem('pf_draft:' + m.moduleId, '1'); } catch (e) { }   // the module shows the "master draft" banner
+              var t = tget(); if (t) { t.mods = t.mods || {}; t.mods[m.moduleId] = { token: x.token, expiresAt: x.expiresAt, prefix: x.storagePrefix, draft: true }; sset(TKEY, t, false); }
+              location.href = x.url.replace(/[?#].*$/, '');
+            });
+          };
           if ($('[data-a=rep]', card)) $('[data-a=rep]', card).onclick = function () {
             var b = this, out = $('.report', card); b.disabled = true; out.innerHTML = '<p class="muted small">Building the report…</p>';
             dirCall('contentReport', { moduleId: m.moduleId }).then(function (x) {

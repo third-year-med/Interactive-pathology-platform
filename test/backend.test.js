@@ -915,3 +915,77 @@ test('decisions: use a group\'s version for everyone, or the main version; undo 
   assert.strictEqual(S.dir('contentStatus').modules.filter(function (x) { return x.moduleId === 'cellinjury'; })[0].publishedVersion, '');
   assert.ok(S.cdir('contentMigrate', { decisions: {} }).ok, 'can be redone');
 });
+
+/* ---------------- Step 8: Draft → Preview → Publish ---------------- */
+test('draft editing changes only the draft; publish delivers it to every group; history, discard, restore, freeze', function () {
+  const S = contentSetup();
+  assert.ok(S.cdir('contentMigrate', { decisions: {} }).ok);
+  assert.ok(S.cdir('contentSetMode', { mode: 'on' }).ok);
+  assert.strictEqual(S.call({ module: 'portal', action: 'contentEditDraft', ttoken: S.ahmed.tok, token: S.ahmed.tok, moduleId: 'cellinjury' }).ok, false, 'Admin only');
+  const ed = S.cdir('contentEditDraft'); assert.ok(ed.ok && ed.token, JSON.stringify(ed));
+  const dt = ed.token;
+  // the draft session shows the draft (= v1.0 at first)
+  assert.deepStrictEqual(S.view(S.get('cellinjury', dt)), { 'topicsections|T1': { sections: ['A'] }, 'customtopics|C1': { title: 'Main title' }, 'assessments|AS1': { title: 'Main quiz' } });
+  // edits in the draft session go to the draft only
+  S.up('cellinjury', dt, 'topicsections', 'T1', { sections: ['A corrected'] });
+  S.up('cellinjury', dt, 'importedquestions', 'Q1', { stem: 'New MCQ' });
+  assert.ok(S.call({ module: 'cellinjury', action: 'delete', token: dt, collection: 'customtopics', id: 'C1' }).ok);
+  const dv = S.view(S.get('cellinjury', dt));
+  assert.deepStrictEqual(dv['topicsections|T1'], { sections: ['A corrected'] }); assert.ok(dv['importedquestions|Q1']); assert.ok(!dv['customtopics|C1']);
+  // nobody else sees the draft
+  const ma0 = S.view(S.get('cellinjury-misrata-a-26', S.tMa));
+  assert.deepStrictEqual(ma0, { 'topicsections|T1': { sections: ['A'] }, 'customtopics|C1': { title: 'Main title' } });
+  assert.deepStrictEqual(S.view(S.get('cellinjury', S.tMain))['topicsections|T1'], { sections: ['A'] }, 'a normal session of the main storage still sees the published version');
+  // what changed
+  const d = S.cdir('contentDraft');
+  assert.deepStrictEqual([d.added, d.changed, d.removed], [['importedquestions|Q1'], ['topicsections|T1'], ['customtopics|C1']]);
+  // publish → v1.1 for every group (their kept local items stay on top)
+  const before = S.get('cellinjury-misrata-a-26', S.tMa).serverTime; pause();
+  const pub = S.cdir('contentPublish', { notes: 'Corrected T1, new MCQ' });
+  assert.ok(pub.ok, JSON.stringify(pub)); assert.strictEqual(pub.label, '1.1'); assert.deepStrictEqual([pub.added, pub.changed, pub.removed], [1, 1, 1]);
+  pause();
+  const ma = S.get('cellinjury-misrata-a-26', S.tMa, before);   // the browser's next sync
+  assert.deepStrictEqual(S.view({ items: ma.items }), { 'topicsections|T1': { sections: ['A corrected'] }, 'importedquestions|Q1': { stem: 'New MCQ' } });
+  assert.ok(ma.items.some(function (i) { return i.id === 'C1' && i.deleted; }), 'the removed item is removed from browsers');
+  const ra = S.view(S.get('cellinjury-razi-a-26', S.tRa));
+  assert.deepStrictEqual(ra['customtopics|C1'], { title: 'Razi title' }, 'Al-Razi keeps its own kept item on top of the new version');
+  assert.deepStrictEqual(ra['topicsections|T1'], { sections: ['A corrected'] });
+  assert.strictEqual(S.cdir('contentPublish', {}).ok, false, 'nothing new to publish');
+  // history
+  let st = S.dir('contentStatus').modules.filter(function (m) { return m.moduleId === 'cellinjury'; })[0];
+  assert.deepStrictEqual(st.versionList.map(function (v) { return v.label; }), ['1.1', '1.0']); assert.strictEqual(st.publishedVersion, '1.1'); assert.strictEqual(st.draftChanges, 0);
+  // discard: draft changes thrown away
+  S.up('cellinjury', dt, 'topicsections', 'T1', { sections: ['oops'] });
+  assert.strictEqual(S.cdir('contentDraft').count, 1);
+  assert.ok(S.cdir('contentDiscardDraft').ok); assert.strictEqual(S.cdir('contentDraft').count, 0);
+  // freeze blocks publishing and restoring
+  S.cdir('contentFreeze', { frozen: true });
+  S.up('cellinjury', dt, 'topicsections', 'T1', { sections: ['x'] });
+  assert.match(S.cdir('contentPublish', {}).error, /frozen/); assert.match(S.cdir('contentRestore', { version: 1 }).error, /frozen/);
+  S.cdir('contentFreeze', { frozen: false });
+  // restore v1.0 → published as v1.2, every group gets the old content back; the draft follows
+  const rs = S.cdir('contentRestore', { version: 1 }); assert.ok(rs.ok, JSON.stringify(rs)); assert.strictEqual(rs.label, '1.2');
+  assert.deepStrictEqual(S.view(S.get('cellinjury-misrata-a-26', S.tMa)), { 'topicsections|T1': { sections: ['A'] }, 'customtopics|C1': { title: 'Main title' } });
+  assert.strictEqual(S.cdir('contentDraft').count, 0);
+  st = S.dir('contentStatus').modules.filter(function (m) { return m.moduleId === 'cellinjury'; })[0];
+  assert.deepStrictEqual(st.versionList.map(function (v) { return v.label; }), ['1.2', '1.1', '1.0']);
+  assert.match(st.versionList[0].notes, /Restored from version 1\.0/);
+});
+
+test('draft sessions: only the Admin\'s draft token writes the draft; normal teachers and students never do', function () {
+  const S = contentSetup();
+  S.cdir('contentMigrate', { decisions: {} }); S.cdir('contentSetMode', { mode: 'on' });
+  // a normal teacher session of the main storage writes its local layer, not the draft
+  S.up('cellinjury', S.tMain, 'topicsections', 'T5', { sections: ['main local'] });
+  assert.strictEqual(S.cdir('contentDraft').count, 0);
+  // a group teacher cannot reach the draft at all
+  S.up('cellinjury-razi-a-26', S.tRa, 'topicsections', 'T6', { sections: ['razi local'] });
+  assert.strictEqual(S.cdir('contentDraft').count, 0);
+  // a student session never writes
+  const stu = S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: 'ahmed', password: PW }).modules.cellinjury.token;
+  assert.strictEqual(S.call({ module: 'cellinjury-razi-a-26', action: 'upsert', stoken: stu, collection: 'topicsections', id: 'T7', data: {} }).ok, false);
+  // ending all module teacher sessions also ends draft sessions
+  const dt = S.cdir('contentEditDraft').token;
+  S.dir('portalEndModuleSessions');
+  assert.strictEqual(S.call({ module: 'cellinjury', action: 'upsert', token: dt, collection: 'topicsections', id: 'T8', data: {} }).ok, false);
+});

@@ -924,4 +924,64 @@ REAL.forEach(function (M) {
   });
 });
 
+test('Draft → Preview → Publish: Edit master draft opens the real module on the draft (banner); publish, history, restore', { skip: SKIP || (!fs.existsSync(REAL[0][2]) && 'module page not available') }, async function () {
+  const M = REAL[0];
+  groupFixture();
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const tok = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: [M[0], { module: M[0], group: 'tm-a' }] }).modules;
+  main.call({ module: M[0], action: 'upsert', token: tok[M[0]].token, collection: 'customtopics', id: 'draft-test', data: { title: 'Published title', units: [] } });
+  assert.ok(main.call({ module: 'portal', action: 'contentMigrate', token: t, moduleId: M[0], decisions: {} }).ok);
+  assert.ok(main.call({ module: 'portal', action: 'contentSetMode', token: t, moduleId: M[0], mode: 'on' }).ok);
+  const groupView = function () { const r = main.call({ module: M[0] + '-tm-a', action: 'getAllContent', token: tok[M[0] + '-tm-a'].token, since: 0 }); const it = r.items.filter(function (i) { return i.id === 'draft-test'; })[0]; return it && !it.deleted ? it.data.title : null; };
+  try {
+    const calls = [], answers = [];
+    const p = await realPage(M, calls);
+    p.on('response', async function (res) { if (/script\.google\.com/.test(res.url())) { try { answers.push(await res.json()); } catch (e) { } } });
+    await p.goto(HOME + '#/teacher');
+    await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+    await p.waitForSelector('#t-dir details.dir'); await p.click('#t-dir summary');
+    await p.click('#t-dir .dir-tab[data-t=content]');
+    const card = '#t-dir .content-mod[data-module="' + M[0] + '"]';
+    await p.waitForSelector(card + ' [data-a=edit]');
+    if (process.env.SHOTS) await (await p.$(card)).screenshot({ path: path.join(process.env.SHOTS, 'content-draft.png') });
+    await p.click(card + ' [data-a=edit]');
+    await p.waitForURL(new RegExp(M[1] + '/$'));
+    await p.waitForFunction(function () { return window.NEO_BOOT && (window.NEO_BOOT.role || document.querySelector('#neo-boot .nb-msg.bad')); }, null, { timeout: 15000 });
+    const dtok = JSON.parse(await p.evaluate(function (k) { return localStorage.getItem(k); }, 'ci_backend_token_v1')).token;
+    if (M[3]) {
+      assert.strictEqual(await p.evaluate(function () { return window.NEO_BOOT.role; }), 'teacher');
+      await p.waitForSelector('#pf-draft', { timeout: 10000 });
+      assert.match(await p.textContent('#pf-draft'), /MASTER DRAFT/);
+      await p.waitForTimeout(1500);
+      assert.ok(answers.some(function (a) { return a && a.draft === true; }), 'the module received the draft');
+      if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'module-draft-banner.png'), clip: { x: 0, y: 0, width: 1280, height: 120 } });
+    }
+    // an edit in the draft session (as the module's editor would send it) changes only the draft
+    assert.ok(main.call({ module: M[0], action: 'upsert', token: dtok, collection: 'customtopics', id: 'draft-test', data: { title: 'Draft title', units: [] } }).ok);
+    assert.strictEqual(groupView(), 'Published title', 'groups still see the published version');
+    // back on the dashboard: changes, publish, history, restore
+    await p.goto(HOME + '#/teacher');
+    await p.waitForSelector('#t-dir details.dir'); await p.click('#t-dir summary');
+    await p.click('#t-dir .dir-tab[data-t=content]');
+    await p.waitForSelector(card + ' [data-a=chg]');
+    assert.match(await p.textContent(card + ' [data-a=chg]'), /Changes in draft \(1\)/);
+    await p.click(card + ' [data-a=chg]');
+    await p.waitForFunction(function (c) { return /Changed \(1\)[\s\S]*draft-test/.test(document.querySelector(c + ' .report').textContent); }, card);
+    await p.click(card + ' [data-a=pub]');
+    await p.waitForFunction(function () { return /Version 1\.1 published/.test((document.querySelector('.toast') || {}).textContent || ''); });
+    assert.strictEqual(groupView(), 'Draft title', 'after publishing every group receives it');
+    await p.waitForSelector(card + ' [data-a=hist]');
+    await p.click(card + ' [data-a=hist]');
+    await p.waitForSelector(card + ' .report button[data-v="1"]');
+    assert.match(await p.textContent(card + ' .report'), /1\.1[\s\S]*current[\s\S]*1\.0/);
+    await p.click(card + ' .report button[data-v="1"]');
+    await p.waitForFunction(function () { return /restored as version 1\.2/.test((document.querySelector('.toast') || {}).textContent || ''); });
+    assert.strictEqual(groupView(), 'Published title', 'restore brings the old content back for every group');
+    await p.context().close();
+  } finally {
+    main.call({ module: 'portal', action: 'contentSetMode', token: t, moduleId: M[0], mode: 'off' });
+  }
+});
+
 test('no JavaScript errors', { skip: SKIP }, function () { assert.deepStrictEqual(errors, []); });
