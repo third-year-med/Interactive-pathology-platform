@@ -5,7 +5,7 @@ this repository on GitHub Pages. The front page starts with two modules: **Cell 
 **Inflammation & Healing** (both *Available*); more can be added later in the Teacher Dashboard.
 
 > **Updating from an earlier version?** Replace the contents of the `Portal` file in Apps Script with the new
-> [`backend/Portal.gs`](backend/Portal.gs) (version 1.5.2 — group rosters), save, and deploy
+> [`backend/Portal.gs`](backend/Portal.gs) (version 1.5.3 — group rosters), save, and deploy
 > a **new version** (step 1.4). The Code.gs line from step 1.3 stays as it is.
 
 ## 1. Main backend (Cell Injury, Inflammation …)

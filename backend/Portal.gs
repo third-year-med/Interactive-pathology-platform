@@ -52,6 +52,8 @@
  *   active membership; deactivating a membership also deactivates the accounts. A password changed by the student (on the
  *   group page, or inside a module of the group) is applied to all of the group's modules.
  *   portalGroupSetPassword  public   the student's own password change on the group page (current password required)
+ *   portalGroupRefresh      public   a signed-in student (proved by a valid session of one of the group's modules) gets
+ *                                    sessions for modules delivered/opened AFTER they signed in — no password needed
  *
  * Teacher = a valid teacher session of the "portal" module (Code.gs login/setup with module:"portal").
  * Admin   = the same account (the only platform teacher account until personal teacher accounts exist).
@@ -68,7 +70,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '1.5.2';
+var PORTAL_VERSION = '1.5.3';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -115,6 +117,7 @@ function portalHook_(module, p) {
     case 'rosterSync': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return rosterSync_(p.groupId); }); });
     case 'rosterImport': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return rosterImport_(p); }); });
     case 'portalGroupSetPassword': return portalGroupSetPassword_(p);
+    case 'portalGroupRefresh': return portalGroupRefresh_(p);
     case 'portalTeacherOpen': return authed_(PORTAL_MODULE, p, function (tok) { return portalTeacherOpen_(p, tok); });
     default: return { ok: false, code: 'badaction', error: 'This action is not available on the front page.' };
   }
@@ -817,4 +820,29 @@ function rosterResetMany_(p) {
     if (touched[r.module + '|' + r.username]) { c.remove('stok:' + r.tokenHash); deleteRow_(SHEETS.STU_SESSIONS, r._row); }
   }
   return { ok: true, scope: scope, shared: !!shared, count: out.length, results: out };
+}
+
+/** Modules that became available after the student signed in: the student proves who they are with a valid session of one
+ *  of this group's modules; sessions are then opened in the group's other open modules where they have an active account. */
+function portalGroupRefresh_(p) {
+  var G = portalGroup_(p.g); if (!G) return PORTAL_NOGROUP;
+  var have = p.sessions && typeof p.sessions === 'object' ? p.sessions : {}, st = null, now = Date.now();
+  G.modules.some(function (m) { var t = have[m.moduleKey]; if (t && !st) st = studentFromSession_(m._storage, String(t)); return !!st; });
+  if (!st || !rosterMember_(G.group.groupId, st.username, true)) return { ok: false, code: 'studentauth', error: 'Please sign in again.' };
+  var remember = !!p.remember, exp = Math.min(Number(st.exp) || now + STU_TTL_MS, now + (remember ? STU_REMEMBER_TTL_MS : STU_TTL_MS)), out = {};
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    G.modules.filter(function (m) { return m.status === 'available' && !have[m.moduleKey]; }).forEach(function (m) {
+      var s = findStudent_(m._storage, st.username);
+      if (!s) { out[m.moduleKey] = { access: false, reason: 'notregistered' }; return; }
+      if (!isTrue_(s.active)) { out[m.moduleKey] = { access: false, reason: 'inactive' }; return; }
+      if (Number(s.lockedUntil) > now) { out[m.moduleKey] = { access: false, reason: 'locked' }; return; }
+      var xl = typeof exTeachingLock_ === 'function' ? exTeachingLock_(m._storage, s.username) : null;
+      if (xl) { out[m.moduleKey] = { access: false, reason: 'examlock', message: xl.error }; return; }
+      var token = randomHex_(32);
+      appendRow_(SHEETS.STU_SESSIONS, { module: m._storage, tokenHash: stuTokenHash_(token), username: s.username, createdAt: now, expiresAt: exp, remember: remember });
+      out[m.moduleKey] = { access: true, token: token, expiresAt: exp, mustChange: isTrue_(s.mustChange), student: studentPublic_(s) };
+    });
+  } finally { lock.releaseLock(); }
+  return { ok: true, modules: out };
 }

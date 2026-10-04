@@ -155,6 +155,25 @@
     MODULES.forEach(function (m) { grid.appendChild(card(m, s)); });
     if (!MODULES.length) grid.appendChild(h('<p class="muted">No modules yet.</p>'));
     main.appendChild(grid);
+    if (s && GINFO) refreshNewModules(s);
+  }
+  /** Group page: a module delivered or opened after the student signed in is checked again (once per page load), using the
+   *  student's existing session as proof — no need to sign out and in. */
+  var REFRESHED = false;
+  function refreshNewModules(s) {
+    if (REFRESHED) return;
+    var mods = s.modules || {}, sessions = {}, missing = MODULES.filter(function (m) { var a = mods[m.moduleKey]; return m.status === 'available' && m.moduleKey && (!a || (!a.access && a.reason === 'notregistered')); });
+    Object.keys(mods).forEach(function (k) { if (mods[k] && mods[k].access && mods[k].token) sessions[k] = mods[k].token; });
+    if (!missing.length || !Object.keys(sessions).length) return;
+    REFRESHED = true;
+    post(CFG.backendUrl, { module: 'portal', action: 'portalGroupRefresh', g: GINFO.group.linkCode, sessions: sessions, remember: !!s.remember }).then(function (r) {
+      if (!r || !r.ok) return;
+      var cur = session(); if (!cur) return;
+      var changed = false;
+      Object.keys(r.modules || {}).forEach(function (k) { cur.modules[k] = r.modules[k]; if (r.modules[k].access) changed = true; });
+      sset(KEY, cur, cur.remember);
+      if (changed) { header(); viewHome(); }
+    });
   }
   function signInForm() {
     var f = h('<form class="card signin" novalidate><h2>Student sign-in</h2><p class="pending small"></p><label>Student ID<input id="p-u" autocomplete="username" autocapitalize="none" spellcheck="false" required></label><label>Password<input id="p-p" type="password" autocomplete="current-password" required></label><label class="chk"><input id="p-r" type="checkbox"> Keep me signed in on this device</label><p class="err" role="alert"></p><button class="btn primary full" type="submit">Sign in</button><p class="small muted" style="margin:10px 0 0">Use the Student ID and password your teacher gave you. Forgotten? Ask your teacher to reset it.</p></form>');

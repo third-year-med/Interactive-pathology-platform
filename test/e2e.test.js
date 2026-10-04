@@ -452,6 +452,30 @@ test('roster: temporary passwords for a whole group in one click (different each
   await p.context().close();
 });
 
+test('a module delivered AFTER the student signed in opens without signing out (reported case)', { skip: SKIP }, async function () {
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const sv = function (kind, record) { const r = main.call({ module: 'portal', action: 'dirSave', token: t, kind: kind, record: record }); assert.ok(r.ok, JSON.stringify(r)); return r.record; };
+  main.call({ module: 'portal', action: 'dirGet', token: t });
+  const inst = sv('institution', { name: 'Late Delivery University' });
+  const g = sv('group', { institutionId: inst.institutionId, name: 'Group A', academicYear: '2026-2027', linkCode: 'late-a' });
+  sv('delivery', { groupId: g.groupId, moduleId: 'cellinjury', status: 'available' });
+  main.call({ module: 'portal', action: 'rosterAdd', token: t, groupId: g.groupId, mustChange: false, students: [{ studentId: '11223344', name: 'Alzwawy wesam', password: 'own-pass-123' }] });
+  const p = await page();
+  await p.goto(url + '?g=late-a');
+  await signIn(p, '11223344', 'own-pass-123');
+  await p.waitForSelector('.mod[data-id="cellinjury"] .go');
+  // the Admin now delivers Inflammation to the group
+  sv('delivery', { groupId: g.groupId, moduleId: 'inflhealing', status: 'available' });
+  await p.reload();
+  await p.waitForSelector('.mod[data-id="inflhealing"] .go', { timeout: 10000 });
+  assert.match(await p.textContent('.mod[data-id="inflhealing"]'), /Available to you/);
+  assert.match(await p.textContent('.card.welcome'), /You can open 2 of the 2/);
+  const ih = JSON.parse(await p.evaluate(function () { return sessionStorage.getItem('pp_session_v1:late-a'); })).modules.inflhealing;
+  assert.strictEqual(main.call({ module: 'inflhealing-late-a', action: 'studentSession', stoken: ih.token }).role, 'student');
+  await p.context().close();
+});
+
 test('the front page fits a phone screen', { skip: SKIP }, async function () {
   const p = await page({ width: 390, height: 844 });
   await p.goto(url);

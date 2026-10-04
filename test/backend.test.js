@@ -609,3 +609,23 @@ test('bulk temporary passwords: only students still on a temporary password, or 
   // each must choose their own password at the next sign-in
   assert.ok(S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: 'b1', password: 'Welcome-2026' }).modules.cellinjury.mustChange);
 });
+
+test('fix: a module delivered after the student signed in is unlocked with the existing session (no password, no re-sign-in)', function () {
+  const S = adminSetup();
+  const inst = S.save('institution', { name: 'Al-Razi University' }).record;
+  const g = S.save('group', { institutionId: inst.institutionId, name: 'Group A', linkCode: 'razi-a-26' }).record;
+  S.save('delivery', { groupId: g.groupId, moduleId: 'cellinjury', status: 'available' });
+  S.dir('rosterAdd', { groupId: g.groupId, students: [{ studentId: '11223344', name: 'Alzwawy Wesam', password: 'own-pass-123' }], mustChange: false });
+  const first = S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: '11223344', password: 'own-pass-123' });
+  assert.deepStrictEqual(Object.keys(first.modules), ['cellinjury']);
+  // later: Inflammation is delivered to the group (his account there is created automatically)
+  S.save('delivery', { groupId: g.groupId, moduleId: 'inflhealing', status: 'available' });
+  const r = S.call({ module: 'portal', action: 'portalGroupRefresh', g: 'razi-a-26', sessions: { cellinjury: first.modules.cellinjury.token } });
+  assert.ok(r.ok, JSON.stringify(r)); assert.deepStrictEqual(Object.keys(r.modules), ['inflhealing']);
+  assert.ok(r.modules.inflhealing.access);
+  assert.strictEqual(S.call({ module: 'inflhealing-razi-a-26', action: 'studentSession', stoken: r.modules.inflhealing.token }).role, 'student');
+  // no valid session → nothing; a deactivated member → nothing; another group's session → nothing
+  assert.strictEqual(S.call({ module: 'portal', action: 'portalGroupRefresh', g: 'razi-a-26', sessions: { cellinjury: 'x'.repeat(64) } }).ok, false);
+  S.dir('rosterSetActive', { groupId: g.groupId, studentId: '11223344', active: false });
+  assert.strictEqual(S.call({ module: 'portal', action: 'portalGroupRefresh', g: 'razi-a-26', sessions: { cellinjury: first.modules.cellinjury.token } }).ok, false);
+});
