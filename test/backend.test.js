@@ -4,11 +4,26 @@ const test = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
 const { createBackend } = require('./apps-script/harness');
+
+/* Step 5 closes module-level teacher sign-in. Test FIXTURES still create module teacher sessions that way (to add students
+   quickly): this wrapper turns on the emergency switch (ALLOW_MODULE_LOGIN) for exactly those calls. Calls marked __real
+   — and everything the browser sends — see the real, closed behaviour. */
+function fixtureBackend(opts) {
+  const b = createBackend(opts), raw = b.doPost;
+  b.doPost = function (o) {
+    if (o && o.module !== 'portal' && (o.action === 'setup' || o.action === 'login') && !o.__real) {
+      b.props.set('ALLOW_MODULE_LOGIN', 'true');
+      try { return raw(o); } finally { b.props.delete('ALLOW_MODULE_LOGIN'); }
+    }
+    return raw(o);
+  };
+  return b;
+}
 const FILES = [path.join(__dirname, 'apps-script', 'Code.core.gs'), path.join(__dirname, '..', 'backend', 'Portal.gs')];
 const PW = 'student-pass-1';
 
 function setup() {
-  const b = createBackend({ files: FILES });
+  const b = fixtureBackend({ files: FILES });
   const call = function (o) { return b.doPost(o); };
   const tokens = {};
   ['cellinjury', 'inflhealing', 'vulva'].forEach(function (m) {
@@ -111,7 +126,7 @@ test('input is cleaned: bad links, colours and duplicate ids are refused', funct
 });
 
 test('one teacher sign-in opens every listed module as teacher — no module password, no student accounts needed', function () {
-  const b = createBackend({ files: FILES });
+  const b = fixtureBackend({ files: FILES });
   const call = function (o) { return b.doPost(o); };
   // a fresh backend: no module teacher password, no student accounts at all
   assert.ok(call({ module: 'portal', action: 'setup', password: 'portal-teacher-1' }).ok);
@@ -158,7 +173,7 @@ test('portalTeacherClose ends module teacher sessions at once (also their cached
 });
 
 test('group links (?g=): the teacher opens any group of a listed module as teacher; sign-out ends it', function () {
-  const b = createBackend({ files: FILES });
+  const b = fixtureBackend({ files: FILES });
   const call = function (o) { return b.doPost(o); };
   call({ module: 'portal', action: 'setup', password: 'portal-teacher-1' });
   const t = call({ module: 'portal', action: 'login', password: 'portal-teacher-1' }).token;
@@ -726,4 +741,41 @@ test('the Admin keeps full access exactly as before', function () {
   const op = S.call({ module: 'portal', action: 'portalTeacherOpen', token: S.admin, modules: ['cellinjury', { module: 'cellinjury', group: 'razi-a-26' }, { module: 'cellinjury', group: 'misrata-a-26' }] });
   assert.deepStrictEqual(Object.keys(op.modules).sort(), ['cellinjury', 'cellinjury-misrata-a-26', 'cellinjury-razi-a-26']);
   assert.ok(S.dir('dirGet').ok); assert.ok(S.dir('rosterGet', { groupId: S.ma.groupId }).ok);
+});
+
+/* ---------------- Step 5: back doors closed ---------------- */
+test('module teacher sign-in and module first-time setup are refused for every module (incl. group storages)', function () {
+  const S = teachersSetup();
+  ['cellinjury', 'inflhealing', 'cellinjury-razi-a-26', 'cellinjury-misrata-a-26', 'brand-new-module', 'cellinjury-anything'].forEach(function (m) {
+    const l = S.call({ module: m, action: 'login', password: 'teacher-' + m, __real: true });
+    assert.strictEqual(l.ok, false, m); assert.strictEqual(l.code, 'disabled'); assert.ok(!l.token);
+    const s = S.call({ module: m, action: 'setup', password: 'someone-new-pass', __real: true });
+    assert.strictEqual(s.ok, false, m); assert.strictEqual(s.code, 'disabled');
+  });
+  // the hole that existed: a module without its own password could be "set up" by anyone → now nothing was created
+  assert.strictEqual(S.call({ module: 'cellinjury-anything', action: 'login', password: 'someone-new-pass', __real: true }).ok, false);
+  // the Admin's own sign-in and every regular path still work
+  assert.ok(S.call({ module: 'portal', action: 'login', password: 'portal-teacher-1', __real: true }).ok);
+  assert.ok(S.call({ module: 'portal', action: 'portalTeacherOpen', token: S.admin, modules: ['cellinjury'] }).ok);
+  assert.ok(S.t('teacherOpen', S.ahmed.tok, { deliveryId: S.dl['cellinjury-razi-a-26'].deliveryId }).ok);
+  assert.ok(S.call({ module: 'cellinjury-razi-a-26', action: 'studentLogin', username: 'ahmed', password: PW }).ok, 'students unaffected');
+});
+
+test('emergency switch ALLOW_MODULE_LOGIN=true restores the old module sign-in; End all module teacher sessions works', function () {
+  const S = teachersSetup();
+  S.b.props.set('ALLOW_MODULE_LOGIN', 'true');
+  const old = S.call({ module: 'cellinjury', action: 'login', password: 'teacher-cellinjury-1', __real: true });
+  assert.ok(old.ok, 'switch on → old sign-in works');
+  S.b.props.delete('ALLOW_MODULE_LOGIN');
+  assert.strictEqual(S.call({ module: 'cellinjury', action: 'login', password: 'teacher-cellinjury-1', __real: true }).code, 'disabled');
+  // a session issued earlier the old way still works until the Admin ends all module teacher sessions
+  assert.ok(S.call({ module: 'cellinjury', action: 'listStudents', token: old.token }).ok);
+  const t = S.t('teacherOpen', S.ahmed.tok, { deliveryId: S.dl['cellinjury-razi-a-26'].deliveryId }).token;
+  assert.strictEqual(S.call({ module: 'portal', action: 'portalEndModuleSessions', token: S.ahmed.tok, ttoken: S.ahmed.tok }).ok, false, 'Admin only');
+  const e = S.dir('portalEndModuleSessions'); assert.ok(e.ok && e.ended >= 2, JSON.stringify(e));
+  assert.strictEqual(S.call({ module: 'cellinjury', action: 'listStudents', token: old.token }).ok, false);
+  assert.strictEqual(S.call({ module: 'cellinjury-razi-a-26', action: 'studentSession', token: t }).ok, false);
+  assert.ok(S.dir('dirGet').ok, 'the Admin session itself stays');
+  assert.ok(S.t('teacherMe', S.ahmed.tok).ok, 'teachers stay signed in on the dashboard and can open modules again');
+  assert.ok(S.t('teacherOpen', S.ahmed.tok, { deliveryId: S.dl['cellinjury-razi-a-26'].deliveryId }).ok);
 });

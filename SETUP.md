@@ -5,7 +5,7 @@ this repository on GitHub Pages. The front page starts with two modules: **Cell 
 **Inflammation & Healing** (both *Available*); more can be added later in the Teacher Dashboard.
 
 > **Updating from an earlier version?** Replace the contents of the `Portal` file in Apps Script with the new
-> [`backend/Portal.gs`](backend/Portal.gs) (version 1.6 — personal teacher accounts), save, and deploy
+> [`backend/Portal.gs`](backend/Portal.gs) (version 1.7 — module teacher passwords closed), save, and deploy
 > a **new version** (step 1.4). The Code.gs line from step 1.3 stays as it is.
 
 ## 1. Main backend (Cell Injury, Inflammation …)
@@ -125,6 +125,15 @@ modules (with each group's student link). **Open module** / **Teacher Portal** o
 mode; the backend checks the assignment every time. Removing an assignment or deactivating a teacher, group,
 institution, module or delivery ends the teacher module sessions concerned immediately.
 **Administrator:** sign in with the username field **empty** (your existing password) — full access as before.
+
+### Security: module teacher passwords are closed
+
+Since Portal.gs 1.7, nobody can sign in as teacher **inside a module** with a module password, and nobody can create a
+new module teacher password ("first-time setup") — teachers use **Teacher Sign-In** with their own account (their
+assignments), and the Administrator opens any module from the dashboard. Code.gs is not changed for this.
+After installing 1.7, press **Platform directory → Teachers → End all module teacher sessions** once.
+Emergency only: Apps Script → Project Settings → Script properties → `ALLOW_MODULE_LOGIN` = `true` restores the old
+module sign-in (delete the property to close it again).
 
 Records are never deleted (deactivate them instead). The directory uses its own sheets — Institutions, Groups, Modules,
 Deliveries, TeacherAssignments, ModuleContentRoles — created on first use; no existing sheet is changed.

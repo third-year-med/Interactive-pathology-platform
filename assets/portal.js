@@ -855,6 +855,13 @@
         $('[data-a=cp]', res).onclick = function () { var ta = h('<textarea style="position:absolute;left:-9999px"></textarea>'); ta.value = tx; document.body.appendChild(ta); copyText(tx, ta); setTimeout(function () { ta.remove(); }, 2000); };
         box.appendChild(res);
       }
+      var sec = h('<div class="note small roster-res"><b>Security.</b> Teachers can no longer sign in on a module with a module password — only here, with their own account. To be sure that no session opened earlier with an old module password is still active, end them all once: <div class="roster-tools"><button class="btn danger" type="button" data-a="endall">End all module teacher sessions</button></div><span class="muted">Teachers and you stay signed in on the dashboard and can open their modules again at once.</span></div>');
+      $('[data-a=endall]', sec).onclick = function () {
+        if (!window.confirm('End every teacher session inside the modules (opened from the dashboard or with an old module password)?')) return;
+        var b = this; b.disabled = true;
+        dirCall('portalEndModuleSessions').then(function (x) { b.disabled = false; if (!x.ok) return toast(x.code === 'badaction' ? 'Update Portal.gs on the backend (version 1.7).' : x.error); toast(x.ended + ' module teacher session(s) ended.'); });
+      };
+      box.appendChild(sec);
       box.appendChild(h('<h3>Teachers (' + teachers.length + ')</h3>'));
       if (!teachers.length) { box.appendChild(h('<p class="muted small">No teacher accounts yet.</p>')); return; }
       teachers.forEach(function (t) {

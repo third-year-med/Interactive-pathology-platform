@@ -67,6 +67,11 @@
  *   Removing an assignment, deactivating a teacher, or deactivating a delivery/group/institution/module ends the teacher
  *   module sessions concerned immediately.
  *
+ * Closed back doors (1.7, Step 5): for every module other than "portal", the old module teacher sign-in ("login") and
+ *   first-time teacher setup ("setup") are refused here, before Code.gs sees them — teachers use Teacher Sign-In (their
+ *   assignments), the Admin opens any module from the dashboard. Emergency switch: script property ALLOW_MODULE_LOGIN=true
+ *   restores the old behaviour. portalEndModuleSessions (Admin) ends every module teacher session issued earlier.
+ *
  * Teacher = a valid teacher session of the "portal" module (Code.gs login/setup with module:"portal").
  * Admin   = the same account (the only platform teacher account until personal teacher accounts exist).
  *
@@ -82,7 +87,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '1.6';
+var PORTAL_VERSION = '1.7';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -102,8 +107,11 @@ var PORTAL_DEFAULT = [
  * ---------------------------------------------------------------------- */
 function portalHook_(module, p) {
   if (String(module) !== PORTAL_MODULE) {
+    var act = String(p.action || '');
+    // Step 5: no module-level teacher password any more (teachers → Teacher Sign-In; Admin → dashboard)
+    if ((act === 'login' || act === 'setup') && !portalModuleLoginAllowed_()) return PORTAL_MODULE_LOGIN_CLOSED;
     // a student changing the password inside a module of a group: apply it to all of the group's modules
-    if (String(p.action || '') === 'studentChangePassword') return rosterModulePassword_(String(module), p);
+    if (act === 'studentChangePassword') return rosterModulePassword_(String(module), p);
     return null;
   }
   var a = String(p.action || '');
@@ -131,6 +139,7 @@ function portalHook_(module, p) {
     case 'portalGroupSetPassword': return portalGroupSetPassword_(p);
     case 'portalGroupRefresh': return portalGroupRefresh_(p);
     case 'teacherLogin': return teacherLogin_(p);
+    case 'portalEndModuleSessions': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return portalEndModuleSessions_(); }); });
     case 'teacherMe': return tAuthed_(p, function (u) { return teacherMe_(u); });
     case 'teacherOpen': return tAuthed_(p, function (u, ses) { return teacherOpen_(u, ses, p); });
     case 'teacherLogout': return teacherLogout_(p);
@@ -1067,4 +1076,23 @@ function teacherAssign_(p) {
   Object.keys(want).forEach(function (id) { if (!haveIds[id]) appendRow_(DIR.ASSIGN, { assignmentId: dirNewId_('ASG', DIR.ASSIGN, 'assignmentId'), userId: cur.userId, deliveryId: id, grantedBy: 'admin', grantedAt: now }); });
   revokeGrants_(function (g) { return g.userId === cur.userId && removed[g.deliveryId]; });   // access withdrawn at once
   return { ok: true, deliveryIds: Object.keys(want) };
+}
+
+/* ======================================================================
+ * Step 5: closed back doors.
+ * ====================================================================== */
+var PORTAL_MODULE_LOGIN_CLOSED = { ok: false, code: 'disabled', error: 'Teacher sign-in on a module is closed. Teachers sign in on the Platform Home → Teacher Sign-In.' };
+function portalModuleLoginAllowed_() {
+  try { return String(PropertiesService.getScriptProperties().getProperty('ALLOW_MODULE_LOGIN') || '').toLowerCase() === 'true'; } catch (e) { return false; }
+}
+/** Ends every module teacher session (Sessions rows of any module but "portal"), including cached checks and grants. */
+function portalEndModuleSessions_() {
+  var rows = readAll_(SHEETS.SESSIONS), c = CacheService.getScriptCache(), n = 0;
+  for (var i = rows.length - 1; i >= 0; i--) {
+    var r = rows[i];
+    if (String(r.module || '') === PORTAL_MODULE) continue;
+    c.remove('tok:' + r.module + ':' + r.token); deleteRow_(SHEETS.SESSIONS, r._row); n++;
+  }
+  if (tSheetsReady_()) dirAll_(DIR.GRANTS).map(function (g) { return g._row; }).sort(function (a, b) { return b - a; }).forEach(function (row) { deleteRow_(DIR.GRANTS, row); });
+  return { ok: true, ended: n };
 }

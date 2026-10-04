@@ -10,6 +10,21 @@ const http = require('http');
 const path = require('path');
 const { createBackend } = require('./apps-script/harness');
 
+/* Step 5 closes module-level teacher sign-in. Test FIXTURES still create module teacher sessions that way (to add students
+   quickly): this wrapper turns on the emergency switch (ALLOW_MODULE_LOGIN) for exactly those calls. Calls marked __real
+   — and everything the browser sends — see the real, closed behaviour. */
+function fixtureBackend(opts) {
+  const b = createBackend(opts), raw = b.doPost;
+  b.doPost = function (o) {
+    if (o && o.module !== 'portal' && (o.action === 'setup' || o.action === 'login') && !o.__real) {
+      b.props.set('ALLOW_MODULE_LOGIN', 'true');
+      try { return raw(o); } finally { b.props.delete('ALLOW_MODULE_LOGIN'); }
+    }
+    return raw(o);
+  };
+  return b;
+}
+
 let chromium;
 try { chromium = require('playwright-core').chromium; } catch (e) { chromium = null; }
 const EXE = process.env.PW_CHROMIUM || '/opt/pw-browsers/chromium';
@@ -22,12 +37,17 @@ const PW = 'student-pass-1', TPW = 'portal-teacher-1';
 let server, url, browser, main, gyn;
 const errors = [];
 function backend() {
-  const b = createBackend({ files: FILES });
+  const b = fixtureBackend({ files: FILES });
   b.teacher = {};
   b.call = function (o) { return b.doPost(o); };
   b.addStudents = function (m, list) {
     if (!b.teacher[m]) { b.call({ module: m, action: 'setup', password: 'teacher-' + m + '-1' }); b.teacher[m] = b.call({ module: m, action: 'login', password: 'teacher-' + m + '-1' }).token; }
-    const r = b.call({ module: m, action: 'bulkAddStudents', token: b.teacher[m], students: list }); assert.ok(r.ok);
+    let r = b.call({ module: m, action: 'bulkAddStudents', token: b.teacher[m], students: list });
+    if (!r.ok && r.code === 'auth') {   // its module session was ended (e.g. "End all module teacher sessions") → sign in again
+      b.teacher[m] = b.call({ module: m, action: 'login', password: 'teacher-' + m + '-1' }).token;
+      r = b.call({ module: m, action: 'bulkAddStudents', token: b.teacher[m], students: list });
+    }
+    assert.ok(r.ok, JSON.stringify(r));
   };
   return b;
 }
@@ -496,6 +516,8 @@ async function adminCreatesTeacher(username, name, groupLabelText, moduleTitle) 
   await p.waitForFunction(function () { return /Assignments saved \(1\)/.test((document.querySelector('.toast') || {}).textContent || ''); });
   assert.match(await p.textContent('#t-dir .teachers'), new RegExp(name + '[\\s\\S]*1 group/module assignment'));
   if (process.env.SHOTS) await (await p.$('#t-dir')).screenshot({ path: path.join(process.env.SHOTS, 'teachers-admin.png') });
+  await p.click('#t-dir [data-a=endall]');
+  await p.waitForFunction(function () { return /module teacher session\(s\) ended/.test((document.querySelector('.toast') || {}).textContent || ''); });
   await p.context().close();
   return temp;
 }
