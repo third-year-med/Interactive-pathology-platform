@@ -918,7 +918,7 @@
     }
     /* ---- Content: versioning foundation (Step 6, read-only) ---- */
     function paneContent(pane) {
-      pane.appendChild(h('<p class="small muted">One <b>master copy</b> of each module\'s educational content (lectures, sections, images, questions, practicals…) will be versioned and delivered to every group, while assessments, exams, results and attendance stay with each group. <b>Nothing is switched on yet</b> — this page only shows the current state and a read-only report to review before the content is moved (next step).</p>'));
+      pane.appendChild(h('<p class="small muted">One <b>master copy</b> of each module\'s educational content (lectures, sections, images, questions, practicals…) will be versioned and delivered to every group, while assessments, exams, results and attendance stay with each group. For each module: review the migration report, create the master copy, switch versioned content on, then edit the master draft and publish new versions. Switching off returns every group to its previous content at once.</p>'));
       var box = h('<div class="content-st"><p class="muted">Loading…</p></div>'); pane.appendChild(box);
       dirCall('contentStatus').then(function (r) {
         if (!r.ok) { box.innerHTML = '<p class="err">' + esc(r.code === 'badaction' ? 'Update Portal.gs on the backend (version 1.8, see SETUP.md).' : r.error) + '</p>'; return; }
