@@ -313,3 +313,97 @@ test('directory actions leave every existing sheet and behaviour untouched', fun
   const op = S.call({ module: 'portal', action: 'portalTeacherOpen', token: S.admin, modules: ['cellinjury', { module: 'cellinjury', group: 'B' }] });
   assert.ok(op.modules.cellinjury && op.modules['cellinjury-B'], 'teacher module opening unchanged (not limited by the directory yet)');
 });
+
+/* ---------------- Step 2: group front pages (the link code selects, the backend decides) ---------------- */
+function groupsSetup() {
+  const S = adminSetup();
+  const razi = S.save('institution', { name: 'Al-Razi University', shortName: 'Al-Razi' }).record;
+  const mis = S.save('institution', { name: 'Misrata University', shortName: 'Misrata' }).record;
+  S.save('module', { moduleId: 'cardio', title: 'Cardiovascular Pathology' }, { create: true });
+  S.ra = S.save('group', { institutionId: razi.institutionId, name: 'Group A', academicYear: '2026-27', linkCode: 'razi-a-26' }).record;
+  S.ma = S.save('group', { institutionId: mis.institutionId, name: 'Group A', academicYear: '2026-27', linkCode: 'misrata-a-26' }).record;
+  S.razi = razi; S.mis = mis; S.dl = {};
+  [[S.ra, 'cellinjury'], [S.ra, 'inflhealing'], [S.ma, 'cellinjury'], [S.ma, 'cardio']].forEach(function (x) {
+    const d = S.save('delivery', { groupId: x[0].groupId, moduleId: x[1], status: 'available' }).record; S.dl[d.backendModule] = d;
+  });
+  // accounts are created in each delivery's own storage (rosters come in Step 3)
+  const acct = function (storage, list) {
+    S.call({ module: storage, action: 'setup', password: 'teacher-' + storage });
+    const t = S.call({ module: storage, action: 'login', password: 'teacher-' + storage }).token;
+    assert.ok(S.call({ module: storage, action: 'bulkAddStudents', token: t, students: list }).ok);
+  };
+  acct('cellinjury-razi-a-26', [{ username: 'ahmed', name: 'Student Ahmed', password: PW, mustChange: false }]);
+  acct('inflhealing-razi-a-26', [{ username: 'ahmed', name: 'Student Ahmed', password: PW, mustChange: false }]);
+  acct('cellinjury-misrata-a-26', [{ username: 'sara', name: 'Student Sara', password: PW, mustChange: false }]);
+  return S;
+}
+
+test('group page: each link shows only its own institution, group and modules; no student data', function () {
+  const S = groupsSetup();
+  const r = S.call({ module: 'portal', action: 'portalGroupInfo', g: 'razi-a-26' });
+  assert.ok(r.ok, JSON.stringify(r));
+  assert.strictEqual(r.institution.name, 'Al-Razi University'); assert.strictEqual(r.group.name, 'Group A'); assert.strictEqual(r.group.academicYear, '2026-27');
+  assert.deepStrictEqual(r.modules.map(function (m) { return m.id; }), ['cellinjury', 'inflhealing']);
+  assert.strictEqual(r.modules[0].group, 'razi-a-26');
+  const m = S.call({ module: 'portal', action: 'portalGroupInfo', g: 'misrata-a-26' });
+  assert.strictEqual(m.institution.name, 'Misrata University');
+  assert.deepStrictEqual(m.modules.map(function (x) { return x.id; }), ['cellinjury', 'cardio']);
+  const txt = JSON.stringify(r) + JSON.stringify(m);
+  ['ahmed', 'sara', 'pwHash', 'misrata-a-26"', '_storage'].forEach(function (w) { assert.strictEqual((JSON.stringify(r) + '').indexOf(w), -1, w); });
+  assert.strictEqual(txt.indexOf('pwHash'), -1);
+  assert.strictEqual(S.call({ module: 'portal', action: 'portalGroupInfo', g: 'RAZI-A-26' }).group.linkCode, 'razi-a-26', 'letter case is forgiven');
+});
+
+test('group page: unknown or inactive groups/institutions answer "not valid"; inactive deliveries and modules are hidden', function () {
+  const S = groupsSetup();
+  ['nope', '', 'bad code!'].forEach(function (g) { assert.strictEqual(S.call({ module: 'portal', action: 'portalGroupInfo', g: g }).code, 'nogroup'); });
+  S.dir('dirSetActive', { kind: 'group', id: S.ra.groupId, active: false });
+  assert.strictEqual(S.call({ module: 'portal', action: 'portalGroupInfo', g: 'razi-a-26' }).code, 'nogroup');
+  assert.strictEqual(S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: 'ahmed', password: PW }).code, 'nogroup', 'no sign-in into an inactive group');
+  S.dir('dirSetActive', { kind: 'group', id: S.ra.groupId, active: true });
+  S.dir('dirSetActive', { kind: 'institution', id: S.razi.institutionId, active: false });
+  assert.strictEqual(S.call({ module: 'portal', action: 'portalGroupInfo', g: 'razi-a-26' }).code, 'nogroup');
+  S.dir('dirSetActive', { kind: 'institution', id: S.razi.institutionId, active: true });
+  S.dir('dirSetActive', { kind: 'delivery', id: S.dl['inflhealing-razi-a-26'].deliveryId, active: false });
+  assert.deepStrictEqual(S.call({ module: 'portal', action: 'portalGroupInfo', g: 'razi-a-26' }).modules.map(function (m) { return m.id; }), ['cellinjury']);
+  S.dir('dirSetActive', { kind: 'module', id: 'cardio', active: false });
+  assert.deepStrictEqual(S.call({ module: 'portal', action: 'portalGroupInfo', g: 'misrata-a-26' }).modules.map(function (m) { return m.id; }), ['cellinjury']);
+});
+
+test('group sign-in: sessions only in the group\'s own storage; changing ?g= gets nothing', function () {
+  const S = groupsSetup();
+  const r = S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: 'Ahmed', password: PW });
+  assert.ok(r.ok, JSON.stringify(r));
+  assert.strictEqual(r.modules.cellinjury.access, true); assert.strictEqual(r.modules.inflhealing.access, true);
+  const tok = r.modules.cellinjury.token;
+  assert.strictEqual(S.call({ module: 'cellinjury-razi-a-26', action: 'studentSession', stoken: tok }).role, 'student', 'accepted by the Al-Razi A delivery');
+  ['cellinjury', 'cellinjury-misrata-a-26', 'inflhealing-razi-a-26'].forEach(function (other) {
+    assert.strictEqual(S.call({ module: other, action: 'studentSession', stoken: tok }).ok, false, 'refused by ' + other);
+  });
+  // Ahmed changes the link to Misrata: no account there → the same generic refusal, no module details
+  const x = S.call({ module: 'portal', action: 'portalGroupCheck', g: 'misrata-a-26', username: 'ahmed', password: PW });
+  assert.strictEqual(x.ok, false); assert.strictEqual(x.error, 'Incorrect Student ID or password.'); assert.ok(!x.modules);
+  // Sara cannot enter Al-Razi; she enters Misrata Cell Injury only
+  assert.strictEqual(S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: 'sara', password: PW }).ok, false);
+  const s2 = S.call({ module: 'portal', action: 'portalGroupCheck', g: 'misrata-a-26', username: 'sara', password: PW });
+  assert.strictEqual(s2.modules.cellinjury.access, true); assert.strictEqual(s2.modules.cardio.access, false);
+  // an account on the normal link (s1 in plain cellinjury) does not open a group delivery
+  assert.strictEqual(S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: 's1', password: PW }).ok, false);
+  // a deactivated account in the delivery does not get in
+  const t = S.call({ module: 'inflhealing-razi-a-26', action: 'login', password: 'teacher-inflhealing-razi-a-26' }).token;
+  assert.ok(S.call({ module: 'inflhealing-razi-a-26', action: 'setStudentActive', token: t, username: 'ahmed', active: false }).ok);
+  const r3 = S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: 'ahmed', password: PW });
+  assert.strictEqual(r3.modules.cellinjury.access, true); assert.strictEqual(r3.modules.inflhealing.access, false); assert.strictEqual(r3.modules.inflhealing.reason, 'inactive');
+});
+
+test('group page: opening dates — before opening shown as not yet released, after closing as closed; neither can be entered', function () {
+  const S = groupsSetup();
+  const day = 86400000, now = Date.now();
+  S.save('delivery', { deliveryId: S.dl['cellinjury-razi-a-26'].deliveryId, openFrom: now + 5 * day, openUntil: '' });
+  S.save('delivery', { deliveryId: S.dl['inflhealing-razi-a-26'].deliveryId, openFrom: now - 10 * day, openUntil: now - day });
+  const info = S.call({ module: 'portal', action: 'portalGroupInfo', g: 'razi-a-26' });
+  assert.strictEqual(info.modules[0].status, 'ready'); assert.ok(info.modules[0].opensAt > now);
+  assert.strictEqual(info.modules[1].status, 'closed');
+  const r = S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: 'ahmed', password: PW });
+  assert.strictEqual(r.ok, false); assert.strictEqual(r.code, 'noopen');
+});

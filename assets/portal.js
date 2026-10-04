@@ -14,12 +14,16 @@
 (function () {
   'use strict';
   var CFG = window.PORTAL_CONFIG || {};
-  var KEY = 'pp_session_v1';
+  /* Group front page (…/?g=<link code>): the code only SELECTS the group; the backend decides everything. */
+  var GROUP = (function () { try { var m = /[?&]g=([A-Za-z0-9_-]{1,24})/.exec(location.search); return m ? m[1] : ''; } catch (e) { return ''; } })();
+  var GINFO = null, GROUP_NOTICE = '';
+  var KEY = 'pp_session_v1' + (GROUP ? ':' + GROUP : '');   // a group page keeps its own student session
   var TKEY = 'pp_teacher_v1';
   var STATUS = {
     available: { label: 'Available', cls: 'available', icon: '●' },
     ready: { label: 'Completed – not yet released', cls: 'ready', icon: '◆' },
-    soon: { label: 'Coming soon', cls: 'soon', icon: '○' }
+    soon: { label: 'Coming soon', cls: 'soon', icon: '○' },
+    closed: { label: 'Closed', cls: 'locked', icon: '■' }
   };
   var main = document.getElementById('main');
   var MODULES = [], INFO = null;
@@ -35,6 +39,8 @@
   function sset(k, v, remember) { sdel(k); try { store(remember).setItem(k, JSON.stringify(v)); } catch (e) { } }
   function sdel(k) { [store(false), store(true)].forEach(function (s) { try { s && s.removeItem(k); } catch (e) { } }); }
   function backendOf(m) { return m.backend || CFG.backendUrl || ''; }
+  function storageOf(m) { return m.moduleKey + (m.group ? '-' + m.group : ''); }   // the module's backend name for this page
+  function mUrl(m) { return withGroup(m.url, m.group); }
   function post(url, payload, opts) {
     if (!url) return Promise.resolve({ ok: false, code: 'config', error: 'The front page is not connected to the platform yet (config.js → backendUrl).' });
     return fetch(url, { method: 'POST', redirect: 'follow', cache: 'no-store', keepalive: !!(opts && opts.keepalive), headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) })
@@ -46,7 +52,7 @@
 
   /* ---------------- module hand-over (the module's own session format; same site → same browser storage) ---------------- */
   function handoffKey(m) {
-    if (m.handoff === 'neo' && m.storagePrefix) return m.storagePrefix + 'stu_session_v1';
+    if (m.handoff === 'neo' && m.storagePrefix) return m.storagePrefix + (m.group ? m.group + '_' : '') + 'stu_session_v1';
     if (m.handoff === 'vp' && m.moduleKey) return 'vp_' + m.moduleKey + '_session';
     return '';
   }
@@ -76,7 +82,7 @@
     var who = document.getElementById('who'), s = session(), teacherView = /^#\/teacher/.test(location.hash);
     who.innerHTML = '';
     var tLabel = teacherView ? 'Platform Home' : (tsess() ? 'Teacher Dashboard' : 'Teacher Sign-In');
-    var tp = h('<a class="btn tportal" href="' + (teacherView ? '#/' : '#/teacher') + '"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3l9 4-9 4-9-4 9-4z" fill="currentColor"/><path d="M6 9.5V14c0 1.7 2.7 3 6 3s6-1.3 6-3V9.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M21 7v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>' + tLabel + '</span></a>');
+    var tp = h('<a class="btn tportal" href="' + (teacherView ? '#/' : (GROUP ? esc(location.pathname) : '') + '#/teacher') + '"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3l9 4-9 4-9-4 9-4z" fill="currentColor"/><path d="M6 9.5V14c0 1.7 2.7 3 6 3s6-1.3 6-3V9.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M21 7v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>' + tLabel + '</span></a>');
     who.appendChild(tp);
     if (teacherView && tsess()) { var tb = h('<button class="btn ghost" type="button">Sign out</button>'); tb.onclick = teacherSignOut; who.appendChild(tb); }
     if (s && !teacherView) {
@@ -91,20 +97,21 @@
       if (!s) {
         state = 'open';
         msg = m.moduleKey ? 'Sign in with your Student ID to open this module.' : 'Open the module and sign in there.';
-        cta = m.moduleKey ? '<button class="btn primary signfirst" type="button">Sign in to open</button>' : '<a class="btn primary" href="' + esc(m.url) + '">Open module →</a>';
-        if (m.moduleKey) alt = '<a class="alt" href="' + esc(m.url) + '">or use the module’s own sign-in page</a>';
+        cta = m.moduleKey ? '<button class="btn primary signfirst" type="button">Sign in to open</button>' : '<a class="btn primary" href="' + esc(mUrl(m)) + '">Open module →</a>';
+        if (m.moduleKey) alt = '<a class="alt" href="' + esc(mUrl(m)) + '">or use the module’s own sign-in page</a>';
       }
-      else if (!m.moduleKey) { state = 'open'; cta = '<a class="btn primary" href="' + esc(m.url) + '">Open module →</a>'; msg = 'You will sign in on the module itself.'; }
+      else if (!m.moduleKey) { state = 'open'; cta = '<a class="btn primary" href="' + esc(mUrl(m)) + '">Open module →</a>'; msg = 'You will sign in on the module itself.'; }
       else if (acc && acc.access) { state = 'mine'; pill = '<span class="pill mine">✓ Available to you</span>'; cta = '<button class="btn primary go" type="button">Open module →</button>'; msg = acc.mustChange ? 'You will be asked to choose your own password first.' : 'Your account is registered for this module.'; }
-      else if (acc && acc.reason === 'otherpassword') { state = 'open'; pill = '<span class="pill warn">Registered — different password</span>'; msg = 'You have an account here, but with a different password.'; cta = '<a class="btn" href="' + esc(m.url) + '">Go to the module’s sign-in</a>'; }
+      else if (acc && acc.reason === 'otherpassword') { state = 'open'; pill = '<span class="pill warn">Registered — different password</span>'; msg = 'You have an account here, but with a different password.'; cta = '<a class="btn" href="' + esc(mUrl(m)) + '">Go to the module’s sign-in</a>'; }
       else if (acc && acc.reason === 'inactive') { pill = '<span class="pill locked">🔒 Account deactivated</span>'; msg = 'Your account for this module is deactivated. Please contact your teacher.'; }
       else if (acc && acc.reason === 'locked') { pill = '<span class="pill locked">🔒 Temporarily locked</span>'; msg = 'Too many wrong passwords on this module. Wait 15 minutes or ask your teacher to unlock it.'; }
       else if (acc && acc.reason === 'examlock') { pill = '<span class="pill locked">🔒 Closed during an exam</span>'; msg = acc.message || 'Closed while an official exam is running.'; }
-      else if (acc && acc.reason === 'unreachable') { pill = '<span class="pill warn">Could not check</span>'; msg = 'This module’s server could not be reached. Sign out and in again later.'; cta = '<a class="btn" href="' + esc(m.url) + '">Try the module’s sign-in</a>'; state = 'open'; }
+      else if (acc && acc.reason === 'unreachable') { pill = '<span class="pill warn">Could not check</span>'; msg = 'This module’s server could not be reached. Sign out and in again later.'; cta = '<a class="btn" href="' + esc(mUrl(m)) + '">Try the module’s sign-in</a>'; state = 'open'; }
       else { pill = '<span class="pill locked">🔒 Not registered for your account</span>'; msg = 'This module is open, but your account has not been registered for it yet. Please contact your teacher.'; }
       if (!cta) cta = '<button class="btn" type="button" disabled>🔒 Not available for your account</button>';
       if (!m.url && (state === 'mine' || state === 'open')) { state = 'locked'; alt = ''; msg = 'The link to this module has not been set yet (Teacher Dashboard → Teacher Management).'; cta = '<button class="btn" type="button" disabled>Link not set</button>'; }
-    } else if (m.status === 'ready') { msg = 'This module is complete and will open when teaching starts.'; cta = '<button class="btn" type="button" disabled>Not yet released</button>'; }
+    } else if (m.status === 'ready') { msg = m.opensAt ? 'Opens on ' + new Date(m.opensAt).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }) + '.' : 'This module is complete and will open when teaching starts.'; cta = '<button class="btn" type="button" disabled>Not yet released</button>'; }
+    else if (m.status === 'closed') { msg = 'This module is closed for your group.'; cta = '<button class="btn" type="button" disabled>Closed</button>'; }
     else { msg = 'This chapter is in preparation.'; cta = '<button class="btn" type="button" disabled>Coming soon</button>'; }
     var d = descOf(m);
     var el = h('<article class="mod ' + state + ' st-' + esc(m.status) + '" style="--c:' + esc(m.color) + '" data-id="' + esc(m.id) + '">' +
@@ -125,21 +132,23 @@
   function openModule(m, acc, remember) {
     if (!m.url) { toast('The link to this module has not been set yet.'); return; }
     handOver(m, acc, remember);
-    location.href = m.url;
+    location.href = mUrl(m);
   }
   function viewHome() {
     var s = session();
     main.innerHTML = '';
     var avail = MODULES.filter(function (m) { return m.status === 'available'; }).length;
     var mine = s ? MODULES.filter(function (m) { var a = s.modules && s.modules[m.moduleKey]; return m.status === 'available' && a && a.access; }).length : 0;
-    var hero = h('<section class="hero"><div class="hero-txt"><div class="eyebrow">Medical education · Pathology</div><h1>' + esc(CFG.title || 'Interactive Pathology Teaching Platform') + '</h1><p class="by">' + esc(CREATED) + '</p>' +
+    if (GROUP_NOTICE) main.appendChild(h('<div class="note grp-notice" role="status">' + esc(GROUP_NOTICE) + '</div>'));
+    var gh = GINFO ? '<p class="grp"><span class="grp-inst">' + esc(GINFO.institution.name) + '</span><span class="grp-name">' + esc(GINFO.group.name) + (GINFO.group.academicYear ? ' · ' + esc(GINFO.group.academicYear) : '') + '</span></p>' : '';
+    var hero = h('<section class="hero"><div class="hero-txt"><div class="eyebrow">' + (GINFO ? esc(GINFO.institution.shortName || GINFO.institution.name) + ' · Pathology' : 'Medical education · Pathology') + '</div><h1>' + esc(CFG.title || 'Interactive Pathology Teaching Platform') + '</h1>' + gh + '<p class="by">' + esc(CREATED) + '</p>' +
       '<p class="lead">Interactive lectures, practice questions, case-based learning and assessments for every pathology chapter, in one place.</p>' +
       '<ul class="facts"><li><b>' + MODULES.length + '</b> chapter' + (MODULES.length === 1 ? '' : 's') + '</li><li><b>' + avail + '</b> available now</li><li>🔒 Secure student sign-in</li></ul></div><div class="hero-side"></div></section>');
     var side = $('.hero-side', hero);
     if (s) side.appendChild(h('<div class="card welcome"><div class="small muted">Signed in as</div><div class="wname">' + esc(s.student.name || s.student.username) + '</div><div class="small muted">Student ID ' + esc(s.student.username) + '</div><p>You can open <b>' + mine + '</b> of the ' + avail + ' available module' + (avail === 1 ? '' : 's') + '.</p><p class="small muted">Modules not registered for your account stay locked — ask your teacher if one is missing.</p></div>'));
     else side.appendChild(signInForm());
     main.appendChild(hero);
-    main.appendChild(h('<div class="sec-head"><h2>Pathology modules</h2><div class="legend"><span class="pill available">● Available</span><span class="pill ready">◆ Completed – not yet released</span><span class="pill soon">○ Coming soon</span></div></div>'));
+    main.appendChild(h('<div class="sec-head"><h2>' + (GINFO ? 'Modules for ' + esc(GINFO.group.name) : 'Pathology modules') + '</h2><div class="legend"><span class="pill available">● Available</span><span class="pill ready">◆ Completed – not yet released</span><span class="pill soon">○ Coming soon</span>' + (MODULES.some(function (m) { return m.status === 'closed'; }) ? '<span class="pill locked">■ Closed</span>' : '') + '</div></div>'));
     var grid = h('<div class="grid" aria-label="Pathology modules"></div>');
     MODULES.forEach(function (m) { grid.appendChild(card(m, s)); });
     if (!MODULES.length) grid.appendChild(h('<p class="muted">No modules yet.</p>'));
@@ -168,6 +177,14 @@
   }
   /** Asks each backend about its own released modules (in parallel) and merges the answers. */
   function signIn(u, p, remember) {
+    if (GINFO) return post(CFG.backendUrl, { module: 'portal', action: 'portalGroupCheck', g: GINFO.group.linkCode, username: u, password: p, remember: remember }).then(function (r) {
+      if (!r || !r.ok) return { ok: false, error: (r && r.error) || 'Sign-in failed.' };
+      var mods = r.modules || {}, exp = 0;
+      Object.keys(mods).forEach(function (k) { if (mods[k].expiresAt) exp = Math.max(exp, mods[k].expiresAt); });
+      MODULES.forEach(function (m) { if (m.status === 'available' && !mods[m.moduleKey]) mods[m.moduleKey] = { access: false, reason: 'notregistered' }; });
+      sset(KEY, { student: r.student, modules: mods, remember: remember, at: Date.now(), expiresAt: exp || Date.now() + 12 * 3600000 }, remember);
+      return { ok: true };
+    });
     var byBackend = {};
     MODULES.forEach(function (m) { if (m.status === 'available' && m.moduleKey) (byBackend[backendOf(m)] = byBackend[backendOf(m)] || []).push(m.moduleKey); });
     var urls = Object.keys(byBackend);
@@ -191,7 +208,7 @@
     var s = session();
     if (s) MODULES.forEach(function (m) {
       var acc = s.modules && s.modules[m.moduleKey];
-      if (acc && acc.token) { post(backendOf(m), { module: m.moduleKey, action: 'studentLogout', stoken: acc.token }, { keepalive: true }); var k = handoffKey(m); if (k) sdel(k); }
+      if (acc && acc.token) { post(backendOf(m), { module: storageOf(m), action: 'studentLogout', stoken: acc.token }, { keepalive: true }); var k = handoffKey(m); if (k) sdel(k); }
     });
     sdel(KEY); header(); viewHome(); toast('You have signed out.');
   }
@@ -506,8 +523,22 @@
   function route() { header(); if (/^#\/teacher/.test(location.hash)) viewTeacher(); else viewHome(); window.scrollTo(0, 0); }
   function boot() {
     header();
+    if (GROUP && !/^#\/teacher/.test(location.hash)) {
+      return post(CFG.backendUrl, { module: 'portal', action: 'portalGroupInfo', g: GROUP }).then(function (r) {
+        if (r && r.ok) {
+          GINFO = r; INFO = r; MODULES = r.modules || [];
+          document.title = r.group.name + ' — ' + r.institution.name + ' · ' + (CFG.title || 'Interactive Pathology Teaching Platform');
+          window.addEventListener('hashchange', route); return route();
+        }
+        if (r && (r.code === 'nogroup' || r.code === 'badaction')) { GROUP_NOTICE = 'This group link is not valid — showing the main platform page. Please check the link your teacher gave you.'; return loadMain(); }
+        main.innerHTML = '<div class="card"><p class="err">' + esc((r && r.error) || 'Cannot reach the platform.') + '</p><button class="btn primary" type="button">Try again</button></div>'; $('button', main).onclick = boot;
+      });
+    }
+    loadMain();
+  }
+  function loadMain() {
     post(CFG.backendUrl, { module: 'portal', action: 'portalInfo' }).then(function (r) {
-      if (!r.ok) { main.innerHTML = '<div class="card"><p class="err">' + esc(r.code === 'badaction' || r.code === 'badjson' ? 'The platform backend does not have the front-page file (Portal.gs) yet — see SETUP.md.' : r.error) + '</p><button class="btn primary" type="button">Try again</button></div>'; $('button', main).onclick = boot; return; }
+      if (!r.ok) { main.innerHTML = '<div class="card"><p class="err">' + esc(r.code === 'badaction' || r.code === 'badjson' ? 'The platform backend does not have the front-page file (Portal.gs) yet — see SETUP.md.' : r.error) + '</p><button class="btn primary" type="button">Try again</button></div>'; $('button', main).onclick = loadMain; return; }
       INFO = r; MODULES = r.modules || [];
       window.addEventListener('hashchange', route); route();
     });

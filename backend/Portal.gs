@@ -34,6 +34,15 @@
  *   Sheets (created on first use; no existing sheet is touched): Institutions, Groups, Modules, Deliveries,
  *   TeacherAssignments, ModuleContentRoles (the last two are prepared for later steps and stay empty for now).
  *
+ * Group front pages (1.4, Step 2 — …/?g=<link code>):
+ *   portalGroupInfo   public   the group's institution, name and its modules (from the directory: active deliveries of
+ *                              an active group of an active institution). Contains no student data. An unknown or
+ *                              inactive code answers code "nogroup".
+ *   portalGroupCheck  public   Student ID + password for that group: checked against the account in EACH of the group's
+ *                              open deliveries (its own storage, e.g. cellinjury-razi-a-26) exactly like portalCheck.
+ *                              The link code only selects the group — a session is opened only where an active account
+ *                              with this Student ID AND password exists in that delivery's storage.
+ *
  * Teacher = a valid teacher session of the "portal" module (Code.gs login/setup with module:"portal").
  * Admin   = the same account (the only platform teacher account until personal teacher accounts exist).
  *
@@ -49,7 +58,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '1.3';
+var PORTAL_VERSION = '1.4';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -74,6 +83,8 @@ function portalHook_(module, p) {
     case 'ping': case 'setup': case 'login': case 'logout': case 'changePassword': return null;   // Code.gs teacher sign-in for the portal
     case 'portalInfo': return portalInfo_();
     case 'portalCheck': return portalCheck_(p);
+    case 'portalGroupInfo': return portalGroupInfo_(p);
+    case 'portalGroupCheck': return portalGroupCheck_(p);
     case 'portalAdminGet': return authed_(PORTAL_MODULE, p, function () { return portalAdminGet_(); });
     case 'portalAdminSave': return authed_(PORTAL_MODULE, p, function () { return portalAdminSave_(p); });
     case 'portalTeacherClose': return portalTeacherClose_(p);
@@ -117,29 +128,35 @@ function portalInfo_() {
 
 /* ---------------- student: which modules may this Student ID + password enter? ---------------- */
 function portalCheck_(p) {
-  var username = normUser_(p.username), pw = String(p.password || ''), now = Date.now();
-  if (!username || !pw) return { ok: false, code: 'badlogin', error: 'Enter your Student ID and password.' };
   var keys = (Array.isArray(p.modules) ? p.modules : []).map(function (k) { return String(k || '').toLowerCase().replace(/[^a-z0-9_-]/g, ''); })
     .filter(function (k, i, arr) { return k && k !== PORTAL_MODULE && arr.indexOf(k) === i; }).slice(0, 40);
+  return portalAccountCheck_(p, keys.map(function (k) { return { key: k, module: k }; }));
+}
+/** Student ID + password → for each target {key, module (= the storage name)}: may this student enter? Opens a normal
+ *  student session of that storage where an active account with this ID and password exists (nothing else is touched). */
+function portalAccountCheck_(p, targets) {
+  var username = normUser_(p.username), pw = String(p.password || ''), now = Date.now();
+  if (!username || !pw) return { ok: false, code: 'badlogin', error: 'Enter your Student ID and password.' };
   var c = CacheService.getScriptCache(), fk = 'portalfail:' + sha256Hex_(username), fails = Number(c.get(fk) || 0);
   if (fails >= PORTAL_MAX_FAILS) return { ok: false, code: 'locked', error: 'Too many unsuccessful sign-ins. Please wait 15 minutes and try again.' };
   var remember = !!p.remember, exp = now + (remember ? STU_REMEMBER_TTL_MS : STU_TTL_MS), out = {}, student = null, any = false;
   var lock = LockService.getScriptLock(); lock.waitLock(20000);
   try {
-    keys.forEach(function (key) {
-      if (!studentAuthOn_(key)) { out[key] = { access: false, reason: 'noaccounts' }; return; }
-      var acct = typeof acctModule_ === 'function' ? acctModule_(key) : key;
+    targets.forEach(function (t) {
+      var key = t.key, mod = t.module;
+      if (!studentAuthOn_(mod)) { out[key] = { access: false, reason: 'noaccounts' }; return; }
+      var acct = typeof acctModule_ === 'function' ? acctModule_(mod) : mod;
       var s = findStudent_(acct, username);
       if (!s) { out[key] = { access: false, reason: 'notregistered' }; return; }
       if (Number(s.lockedUntil) > now) { out[key] = { access: false, reason: 'locked' }; return; }
       if (!safeEq_(hashIter_(pw, s.pwSalt, Number(s.pwIter) || PW_ITER), s.pwHash)) { out[key] = { access: false, reason: 'otherpassword' }; return; }
-      // the Student ID + password are right for this module from here on
+      // the Student ID + password are right for this storage from here on
       any = true; student = student || studentPublic_(s);
       if (!isTrue_(s.active)) { out[key] = { access: false, reason: 'inactive' }; return; }
-      var xl = typeof exTeachingLock_ === 'function' ? exTeachingLock_(key, s.username) : null;
+      var xl = typeof exTeachingLock_ === 'function' ? exTeachingLock_(mod, s.username) : null;
       if (xl) { out[key] = { access: false, reason: 'examlock', message: xl.error }; return; }
       var token = randomHex_(32);
-      appendRow_(SHEETS.STU_SESSIONS, { module: key, tokenHash: stuTokenHash_(token), username: s.username, createdAt: now, expiresAt: exp, remember: remember });
+      appendRow_(SHEETS.STU_SESSIONS, { module: mod, tokenHash: stuTokenHash_(token), username: s.username, createdAt: now, expiresAt: exp, remember: remember });
       s.lastLogin = now; s.updatedAt = now; updateRow_(SHEETS.STUDENTS, s._row, s);
       out[key] = { access: true, token: token, expiresAt: exp, mustChange: isTrue_(s.mustChange), student: studentPublic_(s) };
     });
@@ -430,4 +447,59 @@ function dirScan_() {
     return o;
   });
   return { ok: true, storages: list };
+}
+
+/* ======================================================================
+ * Group front pages (Step 2). The link code only SELECTS the group; it never grants anything.
+ * ====================================================================== */
+/** Registers the directory sheets without creating any (public requests never create sheets). */
+function dirReadable_() {
+  var ss = getSS_();
+  Object.keys(DIR_HEADERS).forEach(function (name) { HEADERS[name] = DIR_HEADERS[name]; TEXT_COLS[name] = DIR_TEXT[name]; });
+  return [DIR.INST, DIR.GROUP, DIR.MOD, DIR.DELIV].every(function (n) { var sh = ss.getSheetByName(n); return sh && sh.getLastRow() > 0; });
+}
+var PORTAL_NOGROUP = { ok: false, code: 'nogroup', error: 'This group link is not valid. Please check the link your teacher gave you.' };
+/** The group behind a link code + its deliveries as front-page cards, or null if the code is unknown or inactive. */
+function portalGroup_(code) {
+  code = String(code || '').trim();
+  if (!PORTAL_GROUP_RE.test(code) || !dirReadable_()) return null;
+  var groups = dirAll_(DIR.GROUP), g = null;
+  for (var i = 0; i < groups.length; i++) if (groups[i].linkCode === code) { g = groups[i]; break; }
+  if (!g) for (var j = 0; j < groups.length; j++) if (String(groups[j].linkCode).toLowerCase() === code.toLowerCase()) { g = groups[j]; break; }
+  if (!g || !g.active) return null;
+  var inst = dirFind_(DIR.INST, 'institutionId', g.institutionId);
+  if (!inst || !inst.active) return null;
+  var mods = {}; dirAll_(DIR.MOD).forEach(function (m) { mods[m.moduleId] = m; });
+  var now = Date.now(), order = dirAll_(DIR.MOD).map(function (m) { return m.moduleId; });
+  var list = dirAll_(DIR.DELIV).filter(function (d) { return d.groupId === g.groupId && d.active && mods[d.moduleId] && mods[d.moduleId].active; })
+    .sort(function (a, b) { return order.indexOf(a.moduleId) - order.indexOf(b.moduleId); })
+    .map(function (d) {
+      var m = mods[d.moduleId], st = d.status, note = '';
+      if (st === 'available' && d.openFrom && now < Number(d.openFrom)) { st = 'ready'; note = 'opens'; }
+      else if (st === 'available' && d.openUntil && now > Number(d.openUntil)) { st = 'closed'; }
+      return {
+        id: m.moduleId, title: m.title, subtitle: m.subtitle, icon: m.icon || '📘', color: m.color || '#0f2a4a', url: m.url,
+        moduleKey: m.moduleId, handoff: 'neo', storagePrefix: m.storagePrefix, backend: '',
+        group: d.backendModule === m.moduleId ? '' : String(d.backendModule).slice(m.moduleId.length + 1),
+        status: st, opensAt: note === 'opens' ? Number(d.openFrom) : 0, closesAt: d.openUntil ? Number(d.openUntil) : 0,
+        _storage: d.backendModule
+      };
+    });
+  return { group: g, institution: inst, modules: list };
+}
+function portalGroupInfo_(p) {
+  var G = portalGroup_(p.g);
+  if (!G) return PORTAL_NOGROUP;
+  return { ok: true, version: PORTAL_VERSION, serverTime: Date.now(),
+    group: { name: G.group.name, academicYear: G.group.academicYear, linkCode: G.group.linkCode },
+    institution: { name: G.institution.name, shortName: G.institution.shortName },
+    modules: G.modules.map(function (m) { var o = {}; Object.keys(m).forEach(function (k) { if (k !== '_storage') o[k] = m[k]; }); return o; }) };
+}
+function portalGroupCheck_(p) {
+  var G = portalGroup_(p.g);
+  if (!G) return PORTAL_NOGROUP;
+  // only this group's open deliveries, each checked in its OWN storage
+  var targets = G.modules.filter(function (m) { return m.status === 'available'; }).map(function (m) { return { key: m.moduleKey, module: m._storage }; });
+  if (!targets.length) return { ok: false, code: 'noopen', error: 'No module is open for this group yet.' };
+  return portalAccountCheck_(p, targets);
 }

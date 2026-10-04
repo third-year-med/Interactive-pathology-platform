@@ -260,6 +260,79 @@ test('Admin: platform directory — add institutions, groups (same name at two u
   await p.context().close();
 });
 
+/* ---------------- Step 2: group front pages ---------------- */
+let GRP = null;
+function groupFixture() {
+  if (GRP) return GRP;
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const sv = function (kind, record, extra) { const r = main.call(Object.assign({ module: 'portal', action: 'dirSave', token: t, kind: kind, record: record }, extra || {})); assert.ok(r.ok, JSON.stringify(r)); return r.record; };
+  main.call({ module: 'portal', action: 'dirGet', token: t });
+  const ri = sv('institution', { name: 'Test Razi University', shortName: 'Test Razi' }), mi = sv('institution', { name: 'Test Misrata University', shortName: 'Test Misrata' });
+  const ra = sv('group', { institutionId: ri.institutionId, name: 'Group A', academicYear: '2026-27', linkCode: 'tr-a' });
+  const ma = sv('group', { institutionId: mi.institutionId, name: 'Group A', academicYear: '2026-27', linkCode: 'tm-a' });
+  sv('delivery', { groupId: ra.groupId, moduleId: 'cellinjury', status: 'available' }); sv('delivery', { groupId: ra.groupId, moduleId: 'inflhealing', status: 'available' });
+  sv('delivery', { groupId: ma.groupId, moduleId: 'cellinjury', status: 'available' });
+  main.addStudents('cellinjury-tr-a', [{ username: 'ahmed', name: 'Student Ahmed', password: PW, mustChange: false }]);
+  main.addStudents('inflhealing-tr-a', [{ username: 'ahmed', name: 'Student Ahmed', password: PW, mustChange: false }]);
+  main.addStudents('cellinjury-tm-a', [{ username: 'sara', name: 'Student Sara', password: PW, mustChange: false }]);
+  main.call({ module: 'portal', action: 'logout', token: t });
+  GRP = true; return GRP;
+}
+
+test('group page: Al-Razi A link shows Al-Razi A and its modules; sign-in opens the module in the group\'s own storage', { skip: SKIP }, async function () {
+  groupFixture();
+  const p = await page();
+  await p.goto(url + '?g=tr-a');
+  await p.waitForSelector('.hero .grp');
+  assert.match(await p.textContent('.hero .grp'), /Test Razi University[\s\S]*Group A · 2026-27/);
+  assert.deepStrictEqual(await p.$$eval('.mod', function (els) { return els.map(function (e) { return e.dataset.id; }); }), ['cellinjury', 'inflhealing']);
+  assert.ok(!/Misrata/.test(await p.textContent('main')), 'nothing of the other university');
+  assert.match(await p.title(), /Group A — Test Razi University/);
+  if (process.env.SHOTS) { await p.screenshot({ path: path.join(process.env.SHOTS, 'group-page.png') }); await p.setViewportSize({ width: 390, height: 844 }); await p.screenshot({ path: path.join(process.env.SHOTS, 'group-page-phone.png') }); assert.ok(await p.evaluate(function () { return document.documentElement.scrollWidth - window.innerWidth; }) <= 1); await p.setViewportSize({ width: 1280, height: 900 }); }
+  await signIn(p, 'ahmed', PW);
+  await p.waitForSelector('.mod[data-id="cellinjury"] .go');
+  assert.match(await p.textContent('.card.welcome'), /Student Ahmed/);
+  const before = navigations.length;
+  await p.click('.mod[data-id="cellinjury"] .go');
+  await p.waitForTimeout(400);
+  assert.ok(navigations.slice(before).some(function (u) { return /cell-injury-teaching-platform\/\?g=tr-a$/.test(u); }), 'module opened with the group link');
+  const ci = JSON.parse(await p.evaluate(function () { return sessionStorage.getItem('ci_tr-a_stu_session_v1'); }));
+  assert.strictEqual(main.call({ module: 'cellinjury-tr-a', action: 'studentSession', stoken: ci.token }).role, 'student');
+  assert.strictEqual(main.call({ module: 'cellinjury-tm-a', action: 'studentSession', stoken: ci.token }).ok, false);
+  assert.strictEqual(main.call({ module: 'cellinjury', action: 'studentSession', stoken: ci.token }).ok, false);
+  // the main front page keeps its own, separate sign-in
+  await p.goto(url); await p.waitForSelector('form.signin');
+  // sign-out on the group page ends the group sessions
+  await p.goto(url + '?g=tr-a'); await p.waitForSelector('.card.welcome');
+  await p.click('#who button'); await p.waitForSelector('form.signin'); await p.waitForTimeout(300);
+  assert.strictEqual(main.call({ module: 'cellinjury-tr-a', action: 'studentSession', stoken: ci.token }).ok, false, 'ended on sign-out');
+  await p.context().close();
+});
+
+test('group page: changing ?g= to another university gives no access; an unknown link falls back to the main page with a notice', { skip: SKIP }, async function () {
+  groupFixture();
+  const p = await page();
+  await p.goto(url + '?g=tm-a');
+  await p.waitForSelector('.hero .grp');
+  assert.match(await p.textContent('.hero .grp'), /Test Misrata University/);
+  assert.deepStrictEqual(await p.$$eval('.mod', function (els) { return els.map(function (e) { return e.dataset.id; }); }), ['cellinjury']);
+  await signIn(p, 'ahmed', PW);   // Al-Razi student on the Misrata link
+  await p.waitForFunction(function () { return /Incorrect Student ID or password/.test(document.querySelector('form.signin .err').textContent); });
+  assert.strictEqual(await p.$('.mod .go'), null);
+  await signIn(p, 'sara', PW);
+  await p.waitForSelector('.mod[data-id="cellinjury"] .go');
+  await p.goto(url + '?g=no-such-group');
+  await p.waitForSelector('.grp-notice');
+  assert.match(await p.textContent('.grp-notice'), /not valid/);
+  assert.strictEqual(await p.$('.hero .grp'), null);
+  await p.waitForSelector('.mod[data-id="cellinjury"]');
+  // the Teacher Sign-In button leaves the group page for the platform's single teacher sign-in
+  await p.goto(url + '?g=tr-a'); await p.waitForSelector('.hero .grp');
+  assert.strictEqual(await p.getAttribute('.top a.tportal', 'href'), '/#/teacher');
+  await p.context().close();
+});
+
 test('the front page fits a phone screen', { skip: SKIP }, async function () {
   const p = await page({ width: 390, height: 844 });
   await p.goto(url);
@@ -337,17 +410,18 @@ async function realPage(M, calls) {
 /** In the module: the return link is visible (header once the course is open, else the sign-in card) and goes, by the
  *  role the server confirmed, to the student front page or (teacher) to the Teacher Dashboard. Without the content key
  *  the course cannot open, so no role is confirmed and the link stays the plain Platform Home one. */
-async function backHome(p, M, role) {
+async function backHome(p, M, role, group) {
+  const home = HOME + (group ? '?g=' + group : '');   // students return to their group's page
   const sel = M[3] ? '#app-header #pf-bar a.pf-home' : '#neo-boot a.pf-home';
   const teacher = role === 'teacher' && !!M[3];
   await p.waitForSelector(sel, { state: 'visible', timeout: 15000 });
   if (teacher) await p.waitForFunction(function (s) { return document.querySelector(s).dataset.role === 'teacher'; }, sel);
   assert.match(await p.textContent(sel), teacher ? /Back to Teacher Dashboard/ : /Back to Platform Home/);
-  assert.strictEqual(await p.getAttribute(sel, 'href'), teacher ? HOME + '#/teacher' : HOME);
+  assert.strictEqual(await p.getAttribute(sel, 'href'), teacher ? HOME + '#/teacher' : home);
   if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, M[0] + '-' + role + '-back.png'), clip: { x: 0, y: 0, width: 1280, height: 200 } });
   await p.click(sel);
   if (teacher) { await p.waitForURL(HOME + '#/teacher'); await p.waitForSelector('#t-modules .t-open'); assert.match(await p.textContent('h1.page-h'), /Teacher Dashboard/); }
-  else { await p.waitForURL(HOME); await p.waitForSelector('.hero h1'); assert.strictEqual(await p.$('#t-modules'), null, 'the student front page, not the dashboard'); }
+  else { await p.waitForURL(home); await p.waitForSelector('.hero h1'); assert.strictEqual(await p.$('#t-modules'), null, 'the student front page, not the dashboard'); }
 }
 REAL.forEach(function (M) {
   test('teacher: Teacher Sign-In → Dashboard → the real ' + M[1] + ' opens in teacher mode (no module password) → Back to Platform Home', { skip: SKIP || (!fs.existsSync(M[2]) && 'module page not available') }, async function () {
@@ -416,6 +490,32 @@ REAL.forEach(function (M) {
 });
 
 REAL.forEach(function (M) {
+  test('student + group page: Al-Razi A front page → the real ' + M[1] + ' (?g=tr-a) → Back to Platform Home → back on the Al-Razi A page', { skip: SKIP || (!fs.existsSync(M[2]) && 'module page not available') }, async function () {
+    groupFixture();
+    const calls = [];
+    const p = await realPage(M, calls);
+    await p.goto(HOME + '?g=tr-a');
+    await p.waitForSelector('.mod[data-id="' + M[0] + '"]');
+    await signIn(p, 'ahmed', PW);
+    await p.waitForSelector('.mod[data-id="' + M[0] + '"] .go');
+    await p.click('.mod[data-id="' + M[0] + '"] .go');
+    await p.waitForURL(new RegExp(M[1] + '/\\?g=tr-a'));
+    await p.waitForFunction(function () { return window.NEO_BOOT && (window.NEO_BOOT.role || document.querySelector('#neo-boot .nb-msg.bad')); }, null, { timeout: 15000 });
+    assert.strictEqual(await p.evaluate(function () { return window.NEO_BOOT.module; }), M[0] + '-tr-a');
+    if (M[3]) assert.strictEqual(await p.evaluate(function () { return window.NEO_BOOT.role; }), 'student');
+    assert.ok(calls.some(function (c) { return c.module === M[0] + '-tr-a' && c.action === 'studentSession'; }), 'checked in the group\'s own storage');
+    assert.strictEqual(calls.filter(function (c) { return c.action === 'studentLogin'; }).length, 0, 'no second sign-in');
+    const sel = M[3] ? '#app-header #pf-bar a.pf-home' : '#neo-boot a.pf-home';
+    await p.waitForSelector(sel, { state: 'visible' });
+    assert.strictEqual(await p.getAttribute(sel, 'href'), HOME + '?g=tr-a');
+    await p.click(sel);
+    await p.waitForURL(HOME + '?g=tr-a');
+    await p.waitForSelector('.card.welcome');
+    assert.match(await p.textContent('.hero .grp'), /Test Razi University/);
+    assert.match(await p.textContent('.card.welcome'), /Student Ahmed/, 'still signed in on the group page');
+    await p.context().close();
+  });
+
   test('teacher + group link: Teacher Management → Groups "B" → open the real ' + M[1] + ' as ?g=B in teacher mode → back to the dashboard → sign out ends it', { skip: SKIP || (!fs.existsSync(M[2]) && 'module page not available') }, async function () {
     const calls = [];
     const p = await realPage(M, calls);
@@ -441,7 +541,7 @@ REAL.forEach(function (M) {
     assert.strictEqual(calls.filter(function (c) { return c.action === 'login' && c.module !== 'portal'; }).length, 0, 'no module password');
     assert.strictEqual(await p.$('#nb-tpass'), null); assert.strictEqual(await p.$('#nb-user'), null);
     if (M[3]) assert.strictEqual(await p.evaluate(function () { return window.NEO_BOOT.role; }), 'teacher');
-    await backHome(p, M, 'teacher');
+    await backHome(p, M, 'teacher', 'B');
     if (!/#\/teacher$/.test(p.url())) await p.goto(HOME + '#/teacher');   // without the content key the course (and its role) cannot open
     await p.click('#who button');
     await p.waitForSelector('form.signin');

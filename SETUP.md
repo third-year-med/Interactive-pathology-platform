@@ -5,7 +5,7 @@ this repository on GitHub Pages. The front page starts with two modules: **Cell 
 **Inflammation & Healing** (both *Available*); more can be added later in the Teacher Dashboard.
 
 > **Updating from an earlier version?** Replace the contents of the `Portal` file in Apps Script with the new
-> [`backend/Portal.gs`](backend/Portal.gs) (version 1.3 — adds the Admin's platform directory), save, and deploy
+> [`backend/Portal.gs`](backend/Portal.gs) (version 1.4 — group front pages), save, and deploy
 > a **new version** (step 1.4). The Code.gs line from step 1.3 stays as it is.
 
 ## 1. Main backend (Cell Injury, Inflammation …)
@@ -77,6 +77,16 @@ platform — nothing in it changes sign-in or module access yet (that comes in l
 - **Existing data** — a read-only scan of the storage names already in your data (e.g. `cellinjury`, `cellinjury-B`).
   To register existing data: create a group whose link code matches the part after "-" (e.g. `B`) and deliver the module
   to it; for the normal link (no `?g=`) tick *Use the existing storage of the normal link* when adding the delivery.
+
+### Group front pages
+
+Each active group has its own front page: `https://third-year-med.github.io/Interactive-pathology-platform/?g=<link code>`
+(e.g. `?g=razi-a-26`). It shows the institution, the group and **only that group's modules** (its active deliveries).
+Students sign in there with the Student ID and password of their account **in that group's delivery** (created in
+that delivery's Teacher Portal → Students for now; group rosters come in Step 3). The link code only selects the group:
+changing it never opens another group's modules — the backend checks the account in each delivery's own storage.
+"← Back to Platform Home" inside a module opened from a group page returns to that group's page. An unknown or
+inactive link shows the main platform page with a notice. Without `?g=` the front page is exactly as before.
 
 Records are never deleted (deactivate them instead). The directory uses its own sheets — Institutions, Groups, Modules,
 Deliveries, TeacherAssignments, ModuleContentRoles — created on first use; no existing sheet is changed.

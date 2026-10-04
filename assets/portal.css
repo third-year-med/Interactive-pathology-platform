@@ -146,3 +146,8 @@ details.dir[open]>summary::before{content:'▾'}
 .dir-tbl{border-collapse:collapse;width:100%;font-size:13px}
 .dir-tbl th,.dir-tbl td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;white-space:nowrap}
 .dir-tbl th{color:var(--muted);font-weight:600}
+/* Group front page */
+.hero .grp{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin:2px 0 8px}
+.hero .grp-inst{font-size:20px;font-weight:700}
+.hero .grp-name{display:inline-block;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.35);border-radius:999px;padding:3px 12px;font-weight:700;font-size:15px}
+.grp-notice{margin:18px 0 0}
