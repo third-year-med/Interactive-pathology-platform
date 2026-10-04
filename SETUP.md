@@ -5,7 +5,7 @@ this repository on GitHub Pages. The front page starts with two modules: **Cell 
 **Inflammation & Healing** (both *Available*); more can be added later in the Teacher Dashboard.
 
 > **Updating from an earlier version?** Replace the contents of the `Portal` file in Apps Script with the new
-> [`backend/Portal.gs`](backend/Portal.gs) (version 1.4 — group front pages), save, and deploy
+> [`backend/Portal.gs`](backend/Portal.gs) (version 1.5 — group rosters), save, and deploy
 > a **new version** (step 1.4). The Code.gs line from step 1.3 stays as it is.
 
 ## 1. Main backend (Cell Injury, Inflammation …)
@@ -83,11 +83,25 @@ platform — nothing in it changes sign-in or module access yet (that comes in l
 Each active group has its own front page: `https://third-year-med.github.io/Interactive-pathology-platform/?g=<link code>`
 (e.g. `?g=razi-a-26`). **To get it:** Teacher Dashboard → Platform directory → **Groups** → the group's *Student link*
 → **📋 Copy link** (or **Open ↗** to check it first). It shows the institution, the group and **only that group's modules** (its active deliveries).
-Students sign in there with the Student ID and password of their account **in that group's delivery** (created in
-that delivery's Teacher Portal → Students for now; group rosters come in Step 3). The link code only selects the group:
+Students sign in there if they are **in the group** (Platform directory → **Students**) and have an account in the
+group's modules (created automatically from the roster). The link code only selects the group:
 changing it never opens another group's modules — the backend checks the account in each delivery's own storage.
 "← Back to Platform Home" inside a module opened from a group page returns to that group's page. An unknown or
 inactive link shows the main platform page with a notice. Without `?g=` the front page is exactly as before.
+
+### Group students (rosters)
+
+Platform directory → **Students** → choose the group:
+- **Add students** — one per line: `Student ID, Name, Email (optional), Password (optional)`. Each student gets one
+  account in **every** module of the group, all with the same password. Without a password a temporary one is generated
+  and shown **once** (📋 Copy the list); the student chooses their own at first sign-in on the group page, and that new
+  password is applied to all the group's modules. A password changed later inside a module also applies to all of them.
+- A module delivered to the group later gets the members' accounts automatically (with their current password).
+- **Reset password** gives a new temporary password for all of the group's modules. **Deactivate** closes all of the
+  group's modules for that student at once (nothing is deleted).
+- **Add N existing account(s) to this group** — accounts made earlier inside a module's Teacher Portal are not on the
+  roster; press this once so those students can sign in on the group page.
+- The same Student ID at another university is a different student with separate accounts.
 
 Records are never deleted (deactivate them instead). The directory uses its own sheets — Institutions, Groups, Modules,
 Deliveries, TeacherAssignments, ModuleContentRoles — created on first use; no existing sheet is changed.

@@ -283,6 +283,7 @@ function groupFixture() {
   main.addStudents('cellinjury-tr-a', [{ username: 'ahmed', name: 'Student Ahmed', password: PW, mustChange: false }]);
   main.addStudents('inflhealing-tr-a', [{ username: 'ahmed', name: 'Student Ahmed', password: PW, mustChange: false }]);
   main.addStudents('cellinjury-tm-a', [{ username: 'sara', name: 'Student Sara', password: PW, mustChange: false }]);
+  main.call({ module: 'portal', action: 'rosterImport', token: t, groupId: ra.groupId }); main.call({ module: 'portal', action: 'rosterImport', token: t, groupId: ma.groupId });
   main.call({ module: 'portal', action: 'logout', token: t });
   GRP = true; return GRP;
 }
@@ -338,6 +339,53 @@ test('group page: changing ?g= to another university gives no access; an unknown
   await p.goto(url + '?g=tr-a'); await p.waitForSelector('.hero .grp');
   assert.strictEqual(await p.getAttribute('.top a.tportal', 'href'), '/#/teacher');
   await p.context().close();
+});
+
+test('roster: Admin adds a student → temporary password → the student signs in on the group page, chooses a password, opens the modules', { skip: SKIP }, async function () {
+  groupFixture();
+  const p = await page();
+  await p.goto(url + '#/teacher');
+  await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+  await p.waitForSelector('#t-dir details.dir');
+  await p.click('#t-dir summary');
+  await p.waitForSelector('#t-dir .dir-tab[data-t=students]');
+  await p.click('#t-dir .dir-tab[data-t=students]');
+  await p.selectOption('#t-dir [data-k=rg]', { label: 'Test Razi · Group A (2026-27)' });
+  await p.waitForSelector('#t-dir .roster-add');
+  assert.match(await p.textContent('#t-dir .roster'), /Cell Injury & Cell Death[\s\S]*Inflammation & Healing/);
+  await p.fill('#t-dir .roster-add textarea', 'R100, Laila Hassan\nbad id!, Nope');
+  await p.click('#t-dir .roster-add button[type=submit]');
+  await p.waitForSelector('#t-dir .roster-res code.pw');
+  const temp = (await p.textContent('#t-dir .roster-res code.pw')).trim();
+  assert.ok(temp.length >= 8);
+  assert.match(await p.textContent('#t-dir .roster-res'), /not valid/);
+  const row = p.locator('#t-dir .roster-tbl tr', { hasText: 'r100' });
+  assert.match(await row.textContent(), /Laila Hassan[\s\S]*✓ temp[\s\S]*✓ temp/);
+  if (process.env.SHOTS) await (await p.$('#t-dir')).screenshot({ path: path.join(process.env.SHOTS, 'roster.png') });
+  // the student, on the group page
+  const q = await page();
+  await q.goto(url + '?g=tr-a');
+  await q.waitForSelector('form.signin');
+  await signIn(q, 'R100', temp);
+  await q.waitForSelector('#p-n1');
+  assert.match(await q.textContent('form.signin'), /Choose your own password/);
+  await q.fill('#p-n1', 'laila-own-pass'); await q.fill('#p-n2', 'laila-own-pass'); await q.click('form.signin button[type=submit]');
+  await q.waitForSelector('.mod[data-id="inflhealing"] .go');
+  assert.match(await q.textContent('.card.welcome'), /Laila Hassan/);
+  ['cellinjury-tr-a', 'inflhealing-tr-a'].forEach(function (st) {
+    const r = main.call({ module: st, action: 'studentLogin', username: 'r100', password: 'laila-own-pass' });
+    assert.ok(r.ok && !r.mustChange, st + ' has the new password');
+    assert.strictEqual(main.call({ module: st, action: 'studentLogin', username: 'r100', password: temp }).ok, false);
+  });
+  assert.strictEqual(main.call({ module: 'cellinjury-tm-a', action: 'studentLogin', username: 'r100', password: 'laila-own-pass' }).ok, false, 'not at the other university');
+  // Admin deactivates her: the group page refuses her
+  await row.locator('[data-a=act]').click();
+  await p.waitForFunction(function () { return /Deactivated/.test((document.querySelector('.toast') || {}).textContent || ''); });
+  const q2 = await page();
+  await q2.goto(url + '?g=tr-a'); await q2.waitForSelector('form.signin');
+  await signIn(q2, 'r100', 'laila-own-pass');
+  await q2.waitForFunction(function () { return /Incorrect Student ID or password/.test(document.querySelector('form.signin .err').textContent); });
+  await p.context().close(); await q.context().close(); await q2.context().close();
 });
 
 test('the front page fits a phone screen', { skip: SKIP }, async function () {

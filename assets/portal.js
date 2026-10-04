@@ -164,16 +164,44 @@
       signIn(u, p, r).then(function (x) {
         btn.disabled = false; btn.textContent = 'Sign in';
         if (!x.ok) { err.textContent = x.error; $('#p-p', f).select(); return; }
-        var want = PENDING; PENDING = null;
-        if (want) {
-          var m = MODULES.filter(function (y) { return y.id === want; })[0], s = session(), acc = m && s.modules[m.moduleKey];
-          if (m && acc && acc.access) return openModule(m, acc, s.remember);
-          if (m) toast('“' + m.title + '” is not registered for your account.');
-        }
-        header(); viewHome();
+        if (x.mustChange && GINFO) return choosePassword(f, u, p, r);   // a temporary password: choose your own first (all modules)
+        afterSignIn();
       });
     };
     return f;
+  }
+  /** Group page, first sign-in with a temporary password: the student chooses a password, set in all of the group's modules. */
+  function choosePassword(f, u, oldPw, remember) {
+    f.innerHTML = '<h2>Choose your own password</h2><p class="small muted">For your security, choose a new password before you continue (at least 8 characters, not your Student ID). It will be used for all your modules.</p>' +
+      '<label>New password<input id="p-n1" type="password" autocomplete="new-password"></label><label>Repeat new password<input id="p-n2" type="password" autocomplete="new-password"></label><p class="err" role="alert"></p><button class="btn primary full" type="submit">Save and continue</button>';
+    var err = $('.err', f), btn = $('button', f);
+    setTimeout(function () { var i = $('#p-n1', f); if (i) i.focus(); }, 30);
+    f.onsubmit = function (e) {
+      e.preventDefault();
+      var n1 = $('#p-n1', f).value, n2 = $('#p-n2', f).value;
+      if (n1.length < 8) { err.textContent = 'The new password must be at least 8 characters.'; return; }
+      if (n1 !== n2) { err.textContent = 'The two passwords are different.'; return; }
+      btn.disabled = true; err.textContent = '';
+      post(CFG.backendUrl, { module: 'portal', action: 'portalGroupSetPassword', g: GINFO.group.linkCode, username: u, password: oldPw, newPassword: n1 }).then(function (r) {
+        if (!r.ok) { btn.disabled = false; err.textContent = r.error || 'Could not change the password.'; return; }
+        return signIn(u, n1, remember).then(function (x) {
+          btn.disabled = false;
+          if (!x.ok) { err.textContent = x.error; return; }
+          toast('Password saved. Use it for all your modules.');
+          afterSignIn();
+        });
+      });
+    };
+  }
+  /** After a successful sign-in: open the module the student clicked first (if allowed), otherwise show the page. */
+  function afterSignIn() {
+    var want = PENDING; PENDING = null;
+    if (want) {
+      var m = MODULES.filter(function (y) { return y.id === want; })[0], s = session(), acc = m && s.modules[m.moduleKey];
+      if (m && acc && acc.access) return openModule(m, acc, s.remember);
+      if (m) toast('“' + m.title + '” is not registered for your account.');
+    }
+    header(); viewHome();
   }
   /** Asks each backend about its own released modules (in parallel) and merges the answers. */
   function signIn(u, p, remember) {
@@ -183,7 +211,7 @@
       Object.keys(mods).forEach(function (k) { if (mods[k].expiresAt) exp = Math.max(exp, mods[k].expiresAt); });
       MODULES.forEach(function (m) { if (m.status === 'available' && !mods[m.moduleKey]) mods[m.moduleKey] = { access: false, reason: 'notregistered' }; });
       sset(KEY, { student: r.student, modules: mods, remember: remember, at: Date.now(), expiresAt: exp || Date.now() + 12 * 3600000 }, remember);
-      return { ok: true };
+      return { ok: true, mustChange: Object.keys(mods).some(function (k) { return mods[k].access && mods[k].mustChange; }) };
     });
     var byBackend = {};
     MODULES.forEach(function (m) { if (m.status === 'available' && m.moduleKey) (byBackend[backendOf(m)] = byBackend[backendOf(m)] || []).push(m.moduleKey); });
@@ -450,15 +478,16 @@
       $('[data-a=act]', r).onclick = function () { if (!active || window.confirm('Deactivate this record? Nothing is deleted, and it can be activated again.')) setActive(kind, id, !active); };
       return r;
     }
-    var TABS = [['institutions', 'Institutions'], ['groups', 'Groups'], ['modules', 'Modules'], ['deliveries', 'Deliveries'], ['existing', 'Existing data']];
+    var TABS = [['institutions', 'Institutions'], ['groups', 'Groups'], ['modules', 'Modules'], ['deliveries', 'Deliveries'], ['students', 'Students'], ['existing', 'Existing data']];
+    var rosterGroup = '', lastAdded = null;
     function draw() {
       body.innerHTML = '';
-      body.appendChild(h('<div class="note small" style="margin-bottom:12px"><b>Step 1 — directory only.</b> These records are stored but do not yet change who can sign in or open anything. Records are never deleted; deactivate them instead.</div>'));
+      body.appendChild(h('<div class="note small" style="margin-bottom:12px">The directory decides what each <b>group page</b> (…/?g=link code) shows and who can sign in there: a student needs to be in the group (Students) and the module delivered to the group (Deliveries). The main front page and teacher access are not affected yet. Records are never deleted; deactivate them instead.</div>'));
       var nav = h('<div class="dir-tabs" role="tablist"></div>');
       TABS.forEach(function (t) { var b = h('<button type="button" role="tab" class="dir-tab' + (tab === t[0] ? ' on' : '') + '" data-t="' + t[0] + '">' + esc(t[1]) + '</button>'); b.onclick = function () { tab = t[0]; draw(); }; nav.appendChild(b); });
       body.appendChild(nav);
       var pane = h('<div class="dir-pane" data-pane="' + tab + '"></div>'); body.appendChild(pane);
-      ({ institutions: paneInst, groups: paneGroups, modules: paneModules, deliveries: paneDeliveries, existing: paneExisting })[tab](pane);
+      ({ institutions: paneInst, groups: paneGroups, modules: paneModules, deliveries: paneDeliveries, students: paneStudents, existing: paneExisting })[tab](pane);
     }
     var INST_F = [['name', 'Name', 'text', 'e.g. Al-Razi University'], ['shortName', 'Short name', 'text', 'e.g. Al-Razi'], ['sortOrder', 'Order', 'number']];
     function paneInst(pane) {
@@ -520,6 +549,84 @@
           '<div class="small muted">storage <code>' + esc(d.backendModule) + '</code>' + dates + ' · id ' + esc(d.deliveryId) + '</div>', 'delivery', d.deliveryId, d.active,
           function (r) { editRow(r, [['backendModule', 'Storage (fixed)', 'fixed'], ['status', 'Status', 'select', ST], ['openFrom', 'Opens', 'date'], ['openUntil', 'Closes', 'date']], d, function (o, b) { o.deliveryId = d.deliveryId; save('delivery', o, null, b); }); });
       }));
+    }
+    /* ---- Students (group rosters) ---- */
+    var ACC = { ok: ['✓', 'Account ready'], mustchange: ['✓ temp', 'Temporary password — must choose a new one at first sign-in'], missing: ['—', 'No account yet (press “Create missing accounts”)'], inactive: ['off', 'Account deactivated'], locked: ['🔒', 'Locked after wrong passwords (15 min)'] };
+    function rosterCall(action, o) { return dirCall(action, Object.assign({ groupId: rosterGroup }, o || {})); }
+    function paneStudents(pane) {
+      if (!D.groups.length) { pane.appendChild(h('<p class="muted small">Add a group first.</p>')); return; }
+      if (!rosterGroup || !byId('groups', 'groupId', rosterGroup)) rosterGroup = D.groups[0].groupId;
+      var sel = h('<label class="dir-gsel">Group<select data-k="rg">' + D.groups.map(function (g) { return '<option value="' + esc(g.groupId) + '"' + (g.groupId === rosterGroup ? ' selected' : '') + '>' + esc(groupLabel(g)) + (g.active ? '' : ' (inactive)') + '</option>'; }).join('') + '</select></label>');
+      $('select', sel).onchange = function () { rosterGroup = this.value; lastAdded = null; draw(); };
+      pane.appendChild(sel);
+      var box = h('<div class="roster"><p class="muted">Loading…</p></div>'); pane.appendChild(box);
+      rosterCall('rosterGet').then(function (r) {
+        if (!r.ok) { box.innerHTML = '<p class="err">' + esc(r.code === 'badaction' ? 'Update Portal.gs on the backend (version 1.5, see SETUP.md) to manage group students.' : r.error) + '</p>'; return; }
+        drawRoster(box, r);
+      });
+    }
+    function drawRoster(box, r) {
+      box.innerHTML = '';
+      var mods = r.modules || [], title = function (id) { var m = byId('modules', 'moduleId', id); return m ? m.title : id; };
+      box.appendChild(h('<p class="small muted">' + (mods.length ? 'Each student gets one account in every module of this group, all with the same password: ' + mods.map(function (m) { return '<b>' + esc(title(m.moduleId)) + '</b>'; }).join(', ') + '.' : 'This group has no modules yet — students can be added now; their accounts are created when you deliver a module to the group (Deliveries).') + ' Students sign in on the group\'s own page (Groups → Student link).</p>'));
+      var tools = h('<div class="roster-tools"></div>');
+      if (r.unlistedAccounts) { var imp = h('<button class="btn" type="button">⤓ Add ' + r.unlistedAccounts + ' existing account(s) to this group</button>'); imp.title = 'Accounts already made in this group\'s modules (in a module\'s Teacher Portal) that are not on the list yet'; imp.onclick = function () { imp.disabled = true; rosterCall('rosterImport').then(function (x) { if (!x.ok) { imp.disabled = false; return toast(x.error); } toast(x.added + ' student(s) added to the group.'); draw(); }); }; tools.appendChild(imp); }
+      var missing = r.members.some(function (m) { return m.active && Object.keys(m.accounts).some(function (k) { return m.accounts[k] === 'missing'; }); });
+      if (missing) { var sy = h('<button class="btn" type="button">＋ Create missing accounts</button>'); sy.onclick = function () { sy.disabled = true; rosterCall('rosterSync').then(function (x) { if (!x.ok) { sy.disabled = false; return toast(x.error); } toast(x.created + ' account(s) created.' + (x.needPasswordReset.length ? ' Reset the password of: ' + x.needPasswordReset.join(', ') : '')); draw(); }); }; tools.appendChild(sy); }
+      if (tools.children.length) box.appendChild(tools);
+      // add students
+      var add = h('<form class="roster-add" novalidate><h3>Add students</h3><label>One student per line: <b>Student ID, Name</b>, Email (optional), Password (optional)<textarea data-k="list" rows="4" placeholder="2026001, Mona Ali\n2026002, Omar Saleh, omar@example.org"></textarea></label>' +
+        '<label class="chk"><input type="checkbox" data-k="mc" checked> Students choose their own password at first sign-in (always so for generated passwords)</label><div class="dir-act"><button class="btn primary" type="submit">＋ Add to group</button></div></form>');
+      add.onsubmit = function (e) {
+        e.preventDefault();
+        var lines = $('[data-k=list]', add).value.split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
+        if (!lines.length) return toast('Enter at least one student.');
+        var list = lines.map(function (l) { var c = l.split(/\s*[,;\t]\s*/); return { studentId: c[0] || '', name: c[1] || '', email: c[2] || '', password: c[3] || '' }; });
+        var b = $('button', add); b.disabled = true;
+        rosterCall('rosterAdd', { students: list, mustChange: $('[data-k=mc]', add).checked }).then(function (x) {
+          b.disabled = false;
+          if (!x.ok) return toast(x.error);
+          lastAdded = x.results; toast(x.added + ' student(s) added.'); draw();
+        });
+      };
+      box.appendChild(add);
+      if (lastAdded) box.appendChild(addedPanel(lastAdded));
+      // the list
+      box.appendChild(h('<h3>Students in this group (' + r.members.length + ')</h3>'));
+      if (!r.members.length) { box.appendChild(h('<p class="muted small">No students yet.</p>')); return; }
+      var tb = h('<div class="tbl-wrap"><table class="dir-tbl roster-tbl"><thead><tr><th>Student ID</th><th>Name</th><th>Status</th>' + mods.map(function (m) { return '<th>' + esc(title(m.moduleId)) + '</th>'; }).join('') + '<th></th></tr></thead><tbody></tbody></table></div>');
+      r.members.forEach(function (m) {
+        var tr = h('<tr' + (m.active ? '' : ' class="off"') + '><td><code>' + esc(m.studentId) + '</code></td><td>' + esc(m.name) + (m.email ? '<div class="small muted">' + esc(m.email) + '</div>' : '') + '</td><td>' + activePill(m) + (m.samePassword ? '' : '<div class="small warn-t" title="These accounts were created separately, so their passwords may differ. Reset the password to give all of this group\'s modules the same one.">passwords set separately</div>') + '</td>' +
+          mods.map(function (x) { var a = ACC[m.accounts[x.moduleId]] || ACC.missing; return '<td title="' + esc(a[1]) + '">' + esc(a[0]) + '</td>'; }).join('') +
+          '<td><div class="roster-btns"><button class="btn" type="button" data-a="pw">Reset password</button><button class="btn" type="button" data-a="ed">Edit</button><button class="btn' + (m.active ? ' danger' : '') + '" type="button" data-a="act">' + (m.active ? 'Deactivate' : 'Activate') + '</button></div></td></tr>');
+        $('[data-a=pw]', tr).onclick = function () {
+          if (!window.confirm('Give ' + m.studentId + ' a new temporary password for all of this group\'s modules? Their current password stops working.')) return;
+          rosterCall('rosterResetPassword', { studentId: m.studentId }).then(function (x) { if (!x.ok) return toast(x.error); lastAdded = [{ ok: true, studentId: m.studentId, name: m.name, tempPassword: x.tempPassword, reset: true }]; draw(); });
+        };
+        $('[data-a=ed]', tr).onclick = function () {
+          var n = window.prompt('Name of ' + m.studentId, m.name); if (n == null) return;
+          var em = window.prompt('Email of ' + m.studentId + ' (optional)', m.email || ''); if (em == null) return;
+          rosterCall('rosterSave', { studentId: m.studentId, name: n, email: em }).then(function (x) { if (!x.ok) return toast(x.error); toast('Saved.'); draw(); });
+        };
+        $('[data-a=act]', tr).onclick = function () {
+          if (m.active && !window.confirm('Deactivate ' + m.studentId + '? They lose access to all of this group\'s modules at once (nothing is deleted).')) return;
+          rosterCall('rosterSetActive', { studentId: m.studentId, active: !m.active }).then(function (x) { if (!x.ok) return toast(x.error); toast(m.active ? 'Deactivated.' : 'Activated.'); draw(); });
+        };
+        $('tbody', tb).appendChild(tr);
+      });
+      box.appendChild(tb);
+    }
+    function addedPanel(results) {
+      var ok = results.filter(function (x) { return x.ok; }), bad = results.filter(function (x) { return !x.ok; });
+      var withPw = ok.filter(function (x) { return x.tempPassword; });
+      var p = h('<div class="note roster-res"><b>' + (ok.length && ok[0].reset ? 'New temporary password' : ok.length + ' student(s) added') + '</b>' +
+        (withPw.length ? '<p class="small">Give each student their temporary password <b>now</b> — it is shown only this once. They choose their own password at first sign-in.</p><div class="tbl-wrap"><table class="dir-tbl"><thead><tr><th>Student ID</th><th>Name</th><th>Temporary password</th></tr></thead><tbody>' +
+          withPw.map(function (x) { return '<tr><td><code>' + esc(x.studentId) + '</code></td><td>' + esc(x.name || '') + '</td><td><code class="pw">' + esc(x.tempPassword) + '</code></td></tr>'; }).join('') + '</tbody></table></div><button class="btn" type="button" data-a="cp">📋 Copy the list</button>' : '') +
+        ok.filter(function (x) { return x.keptExisting && x.keptExisting.length; }).map(function (x) { return '<p class="small warn-t">' + esc(x.studentId) + ' already had an account in ' + esc(x.keptExisting.join(', ')) + ' — kept with its own password (use Reset password to align).</p>'; }).join('') +
+        (bad.length ? '<p class="small err">' + bad.map(function (x) { return esc(x.error); }).join('<br>') + '</p>' : '') + '</div>');
+      var cp = $('[data-a=cp]', p);
+      if (cp) cp.onclick = function () { var t = withPw.map(function (x) { return x.studentId + '\t' + (x.name || '') + '\t' + x.tempPassword; }).join('\n'); var ta = h('<textarea style="position:absolute;left:-9999px"></textarea>'); ta.value = t; document.body.appendChild(ta); copyText(t, ta); setTimeout(function () { ta.remove(); }, 2000); };
+      return p;
     }
     function paneExisting(pane) {
       pane.appendChild(h('<p class="small muted">Storage names already present in your data (read-only — nothing is changed). Register one by creating a group whose link code matches the part after “-” and delivering the module to it; the storage of the normal link (no “-”) is registered with the “existing storage of the normal link” option.</p>'));

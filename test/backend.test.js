@@ -335,6 +335,9 @@ function groupsSetup() {
   acct('cellinjury-razi-a-26', [{ username: 'ahmed', name: 'Student Ahmed', password: PW, mustChange: false }]);
   acct('inflhealing-razi-a-26', [{ username: 'ahmed', name: 'Student Ahmed', password: PW, mustChange: false }]);
   acct('cellinjury-misrata-a-26', [{ username: 'sara', name: 'Student Sara', password: PW, mustChange: false }]);
+  // Step 3: the group page needs a roster membership — import the accounts made above
+  assert.strictEqual(S.dir('rosterImport', { groupId: S.ra.groupId }).added, 1);
+  assert.strictEqual(S.dir('rosterImport', { groupId: S.ma.groupId }).added, 1);
   return S;
 }
 
@@ -406,4 +409,114 @@ test('group page: opening dates — before opening shown as not yet released, af
   assert.strictEqual(info.modules[1].status, 'closed');
   const r = S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: 'ahmed', password: PW });
   assert.strictEqual(r.ok, false); assert.strictEqual(r.code, 'noopen');
+});
+
+/* ---------------- Step 3: group rosters ---------------- */
+function login(S, storage, id, pw) { return S.call({ module: storage, action: 'studentLogin', username: id, password: pw }); }
+const RA = ['cellinjury-razi-a-26', 'inflhealing-razi-a-26'];
+
+test('roster: Admin only', function () {
+  const S = groupsSetup();
+  const stu = S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: 'ahmed', password: PW }).modules.cellinjury.token;
+  [{ stoken: stu }, { token: S.tokens.cellinjury }, {}].forEach(function (auth) {
+    ['rosterGet', 'rosterAdd', 'rosterSave', 'rosterSetActive', 'rosterResetPassword', 'rosterSync', 'rosterImport'].forEach(function (a) {
+      assert.strictEqual(S.call(Object.assign({ module: 'portal', action: a, groupId: S.ra.groupId, studentId: 'ahmed', students: [{ studentId: 'x1', name: 'X One' }] }, auth)).ok, false, a);
+    });
+  });
+});
+
+test('roster: adding a student creates one account in every module of the group, with one password', function () {
+  const S = groupsSetup();
+  const r = S.dir('rosterAdd', { groupId: S.ra.groupId, students: [
+    { studentId: 'R001', name: 'Mona Ali', email: 'mona@example.org' },
+    { studentId: 'r002', name: 'Omar Saleh', password: 'chosen-pass-1' },
+    { studentId: 'ahmed', name: 'Student Ahmed' },
+    { studentId: 'bad id!', name: 'Nope' }] });
+  assert.ok(r.ok, JSON.stringify(r));
+  assert.strictEqual(r.added, 2);
+  const mona = r.results[0], omar = r.results[1];
+  assert.strictEqual(mona.studentId, 'r001'); assert.ok(mona.tempPassword && mona.tempPassword.length >= 8, 'generated password shown once');
+  assert.strictEqual(omar.tempPassword, '');
+  assert.match(r.results[2].error, /already in this group/); assert.match(r.results[3].error, /not valid/);
+  RA.forEach(function (st) {
+    const a = login(S, st, 'r001', mona.tempPassword); assert.ok(a.ok && a.mustChange === true, st + ' ' + JSON.stringify(a));
+    assert.ok(login(S, st, 'r002', 'chosen-pass-1').ok, st);
+  });
+  assert.strictEqual(login(S, 'cellinjury-misrata-a-26', 'r001', mona.tempPassword).ok, false, 'not in the other university');
+  const g = S.dir('rosterGet', { groupId: S.ra.groupId });
+  const m = g.members.filter(function (x) { return x.studentId === 'r001'; })[0];
+  assert.deepStrictEqual(m.accounts, { cellinjury: 'mustchange', inflhealing: 'mustchange' }); assert.strictEqual(m.samePassword, true);
+  assert.deepStrictEqual(g.modules.map(function (x) { return x.storage; }), RA);
+  assert.strictEqual(JSON.stringify(g).indexOf('pwHash'), -1);
+});
+
+test('roster: the group page needs an active membership; deactivating it closes every module of the group at once', function () {
+  const S = groupsSetup();
+  // an account made in a module without being on the roster does not open the group page
+  S.call({ module: 'cellinjury-razi-a-26', action: 'login', password: 'teacher-cellinjury-razi-a-26' });
+  const t = S.call({ module: 'cellinjury-razi-a-26', action: 'login', password: 'teacher-cellinjury-razi-a-26' }).token;
+  S.call({ module: 'cellinjury-razi-a-26', action: 'bulkAddStudents', token: t, students: [{ username: 'loner', name: 'Not Listed', password: PW, mustChange: false }] });
+  assert.strictEqual(S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: 'loner', password: PW }).error, 'Incorrect Student ID or password.');
+  assert.strictEqual(S.dir('rosterGet', { groupId: S.ra.groupId }).unlistedAccounts, 1);
+  assert.strictEqual(S.dir('rosterImport', { groupId: S.ra.groupId }).added, 1);
+  assert.ok(S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: 'loner', password: PW }).ok, 'imported → can use the group page');
+  // deactivate Ahmed: group page refused, module sign-in refused, open sessions end
+  const ses = S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: 'ahmed', password: PW }).modules.inflhealing.token;
+  assert.ok(S.dir('rosterSetActive', { groupId: S.ra.groupId, studentId: 'ahmed', active: false }).ok);
+  assert.strictEqual(S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: 'ahmed', password: PW }).ok, false);
+  RA.forEach(function (st) { assert.strictEqual(login(S, st, 'ahmed', PW).ok, false, st); });
+  assert.strictEqual(S.call({ module: 'inflhealing-razi-a-26', action: 'studentSession', stoken: ses }).ok, false, 'session ended');
+  assert.ok(S.dir('rosterSetActive', { groupId: S.ra.groupId, studentId: 'ahmed', active: true }).ok);
+  assert.ok(S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: 'ahmed', password: PW }).ok);
+});
+
+test('roster: a module delivered later gets the members\' accounts automatically, with their current password', function () {
+  const S = groupsSetup();
+  S.dir('rosterAdd', { groupId: S.ma.groupId, students: [{ studentId: 'm1', name: 'Misrata One', password: 'misrata-pass-1' }] });
+  S.save('module', { moduleId: 'inflhealing', title: 'Inflammation & Healing' });
+  const d = S.save('delivery', { groupId: S.ma.groupId, moduleId: 'inflhealing', status: 'available' });
+  assert.strictEqual(d.record.backendModule, 'inflhealing-misrata-a-26');
+  assert.ok(login(S, 'inflhealing-misrata-a-26', 'm1', 'misrata-pass-1').ok, 'account created with the same password');
+  assert.ok(login(S, 'inflhealing-misrata-a-26', 'sara', PW).ok, 'imported members too');
+  assert.strictEqual(login(S, 'inflhealing-misrata-a-26', 'ahmed', PW).ok, false, 'never members of another group');
+});
+
+test('roster: reset password applies to all of the group\'s modules; the same Student ID in another university stays separate', function () {
+  const S = groupsSetup();
+  S.dir('rosterAdd', { groupId: S.ma.groupId, students: [{ studentId: 'ahmed', name: 'Another Ahmed', password: 'misrata-own-1' }] });
+  const r = S.dir('rosterResetPassword', { groupId: S.ra.groupId, studentId: 'ahmed' });
+  assert.ok(r.ok && r.tempPassword);
+  RA.forEach(function (st) { assert.strictEqual(login(S, st, 'ahmed', PW).ok, false); assert.ok(login(S, st, 'ahmed', r.tempPassword).mustChange); });
+  assert.ok(login(S, 'cellinjury-misrata-a-26', 'ahmed', 'misrata-own-1').ok, 'Misrata\'s Ahmed is untouched');
+  assert.ok(S.dir('rosterSave', { groupId: S.ra.groupId, studentId: 'ahmed', name: 'Ahmed Mohamed', email: '' }).ok);
+  assert.strictEqual(S.dir('rosterGet', { groupId: S.ra.groupId }).members.filter(function (m) { return m.studentId === 'ahmed'; })[0].name, 'Ahmed Mohamed');
+});
+
+test('student password change on the group page: current password required, new one set in every module of the group', function () {
+  const S = groupsSetup();
+  const call = function (o) { return S.call(Object.assign({ module: 'portal', action: 'portalGroupSetPassword', g: 'razi-a-26', username: 'ahmed' }, o)); };
+  assert.strictEqual(call({ password: 'wrong', newPassword: 'new-pass-123' }).ok, false);
+  assert.match(call({ password: PW, newPassword: 'short' }).error, /at least/);
+  assert.match(call({ password: PW, newPassword: 'ahmed' + '' }).error, /at least|student ID/);
+  assert.strictEqual(S.call({ module: 'portal', action: 'portalGroupSetPassword', g: 'misrata-a-26', username: 'ahmed', password: PW, newPassword: 'new-pass-123' }).ok, false, 'not a member there');
+  assert.ok(call({ password: PW, newPassword: 'new-pass-123' }).ok);
+  RA.forEach(function (st) { assert.strictEqual(login(S, st, 'ahmed', PW).ok, false); const a = login(S, st, 'ahmed', 'new-pass-123'); assert.ok(a.ok && !a.mustChange, st); });
+  assert.ok(S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: 'ahmed', password: 'new-pass-123' }).ok);
+});
+
+test('student password change INSIDE a module of the group is applied to the group\'s other modules (Code.gs behaviour otherwise)', function () {
+  const S = groupsSetup();
+  const a = login(S, 'cellinjury-razi-a-26', 'ahmed', PW), other = login(S, 'inflhealing-razi-a-26', 'ahmed', PW);
+  const r = S.call({ module: 'cellinjury-razi-a-26', action: 'studentChangePassword', stoken: a.token, oldPassword: PW, newPassword: 'module-pass-9' });
+  assert.ok(r.ok, JSON.stringify(r)); assert.ok('contentKey' in r);
+  assert.strictEqual(S.call({ module: 'cellinjury-razi-a-26', action: 'studentSession', stoken: a.token }).role, 'student', 'the session that changed it stays signed in');
+  assert.strictEqual(S.call({ module: 'inflhealing-razi-a-26', action: 'studentSession', stoken: other.token }).ok, false, 'other devices/modules are signed out');
+  assert.ok(login(S, 'inflhealing-razi-a-26', 'ahmed', 'module-pass-9').ok, 'new password in the other module');
+  // same messages as Code.gs
+  const b = login(S, 'cellinjury-razi-a-26', 'ahmed', 'module-pass-9');
+  assert.strictEqual(S.call({ module: 'cellinjury-razi-a-26', action: 'studentChangePassword', stoken: b.token, oldPassword: 'nope', newPassword: 'xxxxxxxx9' }).error, 'Your current password is incorrect.');
+  // a module that is not part of a group (or a student not on a roster): Code.gs alone, unchanged
+  const c = login(S, 'cellinjury', 's1', PW);
+  assert.ok(S.call({ module: 'cellinjury', action: 'studentChangePassword', stoken: c.token, oldPassword: PW, newPassword: 'plain-pass-77' }).ok);
+  assert.ok(login(S, 'cellinjury', 's1', 'plain-pass-77').ok); assert.ok(login(S, 'inflhealing', 's1', PW).ok, 'other plain module unchanged');
 });

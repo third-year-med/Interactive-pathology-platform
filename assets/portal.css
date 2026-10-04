@@ -155,3 +155,14 @@ details.dir[open]>summary::before{content:'▾'}
 .grp-url{flex:1 1 260px;min-width:0;font:inherit;font-size:13px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:#f7f9fb;color:var(--ink)}
 .grp-link .btn{padding:6px 10px;font-size:13px}
 .warn-t{color:#9a5b00;margin-top:4px}
+/* Group rosters */
+.dir-gsel{display:block;max-width:420px;margin:12px 0 4px}
+.roster-tools{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+.roster-add{margin-top:10px}
+.roster-add textarea{display:block;width:100%;margin-top:4px;font:inherit;font-size:14px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;resize:vertical}
+.roster-res{margin:12px 0}
+.roster-tbl td{vertical-align:top}
+.roster-tbl tr.off td{opacity:.65}
+.roster-btns{display:flex;gap:6px}
+.roster-btns .btn{padding:5px 9px;font-size:12.5px}
+code.pw{font-size:14px;font-weight:700;letter-spacing:.03em}
