@@ -81,10 +81,10 @@
     document.getElementById('foot').innerHTML = '<span>' + esc(CFG.title || 'Interactive Pathology Teaching Platform') + '</span><span>' + esc(CREATED) + '</span>';
     var who = document.getElementById('who'), s = session(), teacherView = /^#\/teacher/.test(location.hash);
     who.innerHTML = '';
-    var tLabel = teacherView ? 'Platform Home' : (tsess() ? 'Teacher Dashboard' : 'Teacher Sign-In');
+    var tLabel = teacherView ? 'Platform Home' : (tget() ? 'Teacher Dashboard' : 'Teacher Sign-In');
     var tp = h('<a class="btn tportal" href="' + (teacherView ? '#/' : (GROUP ? esc(location.pathname) : '') + '#/teacher') + '"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3l9 4-9 4-9-4 9-4z" fill="currentColor"/><path d="M6 9.5V14c0 1.7 2.7 3 6 3s6-1.3 6-3V9.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M21 7v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>' + tLabel + '</span></a>');
     who.appendChild(tp);
-    if (teacherView && tsess()) { var tb = h('<button class="btn ghost" type="button">Sign out</button>'); tb.onclick = teacherSignOut; who.appendChild(tb); }
+    if (teacherView && tget()) { var tb = h('<button class="btn ghost" type="button">Sign out</button>'); tb.onclick = teacherSignOut; who.appendChild(tb); }
     if (s && !teacherView) {
       who.appendChild(h('<span class="nm" title="Signed in">👤 ' + esc(s.student.name || s.student.username) + '</span>'));
       var b = h('<button class="btn ghost" type="button">Sign out</button>'); b.onclick = signOut; who.appendChild(b);
@@ -289,8 +289,10 @@
   }
 
   /* ---------------- teacher: one sign-in → Teacher Dashboard ---------------- */
-  function tget() { var t = sget(TKEY); return t && t.token && (!t.exp || t.exp > Date.now()) ? t : null; }
-  function tsess() { var t = tget(); return t ? t.token : null; }
+  /* TKEY holds either the Admin session {token} or a personal teacher session {role:'teacher', ttoken, user} */
+  function tget() { var t = sget(TKEY); return t && (t.token || t.ttoken) && (!t.exp || t.exp > Date.now()) ? t : null; }
+  function tsess() { var t = tget(); return t && t.role !== 'teacher' ? t.token : null; }   // Admin only
+  function tteach() { var t = tget(); return t && t.role === 'teacher' ? t : null; }
   function lsGet(k) { try { var v = window.localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
   function lsSet(k, v) { try { window.localStorage.setItem(k, JSON.stringify(v)); } catch (e) { } }
   function lsDel(k) { try { window.localStorage.removeItem(k); } catch (e) { } }
@@ -332,6 +334,11 @@
   }
   function teacherSignOut() {
     var t = tget() || sget(TKEY) || {}, list = [];
+    if (t.role === 'teacher') {   // the backend ends this session and every module session opened from it
+      Object.keys(t.mods || {}).forEach(function (k) { var x = t.mods[k], cur = x.prefix && lsGet(x.prefix + 'backend_token_v1'); if (cur && cur.token === x.token) lsDel(x.prefix + 'backend_token_v1'); });
+      post(CFG.backendUrl, { module: 'portal', action: 'teacherLogout', ttoken: t.ttoken }, { keepalive: true });
+      sdel(TKEY); location.hash = '#/'; route(); toast('You have signed out.'); return;
+    }
     Object.keys(t.mods || {}).forEach(function (k) {
       var x = t.mods[k]; list.push({ module: k, token: x.token });
       var cur = x.prefix && lsGet(x.prefix + 'backend_token_v1'); if (cur && cur.token === x.token) lsDel(x.prefix + 'backend_token_v1');
@@ -344,8 +351,9 @@
   function viewTeacher() {
     var tok = tsess();
     main.innerHTML = '';
+    if (tteach()) return viewMyTeaching();
     if (!tok) {
-      main.appendChild(h('<div class="t-head"><h1 class="page-h">Teacher Sign-In</h1><p class="muted">One teacher account for the whole platform: the Teacher Dashboard, every teaching module and all management functions.</p></div>'));
+      main.appendChild(h('<div class="t-head"><h1 class="page-h">Teacher Sign-In</h1><p class="muted">Teachers: sign in with your username and password to open the groups and modules assigned to you. Administrator: leave the username empty.</p></div>'));
       return main.appendChild(teacherLogin());
     }
     main.appendChild(h('<div class="t-head"><h1 class="page-h">Teacher Dashboard</h1><p class="muted">Signed in as teacher. Open any module directly, or manage the platform below.</p></div>'));
@@ -380,7 +388,8 @@
   function teacherLogin() {
     var setup = INFO && !INFO.hasTeacher;
     var f = h('<form class="card t-login" style="max-width:440px" novalidate><h2 style="margin-top:0;color:var(--navy);font-size:18px">' + (setup ? 'Create the teacher password' : 'Teacher sign-in') + '</h2><p class="small muted">' +
-      (setup ? 'No teacher account exists yet. Choose the platform teacher password (at least 8 characters).' : 'Enter the platform teacher password.') + '</p>' +
+      (setup ? 'No teacher account exists yet. Choose the platform teacher password (at least 8 characters).' : 'Teachers: your username and password. Administrator: leave the username empty.') + '</p>' +
+      (setup ? '' : '<label>Username<input id="t-u" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="e.g. dr.ahmed (empty for the Administrator)"></label>') +
       '<label>Password<input id="t-p" type="password" autocomplete="' + (setup ? 'new-password' : 'current-password') + '"></label>' + (setup ? '<label>Repeat it<input id="t-p2" type="password" autocomplete="new-password"></label>' : '') +
       '<p class="err" role="alert"></p><button class="btn primary full" type="submit">' + (setup ? 'Create password' : 'Sign in') + '</button>' +
       '<p class="small muted" style="margin:10px 0 0">Students do not sign in here — they use the Student sign-in on the Platform Home.</p></form>');
@@ -393,7 +402,17 @@
         btn.disabled = true;
         return post(CFG.backendUrl, { module: 'portal', action: 'setup', password: pw }).then(function (r) { if (!r.ok) { btn.disabled = false; err.textContent = r.error; return; } INFO.hasTeacher = true; login(); });
       }
-      btn.disabled = true; login();
+      var un = ($('#t-u', f) || {}).value; un = (un || '').trim();
+      btn.disabled = true;
+      if (un && un.toLowerCase() !== 'admin') {   // a personal teacher account
+        return post(CFG.backendUrl, { module: 'portal', action: 'teacherLogin', username: un, password: pw }).then(function (r) {
+          btn.disabled = false;
+          if (!r.ok) { err.textContent = r.code === 'badaction' ? 'Teacher accounts need the updated Portal.gs on the backend (version 1.6).' : (r.error || 'Sign-in failed.'); return; }
+          sset(TKEY, { role: 'teacher', ttoken: r.ttoken, exp: r.expiresAt, user: r.user, mods: {} }, false);
+          route();
+        });
+      }
+      login();
       function login() {
         post(CFG.backendUrl, { module: 'portal', action: 'login', password: pw }).then(function (r) {
           btn.disabled = false;
@@ -404,6 +423,95 @@
     };
     return f;
   }
+  /* ---------------- a personal teacher's dashboard: only the assigned group + module combinations ---------------- */
+  function viewMyTeaching() {
+    var t = tteach(), u = t.user || {};
+    main.innerHTML = '';
+    main.appendChild(h('<div class="t-head"><h1 class="page-h">Teacher Dashboard</h1><p class="muted">Signed in as <b>' + esc(u.name || u.username) + '</b> (' + esc(u.username) + '). These are the groups and modules assigned to you.</p></div>'));
+    var bar = h('<div class="roster-tools"><button class="btn" type="button">🔑 Change my password</button></div>'); main.appendChild(bar);
+    $('button', bar).onclick = function () { teacherPwForm(false); };
+    var box = h('<section class="t-sec" id="t-mine"><p class="muted">Loading…</p></section>'); main.appendChild(box);
+    if (u.mustChange) return teacherPwForm(true);
+    post(CFG.backendUrl, { module: 'portal', action: 'teacherMe', ttoken: t.ttoken }).then(function (r) {
+      if (!r.ok) { if (r.code === 'auth') { sdel(TKEY); toast('Your teacher session has ended — please sign in again.'); return route(); } box.innerHTML = '<p class="err">' + esc(r.error) + '</p>'; return; }
+      var cur = tteach(); if (cur) { cur.user = r.user; sset(TKEY, cur, false); }
+      if (r.user.mustChange) return teacherPwForm(true);
+      box.innerHTML = '';
+      if (!r.deliveries.length) { box.appendChild(h('<div class="card"><p>No group or module has been assigned to you yet. Please contact the platform administrator.</p></div>')); return; }
+      var byGroup = {}, order = [];
+      r.deliveries.forEach(function (d) { if (!byGroup[d.groupId]) { byGroup[d.groupId] = []; order.push(d.groupId); } byGroup[d.groupId].push(d); });
+      order.forEach(function (gid) {
+        var ds = byGroup[gid], g = ds[0], link = groupLink(g.linkCode);
+        var sec = h('<div class="t-sec my-group"><div class="sec-head"><h2>' + esc(g.institution) + ' · ' + esc(g.groupName) + (g.academicYear ? ' <span class="muted small">(' + esc(g.academicYear) + ')</span>' : '') + '</h2></div>' +
+          '<div class="grp-link"><span class="small">Student link:</span> <input class="grp-url" readonly value="' + esc(link) + '"> <button class="btn" type="button" data-a="copy">📋 Copy link</button></div><div class="grid t-grid"></div></div>');
+        var inp = $('.grp-url', sec); inp.onclick = function () { inp.select(); };
+        $('[data-a=copy]', sec).onclick = function () { copyText(link, inp); };
+        ds.forEach(function (d) { $('.t-grid', sec).appendChild(myCard(d)); });
+        box.appendChild(sec);
+      });
+    });
+  }
+  function myCard(d) {
+    var st = STATUS[d.status] || STATUS.soon, m = { id: d.moduleId, moduleKey: d.moduleId, icon: d.icon };
+    var el = h('<article class="mod t-card ' + (d.open ? 'open' : 'locked') + ' st-' + esc(d.status) + '" style="--c:' + esc(d.color) + '" data-id="' + esc(d.moduleId) + '" data-delivery="' + esc(d.deliveryId) + '">' +
+      '<div class="mod-top"><div class="mod-ico">' + iconHtml(m) + '</div><span class="pill ' + st.cls + '">' + st.icon + ' ' + esc(st.label) + '</span></div>' +
+      '<div class="mod-body">' + (d.subtitle ? '<div class="cat">' + esc(d.subtitle) + '</div>' : '') + '<h3>' + esc(d.title) + '</h3>' +
+      '<p class="msg">' + esc(d.open ? 'Opens in teacher mode for ' + d.groupName + ' only.' + (d.status !== 'available' ? ' Students cannot open it yet.' : '') : 'This module or group is not active at the moment.') + '</p>' +
+      '<div class="act">' + (d.open ? '<button class="btn primary t-open" type="button">Open module →</button><button class="btn t-admin" type="button">Teacher Portal</button>' : '<button class="btn" type="button" disabled>Not active</button>') + '</div></div></article>');
+    var o = $('.t-open', el), a = $('.t-admin', el);
+    if (o) o.onclick = function () { openMyDelivery(d, '', o); };
+    if (a) { a.title = 'Students, content, results and attendance of this group in this module'; a.onclick = function () { openMyDelivery(d, '#/teacher', a); }; }
+    return el;
+  }
+  /** Opens one assigned delivery: the backend checks the assignment and creates that delivery's own teacher session. */
+  function openMyDelivery(d, hash, btn) {
+    var t = tteach(); if (!t) return route();
+    var pfx = d.storagePrefix + (d.group ? d.group + '_' : ''), sk = d.moduleId + (d.group ? '-' + d.group : ''), dest = withHash(withGroup(d.url, d.group), hash);
+    var have = (t.mods || {})[sk], cur = lsGet(pfx + 'backend_token_v1');
+    var ready = have && have.token && have.expiresAt > Date.now() + 60000 && cur && cur.token === have.token ? Promise.resolve({ ok: true, token: have.token, expiresAt: have.expiresAt })
+      : post(CFG.backendUrl, { module: 'portal', action: 'teacherOpen', ttoken: t.ttoken, deliveryId: d.deliveryId });
+    if (btn) { btn.disabled = true; btn.dataset.l = btn.textContent; btn.textContent = 'Opening…'; }
+    ready.then(function (r) {
+      if (btn) { btn.disabled = false; btn.textContent = btn.dataset.l; }
+      if (!r.ok) {
+        if (r.code === 'auth') { sdel(TKEY); toast('Your teacher session has ended — please sign in again.'); return route(); }
+        if (r.code === 'mustchange') return teacherPwForm(true);
+        toast(r.error || 'This module cannot be opened.'); return;
+      }
+      lsSet(pfx + 'backend_token_v1', { token: r.token, expiresAt: r.expiresAt });
+      sdel(pfx + 'stu_session_v1');
+      t.mods = t.mods || {}; t.mods[sk] = { token: r.token, expiresAt: r.expiresAt, prefix: pfx };
+      sset(TKEY, t, false);
+      location.href = dest;
+    });
+  }
+  /** Change password (forced after a temporary password, or voluntary). */
+  function teacherPwForm(forced) {
+    var t = tteach(); if (!t) return route();
+    var box = $('#t-mine') || main;
+    box.innerHTML = '';
+    var f = h('<form class="card t-login" style="max-width:440px" novalidate><h2 style="margin-top:0;color:var(--navy);font-size:18px">' + (forced ? 'Choose your own password' : 'Change my password') + '</h2>' +
+      (forced ? '<p class="small muted">You signed in with a temporary password. Choose your own (at least 8 characters) to continue.</p>' : '') +
+      '<label>Current password<input id="tp-o" type="password" autocomplete="current-password"></label><label>New password<input id="tp-n1" type="password" autocomplete="new-password"></label><label>Repeat new password<input id="tp-n2" type="password" autocomplete="new-password"></label>' +
+      '<p class="err" role="alert"></p><button class="btn primary full" type="submit">Save new password</button>' + (forced ? '' : '<button class="btn full" type="button" data-a="cancel" style="margin-top:8px">Cancel</button>') + '</form>');
+    var c = $('[data-a=cancel]', f); if (c) c.onclick = function () { route(); };
+    f.onsubmit = function (e) {
+      e.preventDefault();
+      var err = $('.err', f), n1 = $('#tp-n1', f).value;
+      if (n1.length < 8) { err.textContent = 'The new password must be at least 8 characters.'; return; }
+      if (n1 !== $('#tp-n2', f).value) { err.textContent = 'The two passwords are different.'; return; }
+      var b = $('button[type=submit]', f); b.disabled = true;
+      post(CFG.backendUrl, { module: 'portal', action: 'teacherChangePassword', ttoken: t.ttoken, oldPassword: $('#tp-o', f).value, newPassword: n1 }).then(function (r) {
+        b.disabled = false;
+        if (!r.ok) { if (r.code === 'auth') { sdel(TKEY); return route(); } err.textContent = r.error || 'Could not change the password.'; return; }
+        var cur = tteach(); if (cur && cur.user) { cur.user.mustChange = false; sset(TKEY, cur, false); }
+        toast('Password changed.'); route();
+      });
+    };
+    box.appendChild(f);
+    setTimeout(function () { var i = $('#tp-o', f); if (i) i.focus(); }, 30);
+  }
+
   var FIELDS = [
     ['title', 'Title'], ['subtitle', 'Subtitle'], ['icon', 'Icon (emoji)'], ['color', 'Colour', 'color'], ['url', 'Link (https://…)'], ['note', 'Note on the card (optional)']
   ];
@@ -525,16 +633,17 @@
       $('[data-a=act]', r).onclick = function () { if (!active || window.confirm('Deactivate this record? Nothing is deleted, and it can be activated again.')) setActive(kind, id, !active); };
       return r;
     }
-    var TABS = [['institutions', 'Institutions'], ['groups', 'Groups'], ['modules', 'Modules'], ['deliveries', 'Deliveries'], ['students', 'Students'], ['existing', 'Existing data']];
+    var TABS = [['institutions', 'Institutions'], ['groups', 'Groups'], ['modules', 'Modules'], ['deliveries', 'Deliveries'], ['students', 'Students'], ['teachers', 'Teachers'], ['existing', 'Existing data']];
+    var teacherOut = null, openAssign = '';
     var rosterGroup = '', lastAdded = null;
     function draw() {
       body.innerHTML = '';
-      body.appendChild(h('<div class="note small" style="margin-bottom:12px">The directory decides what each <b>group page</b> (…/?g=link code) shows and who can sign in there: a student needs to be in the group (Students) and the module delivered to the group (Deliveries). The main front page and teacher access are not affected yet. Records are never deleted; deactivate them instead.</div>'));
+      body.appendChild(h('<div class="note small" style="margin-bottom:12px">The directory decides what each <b>group page</b> (…/?g=link code) shows and who can sign in there: a student needs to be in the group (Students) and the module delivered to the group (Deliveries). Personal teacher accounts (Teachers) see only the group + module combinations ticked for them. The main front page is not affected. Records are never deleted; deactivate them instead.</div>'));
       var nav = h('<div class="dir-tabs" role="tablist"></div>');
       TABS.forEach(function (t) { var b = h('<button type="button" role="tab" class="dir-tab' + (tab === t[0] ? ' on' : '') + '" data-t="' + t[0] + '">' + esc(t[1]) + '</button>'); b.onclick = function () { tab = t[0]; draw(); }; nav.appendChild(b); });
       body.appendChild(nav);
       var pane = h('<div class="dir-pane" data-pane="' + tab + '"></div>'); body.appendChild(pane);
-      ({ institutions: paneInst, groups: paneGroups, modules: paneModules, deliveries: paneDeliveries, students: paneStudents, existing: paneExisting })[tab](pane);
+      ({ institutions: paneInst, groups: paneGroups, modules: paneModules, deliveries: paneDeliveries, students: paneStudents, teachers: paneTeachers, existing: paneExisting })[tab](pane);
     }
     var INST_F = [['name', 'Name', 'text', 'e.g. Al-Razi University'], ['shortName', 'Short name', 'text', 'e.g. Al-Razi'], ['sortOrder', 'Order', 'number']];
     function paneInst(pane) {
@@ -718,6 +827,84 @@
       var cp = $('[data-a=cp]', p);
       if (cp) cp.onclick = function () { var t = withPw.map(function (x) { return x.studentId + '\t' + (x.name || '') + '\t' + x.tempPassword; }).join('\n'); var ta = h('<textarea style="position:absolute;left:-9999px"></textarea>'); ta.value = t; document.body.appendChild(ta); copyText(t, ta); setTimeout(function () { ta.remove(); }, 2000); };
       return p;
+    }
+    /* ---- Teachers: personal accounts + exact group + module assignments ---- */
+    function paneTeachers(pane) {
+      var box = h('<div class="teachers"><p class="muted">Loading…</p></div>'); pane.appendChild(box);
+      dirCall('teacherList').then(function (r) {
+        if (!r.ok) { box.innerHTML = '<p class="err">' + esc(r.code === 'badaction' ? 'Update Portal.gs on the backend (version 1.6, see SETUP.md) to create teacher accounts.' : r.error) + '</p>'; return; }
+        drawTeachers(box, r.teachers);
+      });
+    }
+    function drawTeachers(box, teachers) {
+      box.innerHTML = '';
+      box.appendChild(h('<p class="small muted">Each teacher signs in with their own username and password (Teacher Sign-In) and sees <b>only</b> the group + module combinations ticked here. You (Administrator) keep full access.</p>'));
+      var add = form([['username', 'Username (fixed, e.g. dr.ahmed)', 'text', 'letters, digits, dot, dash'], ['name', 'Name', 'text', 'e.g. Dr. Ahmed Ali'], ['email', 'Email (optional)'], ['password', 'Password (optional — empty = generated)', 'text']], {}, '＋ Add teacher', function (o, b) {
+        b.disabled = true;
+        dirCall('teacherSave', { create: true, record: o }).then(function (x) {
+          b.disabled = false; if (!x.ok) return toast(x.error);
+          teacherOut = { username: x.teacher.username, name: x.teacher.name, password: x.tempPassword }; openAssign = x.teacher.userId; toast('Teacher added — now tick their groups and modules.'); draw();
+        });
+      });
+      box.appendChild(h('<h3>Add a teacher</h3>')); box.appendChild(add);
+      if (teacherOut) {
+        var res = h('<div class="note roster-res"><b>Sign-in details for ' + esc(teacherOut.name) + '</b><p class="small">Give these to the teacher now — the password is shown only this once. They choose their own password at first sign-in (Teacher Sign-In on the Platform Home).</p>' +
+          '<div class="tbl-wrap"><table class="dir-tbl"><tbody><tr><th>Username</th><td><code>' + esc(teacherOut.username) + '</code></td></tr><tr><th>Temporary password</th><td><code class="pw">' + esc(teacherOut.password) + '</code></td></tr><tr><th>Sign-in page</th><td>' + esc(location.origin + location.pathname) + ' → Teacher Sign-In</td></tr></tbody></table></div>' +
+          '<button class="btn" type="button" data-a="cp">📋 Copy</button></div>');
+        var tx = 'Username: ' + teacherOut.username + '\nTemporary password: ' + teacherOut.password + '\nSign in: ' + location.origin + location.pathname + ' → Teacher Sign-In';
+        $('[data-a=cp]', res).onclick = function () { var ta = h('<textarea style="position:absolute;left:-9999px"></textarea>'); ta.value = tx; document.body.appendChild(ta); copyText(tx, ta); setTimeout(function () { ta.remove(); }, 2000); };
+        box.appendChild(res);
+      }
+      box.appendChild(h('<h3>Teachers (' + teachers.length + ')</h3>'));
+      if (!teachers.length) { box.appendChild(h('<p class="muted small">No teacher accounts yet.</p>')); return; }
+      teachers.forEach(function (t) {
+        var n = t.deliveryIds.length;
+        var r = h('<div class="dir-row' + (t.active ? '' : ' off') + '" data-user="' + esc(t.userId) + '"><div class="dir-main"><b>' + esc(t.name) + '</b> <span class="muted">(' + esc(t.username) + ')</span> ' + activePill(t) +
+          (t.mustChange ? ' <span class="pill ready">temporary password</span>' : '') + '<div class="small muted">' + n + ' group/module assignment(s)' + (t.lastLogin ? ' · last sign-in ' + esc(fmtDay(t.lastLogin)) : ' · never signed in') + '</div></div>' +
+          '<div class="dir-btns"><button class="btn primary" type="button" data-a="asg">Assignments</button><button class="btn" type="button" data-a="pw">Reset password</button><button class="btn" type="button" data-a="ed">Edit</button><button class="btn' + (t.active ? ' danger' : '') + '" type="button" data-a="act">' + (t.active ? 'Deactivate' : 'Activate') + '</button></div></div>');
+        $('[data-a=asg]', r).onclick = function () { openAssign = openAssign === t.userId ? '' : t.userId; draw(); };
+        $('[data-a=pw]', r).onclick = function () {
+          var typed = window.prompt('New temporary password for ' + t.username + '.\nType one (at least 8 characters), or leave empty to generate one. They are signed out and must choose their own at the next sign-in.', '');
+          if (typed == null) return; typed = typed.trim(); if (typed && typed.length < 8) return toast('At least 8 characters.');
+          dirCall('teacherResetPassword', { userId: t.userId, password: typed }).then(function (x) { if (!x.ok) return toast(x.error); teacherOut = { username: t.username, name: t.name, password: x.tempPassword }; draw(); });
+        };
+        $('[data-a=ed]', r).onclick = function () {
+          var nm = window.prompt('Name of ' + t.username, t.name); if (nm == null) return;
+          var em = window.prompt('Email of ' + t.username + ' (optional)', t.email || ''); if (em == null) return;
+          dirCall('teacherSave', { record: { userId: t.userId, name: nm, email: em } }).then(function (x) { if (!x.ok) return toast(x.error); toast('Saved.'); draw(); });
+        };
+        $('[data-a=act]', r).onclick = function () {
+          if (t.active && !window.confirm('Deactivate ' + t.name + '? They are signed out at once and lose access to all their modules (nothing is deleted).')) return;
+          dirCall('teacherSetActive', { userId: t.userId, active: !t.active }).then(function (x) { if (!x.ok) return toast(x.error); toast(t.active ? 'Deactivated.' : 'Activated.'); draw(); });
+        };
+        if (openAssign === t.userId) r.appendChild(assignEditor(t));
+        box.appendChild(r);
+      });
+    }
+    /** Tick exactly which group + module combinations this teacher may manage. */
+    function assignEditor(t) {
+      var mine = {}; t.deliveryIds.forEach(function (id) { mine[id] = 1; });
+      var w = h('<div class="dir-edit asg-edit"><p class="small muted">Tick each <b>group + module</b> this teacher may manage. A module in one group does not give access to the same module in another group.</p></div>');
+      var groups = D.groups.slice().sort(function (a, b) { return groupLabel(a).localeCompare(groupLabel(b)); });
+      var any = false;
+      groups.forEach(function (g) {
+        var ds = D.deliveries.filter(function (d) { return d.groupId === g.groupId; });
+        if (!ds.length) return; any = true;
+        var sec = h('<fieldset class="asg-g"><legend>' + esc(groupLabel(g)) + (g.active ? '' : ' (inactive)') + '</legend></fieldset>');
+        ds.forEach(function (d) {
+          var m = byId('modules', 'moduleId', d.moduleId);
+          sec.appendChild(h('<label class="chk"><input type="checkbox" value="' + esc(d.deliveryId) + '"' + (mine[d.deliveryId] ? ' checked' : '') + '> ' + esc(m ? m.title : d.moduleId) + (d.active ? '' : ' <span class="muted small">(inactive)</span>') + '</label>'));
+        });
+        w.appendChild(sec);
+      });
+      if (!any) { w.appendChild(h('<p class="muted small">No deliveries yet — deliver modules to groups first (Deliveries).</p>')); return w; }
+      var b = h('<div class="dir-act"><button class="btn primary" type="button">💾 Save assignments</button></div>'); w.appendChild(b);
+      $('button', b).onclick = function () {
+        var ids = $$('input[type=checkbox]:checked', w).map(function (i) { return i.value; });
+        this.disabled = true;
+        dirCall('teacherAssign', { userId: t.userId, deliveryIds: ids }).then(function (x) { if (!x.ok) return toast(x.error); toast('Assignments saved (' + x.deliveryIds.length + ').'); openAssign = ''; draw(); });
+      };
+      return w;
     }
     function paneExisting(pane) {
       pane.appendChild(h('<p class="small muted">Storage names already present in your data (read-only — nothing is changed). Register one by creating a group whose link code matches the part after “-” and delivering the module to it; the storage of the normal link (no “-”) is registered with the “existing storage of the normal link” option.</p>'));

@@ -476,6 +476,66 @@ test('a module delivered AFTER the student signed in opens without signing out (
   await p.context().close();
 });
 
+/* ---------------- Step 4: personal teacher accounts ---------------- */
+let TCH = null;
+async function adminCreatesTeacher(username, name, groupLabelText, moduleTitle) {
+  const p = await page();
+  await p.goto(url + '#/teacher');
+  await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+  await p.waitForSelector('#t-dir details.dir'); await p.click('#t-dir summary');
+  await p.click('#t-dir .dir-tab[data-t=teachers]');
+  await p.waitForSelector('#t-dir .teachers form');
+  await p.fill('#t-dir .teachers form [data-k=username]', username); await p.fill('#t-dir .teachers form [data-k=name]', name);
+  await p.click('#t-dir .teachers form button[type=submit]');
+  await p.waitForSelector('#t-dir .roster-res code.pw');
+  const temp = (await p.textContent('#t-dir .roster-res code.pw')).trim();
+  // the assignment editor opens for the new teacher: tick exactly one group + module
+  const fs_ = p.locator('#t-dir .asg-edit fieldset', { hasText: groupLabelText });
+  await fs_.locator('label', { hasText: moduleTitle }).locator('input').check();
+  await p.click('#t-dir .asg-edit .dir-act button');
+  await p.waitForFunction(function () { return /Assignments saved \(1\)/.test((document.querySelector('.toast') || {}).textContent || ''); });
+  assert.match(await p.textContent('#t-dir .teachers'), new RegExp(name + '[\\s\\S]*1 group/module assignment'));
+  if (process.env.SHOTS) await (await p.$('#t-dir')).screenshot({ path: path.join(process.env.SHOTS, 'teachers-admin.png') });
+  await p.context().close();
+  return temp;
+}
+async function teacherSignsIn(p, username, temp, own) {
+  await p.fill('#t-u', username); await p.fill('#t-p', temp); await p.click('form.card button[type=submit]');
+  await p.waitForSelector('#tp-n1'); await p.waitForTimeout(300);
+  await p.fill('#tp-o', temp); await p.fill('#tp-n1', own); await p.fill('#tp-n2', own); await p.click('form.t-login button[type=submit]');
+  await p.waitForSelector('#t-mine .my-group');
+}
+
+test('personal teacher: Admin creates Dr. Ahmed with ONE group + module; he signs in, sees only that, opens it; no Admin areas', { skip: SKIP }, async function () {
+  groupFixture();
+  const temp = await adminCreatesTeacher('dr.ahmed', 'Dr. Ahmed', 'Test Razi · Group A (2026-27)', 'Cell Injury');
+  const p = await page();
+  await p.goto(url + '#/teacher');
+  await teacherSignsIn(p, 'dr.ahmed', temp, 'ahmed-own-pass-1');
+  TCH = { username: 'dr.ahmed', pw: 'ahmed-own-pass-1' };
+  assert.match(await p.textContent('h1.page-h'), /Teacher Dashboard/);
+  assert.match(await p.textContent('#t-mine'), /Test Razi University · Group A/);
+  assert.deepStrictEqual(await p.$$eval('#t-mine .mod', function (els) { return els.map(function (e) { return e.dataset.id; }); }), ['cellinjury'], 'only the assigned module');
+  assert.ok(!/Misrata|Inflammation/.test(await p.textContent('#t-mine')), 'nothing else');
+  assert.strictEqual(await p.$('#t-dir'), null, 'no platform directory'); assert.strictEqual(await p.$('#t-manage'), null, 'no Teacher Management'); assert.strictEqual(await p.$('#t-modules'), null);
+  assert.strictEqual(await p.inputValue('#t-mine .grp-url'), url + '?g=tr-a');
+  if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'teacher-personal.png') });
+  const before = navigations.length;
+  await p.click('#t-mine .mod[data-id="cellinjury"] .t-open');
+  await p.waitForTimeout(400);
+  assert.ok(navigations.slice(before).some(function (u) { return /cell-injury-teaching-platform\/\?g=tr-a$/.test(u); }));
+  const tok = JSON.parse(await p.evaluate(function () { return localStorage.getItem('ci_tr-a_backend_token_v1'); })).token;
+  assert.strictEqual(main.call({ module: 'cellinjury-tr-a', action: 'studentSession', token: tok }).role, 'teacher');
+  ['cellinjury', 'cellinjury-tm-a', 'inflhealing-tr-a'].forEach(function (m) { assert.strictEqual(main.call({ module: m, action: 'listStudents', token: tok }).ok, false, m); });
+  // sign out: the teacher session and the module session end
+  await p.click('#who button'); await p.waitForSelector('form.signin'); await p.waitForTimeout(300);
+  assert.strictEqual(main.call({ module: 'cellinjury-tr-a', action: 'studentSession', token: tok }).ok, false);
+  // wrong password → generic
+  await p.goto(url + '#/teacher'); await p.fill('#t-u', 'dr.ahmed'); await p.fill('#t-p', 'wrong-pass'); await p.click('form.card button[type=submit]');
+  await p.waitForFunction(function () { return /Incorrect username or password/.test(document.querySelector('form.card .err').textContent); });
+  await p.context().close();
+});
+
 test('the front page fits a phone screen', { skip: SKIP }, async function () {
   const p = await page({ width: 390, height: 844 });
   await p.goto(url);
@@ -633,6 +693,41 @@ REAL.forEach(function (M) {
 });
 
 REAL.forEach(function (M) {
+  test('personal teacher: opens the real ' + M[1] + ' for his group in teacher mode → Back to Teacher Dashboard → his own dashboard', { skip: SKIP || (!fs.existsSync(M[2]) && 'module page not available') }, async function () {
+    groupFixture();
+    main.call({ module: 'portal', action: 'setup', password: TPW });
+    const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+    const dir = main.call({ module: 'portal', action: 'dirGet', token: t });
+    const g = dir.groups.filter(function (x) { return x.linkCode === 'tr-a'; })[0];
+    const d = dir.deliveries.filter(function (x) { return x.groupId === g.groupId && x.moduleId === M[0]; })[0];
+    const un = 'real.' + M[0], cr = main.call({ module: 'portal', action: 'teacherSave', token: t, create: true, record: { username: un, name: 'Real ' + M[0], password: 'real-teacher-1' } });
+    assert.ok(cr.ok, JSON.stringify(cr));
+    assert.ok(main.call({ module: 'portal', action: 'teacherAssign', token: t, userId: cr.teacher.userId, deliveryIds: [d.deliveryId] }).ok);
+    const lg = main.call({ module: 'portal', action: 'teacherLogin', username: un, password: 'real-teacher-1' });
+    main.call({ module: 'portal', action: 'teacherChangePassword', ttoken: lg.ttoken, oldPassword: 'real-teacher-1', newPassword: 'real-teacher-2' });
+    const calls = [];
+    const p = await realPage(M, calls);
+    await p.goto(HOME + '#/teacher');
+    await p.fill('#t-u', un); await p.fill('#t-p', 'real-teacher-2'); await p.click('form.card button[type=submit]');
+    await p.waitForSelector('#t-mine .mod[data-id="' + M[0] + '"] .t-open');
+    await p.click('#t-mine .mod[data-id="' + M[0] + '"] .t-open');
+    await p.waitForURL(new RegExp(M[1] + '/\\?g=tr-a'));
+    await p.waitForFunction(function () { return window.NEO_BOOT && (window.NEO_BOOT.role || document.querySelector('#neo-boot .nb-msg.bad')); }, null, { timeout: 15000 });
+    assert.strictEqual(await p.evaluate(function () { return window.NEO_BOOT.module; }), M[0] + '-tr-a');
+    if (M[3]) assert.strictEqual(await p.evaluate(function () { return window.NEO_BOOT.role; }), 'teacher');
+    assert.strictEqual(calls.filter(function (c) { return c.action === 'login' && c.module !== 'portal'; }).length, 0, 'no module password');
+    if (M[3]) {
+      const sel = '#app-header #pf-bar a.pf-home';
+      await p.waitForFunction(function (s) { return document.querySelector(s) && document.querySelector(s).dataset.role === 'teacher'; }, sel);
+      assert.match(await p.textContent(sel), /Back to Teacher Dashboard/);
+      await p.click(sel);
+      await p.waitForURL(HOME + '#/teacher');
+      await p.waitForSelector('#t-mine .my-group');
+      assert.strictEqual(await p.$('#t-dir'), null, 'his own dashboard, not the Admin one');
+    }
+    await p.context().close();
+  });
+
   test('student + group page: Al-Razi A front page → the real ' + M[1] + ' (?g=tr-a) → Back to Platform Home → back on the Al-Razi A page', { skip: SKIP || (!fs.existsSync(M[2]) && 'module page not available') }, async function () {
     groupFixture();
     const calls = [];

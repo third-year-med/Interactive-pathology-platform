@@ -55,6 +55,18 @@
  *   portalGroupRefresh      public   a signed-in student (proved by a valid session of one of the group's modules) gets
  *                                    sessions for modules delivered/opened AFTER they signed in — no password needed
  *
+ * Personal teacher accounts (1.6, Step 4):
+ *   teacherLogin      public   username + password → a TEACHER session (sheet PortalSessions, hash only). It is never a
+ *                              session of the module "portal", so it can never use any Admin action.
+ *   teacherMe / teacherOpen / teacherLogout / teacherChangePassword   (teacher session, field "ttoken")
+ *                              teacherOpen opens ONE assigned delivery: only if the teacher is active, has an assignment for
+ *                              exactly that delivery (= group + module), and the delivery, group, institution and module are
+ *                              active. It creates a normal teacher session of that delivery's storage (recorded in
+ *                              PortalGrants, so it can be ended at once).
+ *   teacherList / teacherSave / teacherSetActive / teacherResetPassword / teacherAssign   (Admin)
+ *   Removing an assignment, deactivating a teacher, or deactivating a delivery/group/institution/module ends the teacher
+ *   module sessions concerned immediately.
+ *
  * Teacher = a valid teacher session of the "portal" module (Code.gs login/setup with module:"portal").
  * Admin   = the same account (the only platform teacher account until personal teacher accounts exist).
  *
@@ -70,7 +82,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '1.5.3';
+var PORTAL_VERSION = '1.6';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -118,6 +130,16 @@ function portalHook_(module, p) {
     case 'rosterImport': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return rosterImport_(p); }); });
     case 'portalGroupSetPassword': return portalGroupSetPassword_(p);
     case 'portalGroupRefresh': return portalGroupRefresh_(p);
+    case 'teacherLogin': return teacherLogin_(p);
+    case 'teacherMe': return tAuthed_(p, function (u) { return teacherMe_(u); });
+    case 'teacherOpen': return tAuthed_(p, function (u, ses) { return teacherOpen_(u, ses, p); });
+    case 'teacherLogout': return teacherLogout_(p);
+    case 'teacherChangePassword': return tAuthed_(p, function (u, ses) { return teacherChangePassword_(u, ses, p); });
+    case 'teacherList': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return teacherList_(); }); });
+    case 'teacherSave': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return teacherSave_(p); }); });
+    case 'teacherSetActive': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return teacherSetActive_(p); }); });
+    case 'teacherResetPassword': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return teacherResetPassword_(p); }); });
+    case 'teacherAssign': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return teacherAssign_(p); }); });
     case 'portalTeacherOpen': return authed_(PORTAL_MODULE, p, function (tok) { return portalTeacherOpen_(p, tok); });
     default: return { ok: false, code: 'badaction', error: 'This action is not available on the front page.' };
   }
@@ -295,7 +317,8 @@ function portalTeacherClose_(p) {
  * ====================================================================== */
 var DIR = {
   INST: 'Institutions', GROUP: 'Groups', MOD: 'Modules', DELIV: 'Deliveries',
-  ASSIGN: 'TeacherAssignments', ROLES: 'ModuleContentRoles', MEMB: 'StudentMemberships'
+  ASSIGN: 'TeacherAssignments', ROLES: 'ModuleContentRoles', MEMB: 'StudentMemberships',
+  USERS: 'PortalUsers', PSES: 'PortalSessions', GRANTS: 'PortalGrants'
 };
 var DIR_HEADERS = {
   Institutions: ['institutionId', 'name', 'shortName', 'active', 'sortOrder', 'createdAt', 'updatedAt'],
@@ -306,7 +329,10 @@ var DIR_HEADERS = {
   ModuleContentRoles: ['userId', 'moduleId', 'role', 'grantedBy', 'grantedAt'],
   // pwSalt/pwHash/pwIter/mustChange: the member's current password HASH (never the password, never returned), so accounts can be
   // created in modules delivered to the group later
-  StudentMemberships: ['membershipId', 'groupId', 'studentId', 'name', 'email', 'active', 'createdAt', 'updatedAt', 'pwSalt', 'pwHash', 'pwIter', 'mustChange']
+  StudentMemberships: ['membershipId', 'groupId', 'studentId', 'name', 'email', 'active', 'createdAt', 'updatedAt', 'pwSalt', 'pwHash', 'pwIter', 'mustChange'],
+  PortalUsers: ['userId', 'role', 'username', 'name', 'email', 'pwSalt', 'pwHash', 'pwIter', 'active', 'mustChange', 'failed', 'lockedUntil', 'createdAt', 'updatedAt', 'lastLogin'],
+  PortalSessions: ['tokenHash', 'userId', 'role', 'createdAt', 'expiresAt'],
+  PortalGrants: ['userId', 'deliveryId', 'backendModule', 'tokenHash', 'sessionHash', 'createdAt', 'expiresAt']
 };
 var DIR_TEXT = {
   Institutions: ['institutionId', 'name', 'shortName'],
@@ -315,7 +341,10 @@ var DIR_TEXT = {
   Deliveries: ['deliveryId', 'groupId', 'moduleId', 'backendModule', 'status'],
   TeacherAssignments: ['assignmentId', 'userId', 'deliveryId', 'grantedBy'],
   ModuleContentRoles: ['userId', 'moduleId', 'role', 'grantedBy'],
-  StudentMemberships: ['membershipId', 'groupId', 'studentId', 'name', 'email', 'pwSalt', 'pwHash']
+  StudentMemberships: ['membershipId', 'groupId', 'studentId', 'name', 'email', 'pwSalt', 'pwHash'],
+  PortalUsers: ['userId', 'role', 'username', 'name', 'email', 'pwSalt', 'pwHash'],
+  PortalSessions: ['tokenHash', 'userId', 'role'],
+  PortalGrants: ['userId', 'deliveryId', 'backendModule', 'tokenHash', 'sessionHash']
 };
 var DIR_KINDS = {
   institution: { sheet: 'Institutions', key: 'institutionId', prefix: 'INS' },
@@ -479,6 +508,14 @@ function dirSetActive_(p) {
     var cur = dirFind_(K.sheet, K.key, dirStr_(p.id, 40)); if (!cur) return dirErr_('This record no longer exists — reload the directory.');
     var r = dirPublic_(cur); r.active = !!p.active; r.updatedAt = Date.now();
     updateRow_(K.sheet, cur._row, r);
+    if (!p.active) {   // teachers lose their open module sessions for everything under this record at once
+      var key = String(cur[K.key]), kind = String(p.kind), groups = {};
+      if (kind === 'institution') dirAll_(DIR.GROUP).forEach(function (g) { if (g.institutionId === key) groups[g.groupId] = 1; });
+      var dls = {}; dirAll_(DIR.DELIV).forEach(function (d) {
+        if ((kind === 'delivery' && d.deliveryId === key) || (kind === 'group' && d.groupId === key) || (kind === 'module' && d.moduleId === key) || (kind === 'institution' && groups[d.groupId])) dls[d.deliveryId] = 1;
+      });
+      revokeGrants_(function (gr) { return dls[gr.deliveryId]; });
+    }
     return { ok: true, record: dirPublic_(dirFind_(K.sheet, K.key, cur[K.key])) };
   } finally { lock.releaseLock(); }
 }
@@ -845,4 +882,189 @@ function portalGroupRefresh_(p) {
     });
   } finally { lock.releaseLock(); }
   return { ok: true, modules: out };
+}
+
+/* ======================================================================
+ * Personal teacher accounts (Step 4).
+ * ====================================================================== */
+var T_FAIL_MAX = 8, T_FAIL_WINDOW_S = 900;
+function tHash_(kind, token) { return sha256Hex_(kind + '|' + token); }
+function tUsers_() { return dirAll_(DIR.USERS); }
+function tUserPublic_(u) { return { userId: u.userId, role: u.role, username: u.username, name: u.name, email: u.email || '', active: !!u.active, mustChange: isTrue_(u.mustChange), lastLogin: Number(u.lastLogin) || 0 }; }
+function tSheetsReady_() {
+  if (!dirReadable_()) return false;
+  var ss = getSS_();
+  return [DIR.USERS, DIR.PSES, DIR.GRANTS, DIR.ASSIGN].every(function (n) { var sh = ss.getSheetByName(n); return sh && sh.getLastRow() > 0; });
+}
+/** The teacher behind a session token (field ttoken), or null. */
+function tSession_(token) {
+  if (!token || String(token).length < 20 || !tSheetsReady_()) return null;
+  var h = tHash_('pt', String(token)), now = Date.now(), row = null;
+  dirAll_(DIR.PSES).some(function (r) { if (r.tokenHash === h) { row = r; return true; } return false; });
+  if (!row) return null;
+  if (Number(row.expiresAt) < now) { deleteRow_(DIR.PSES, row._row); return null; }
+  var u = dirFind_(DIR.USERS, 'userId', row.userId);
+  if (!u || !u.active) return null;
+  return { user: u, row: row, hash: h };
+}
+function tAuthed_(p, fn) {
+  var s = tSession_(p.ttoken);
+  if (!s) return { ok: false, code: 'auth', error: 'Your teacher session has ended — please sign in again.' };
+  return fn(s.user, s);
+}
+function teacherLogin_(p) {
+  var username = normUser_(p.username), pw = String(p.password || ''), now = Date.now();
+  var generic = { ok: false, code: 'badlogin', error: 'Incorrect username or password.' };
+  if (!username || !pw) return { ok: false, code: 'badlogin', error: 'Enter your username and password.' };
+  var c = CacheService.getScriptCache(), fk = 'tlfail:' + sha256Hex_(username), fails = Number(c.get(fk) || 0);
+  if (fails >= T_FAIL_MAX) return { ok: false, code: 'locked', error: 'Too many unsuccessful sign-ins. Please wait 15 minutes and try again.' };
+  if (!tSheetsReady_()) { Utilities.sleep(300); return generic; }
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    var u = null; tUsers_().some(function (x) { if (x.username === username) { u = x; return true; } return false; });
+    if (!u || !safeEq_(hashIter_(pw, u.pwSalt, Number(u.pwIter) || PW_ITER), u.pwHash)) { c.put(fk, String(fails + 1), T_FAIL_WINDOW_S); Utilities.sleep(300); return generic; }
+    if (!u.active) return { ok: false, code: 'inactive', error: 'This teacher account has been deactivated. Please contact the platform administrator.' };
+    c.remove(fk);
+    var token = randomHex_(32), exp = now + SESSION_TTL_MS;
+    appendRow_(DIR.PSES, { tokenHash: tHash_('pt', token), userId: u.userId, role: 'teacher', createdAt: now, expiresAt: exp });
+    var r = dirPublic_(u); r.lastLogin = now; r.updatedAt = now; updateRow_(DIR.USERS, u._row, r);
+    return { ok: true, ttoken: token, expiresAt: exp, user: tUserPublic_(u) };
+  } finally { lock.releaseLock(); }
+}
+/** The teacher's assigned deliveries, with everything the dashboard needs to show and open them. */
+function teacherDeliveries_(userId) {
+  var dl = {}; dirAll_(DIR.DELIV).forEach(function (d) { dl[d.deliveryId] = d; });
+  var gr = {}; dirAll_(DIR.GROUP).forEach(function (g) { gr[g.groupId] = g; });
+  var ins = {}; dirAll_(DIR.INST).forEach(function (i) { ins[i.institutionId] = i; });
+  var md = {}; dirAll_(DIR.MOD).forEach(function (m) { md[m.moduleId] = m; });
+  var out = [];
+  dirAll_(DIR.ASSIGN).forEach(function (a) {
+    if (a.userId !== userId) return;
+    var d = dl[a.deliveryId], g = d && gr[d.groupId], i = g && ins[g.institutionId], m = d && md[d.moduleId];
+    if (!d || !g || !i || !m) return;
+    out.push({ deliveryId: d.deliveryId, moduleId: m.moduleId, title: m.title, subtitle: m.subtitle, icon: m.icon || '📘', color: m.color || '#0f2a4a', url: m.url,
+      storagePrefix: m.storagePrefix, group: d.backendModule === m.moduleId ? '' : String(d.backendModule).slice(m.moduleId.length + 1),
+      groupId: g.groupId, groupName: g.name, academicYear: g.academicYear, linkCode: g.linkCode, institution: i.name, institutionShort: i.shortName,
+      status: d.status, open: !!(d.active && g.active && i.active && m.active && m.url) });
+  });
+  return out.sort(function (a, b) { return (a.institution + a.groupName + a.title).localeCompare(b.institution + b.groupName + b.title); });
+}
+function teacherMe_(u) { return { ok: true, user: tUserPublic_(u), deliveries: teacherDeliveries_(u.userId) }; }
+function teacherOpen_(u, ses, p) {
+  if (isTrue_(u.mustChange)) return { ok: false, code: 'mustchange', error: 'Please choose your own password first.' };
+  var id = String(p.deliveryId || '');
+  var mine = teacherDeliveries_(u.userId).filter(function (x) { return x.deliveryId === id; })[0];
+  if (!mine) return { ok: false, code: 'forbidden', error: 'This module is not assigned to you for this group.' };
+  if (!mine.open) return { ok: false, code: 'closed', error: 'This module or group is not active at the moment.' };
+  var d = dirFind_(DIR.DELIV, 'deliveryId', id), now = Date.now();
+  var exp = Math.min(now + SESSION_TTL_MS, Number(ses.row.expiresAt) || now + SESSION_TTL_MS);
+  var token = Utilities.getUuid() + '-' + randomHex_(16);
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    appendRow_(SHEETS.SESSIONS, { module: d.backendModule, token: token, createdAt: now, expiresAt: exp });
+    appendRow_(DIR.GRANTS, { userId: u.userId, deliveryId: id, backendModule: d.backendModule, tokenHash: tHash_('pg', token), sessionHash: ses.hash, createdAt: now, expiresAt: exp });
+  } finally { lock.releaseLock(); }
+  return { ok: true, token: token, expiresAt: exp, backendModule: d.backendModule, storagePrefix: mine.storagePrefix, group: mine.group, url: mine.url };
+}
+/** Ends teacher module sessions (and their records) for every grant matching pred — at once, including cached checks. */
+function revokeGrants_(pred) {
+  if (!tSheetsReady_()) return 0;
+  var gs = dirAll_(DIR.GRANTS).filter(pred); if (!gs.length) return 0;
+  var hashes = {}; gs.forEach(function (g) { hashes[g.tokenHash] = 1; });
+  var rows = readAll_(SHEETS.SESSIONS), c = CacheService.getScriptCache();
+  for (var i = rows.length - 1; i >= 0; i--) {
+    var r = rows[i];
+    if (r.token && hashes[tHash_('pg', String(r.token))]) { c.remove('tok:' + r.module + ':' + r.token); deleteRow_(SHEETS.SESSIONS, r._row); }
+  }
+  gs.map(function (g) { return g._row; }).sort(function (a, b) { return b - a; }).forEach(function (row) { deleteRow_(DIR.GRANTS, row); });
+  return gs.length;
+}
+function tEndSessions_(userId, onlyHash) {
+  var rows = dirAll_(DIR.PSES).filter(function (r) { return r.userId === userId && (!onlyHash || r.tokenHash === onlyHash); });
+  rows.map(function (r) { return r._row; }).sort(function (a, b) { return b - a; }).forEach(function (row) { deleteRow_(DIR.PSES, row); });
+  revokeGrants_(function (g) { return g.userId === userId && (!onlyHash || g.sessionHash === onlyHash); });
+}
+function teacherLogout_(p) {
+  var s = tSession_(p.ttoken); if (!s) return { ok: true };
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try { tEndSessions_(s.user.userId, s.hash); } finally { lock.releaseLock(); }
+  return { ok: true };
+}
+function tPwRule_(np, username, old) {
+  if (np.length < 8) return 'The new password must be at least 8 characters.';
+  if (normUser_(np) === username) return 'The new password must not be your username.';
+  if (old != null && np === old) return 'Choose a password different from the current one.';
+  return null;
+}
+function teacherChangePassword_(u, ses, p) {
+  var old = String(p.oldPassword || ''), np = String(p.newPassword || '');
+  if (!safeEq_(hashIter_(old, u.pwSalt, Number(u.pwIter) || PW_ITER), u.pwHash)) return { ok: false, error: 'Your current password is incorrect.' };
+  var rule = tPwRule_(np, u.username, old); if (rule) return { ok: false, error: rule };
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    var r = dirPublic_(u), salt = randomHex_(16); r.pwSalt = salt; r.pwIter = PW_ITER; r.pwHash = hashIter_(np, salt, PW_ITER); r.mustChange = false; r.updatedAt = Date.now();
+    updateRow_(DIR.USERS, u._row, r);
+    // other devices are signed out; this one stays
+    dirAll_(DIR.PSES).filter(function (x) { return x.userId === u.userId && x.tokenHash !== ses.hash; }).map(function (x) { return x._row; })
+      .sort(function (a, b) { return b - a; }).forEach(function (row) { deleteRow_(DIR.PSES, row); });
+    revokeGrants_(function (g) { return g.userId === u.userId && g.sessionHash !== ses.hash; });
+  } finally { lock.releaseLock(); }
+  return { ok: true };
+}
+
+/* ---- Admin: teacher accounts and their assignments ---- */
+function teacherList_() {
+  var counts = {}, byUser = {};
+  dirAll_(DIR.ASSIGN).forEach(function (a) { (byUser[a.userId] = byUser[a.userId] || []).push(a.deliveryId); });
+  return { ok: true, teachers: tUsers_().filter(function (u) { return u.role === 'teacher'; }).map(function (u) { var o = tUserPublic_(u); o.deliveryIds = byUser[u.userId] || []; return o; })
+    .sort(function (a, b) { return a.name.localeCompare(b.name); }) };
+}
+function teacherSave_(p) {
+  var rec = p.record || {}, now = Date.now();
+  var name = String(rec.name || '').trim().replace(/\s+/g, ' ').slice(0, 80), email = String(rec.email || '').trim().toLowerCase().slice(0, 120);
+  if (name.length < 2) return dirErr_('Enter the teacher’s name.');
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return dirErr_('That email address is not valid.');
+  if (p.create) {
+    var username = normUser_(rec.username);
+    if (!validUser_(username) || username === 'admin') return dirErr_('Choose a username of 2–64 letters, digits, dot, dash or underscore (not “admin”), e.g. dr.ahmed');
+    if (tUsers_().some(function (u) { return u.username === username; })) return dirErr_('This username is already taken.');
+    var given = String(rec.password || ''); if (given && given.length < 8) return dirErr_('The password must be at least 8 characters.');
+    var plain = given || genTempPassword_(), salt = randomHex_(16);
+    var u = { userId: dirNewId_('USR', DIR.USERS, 'userId'), role: 'teacher', username: username, name: name, email: email, pwSalt: salt, pwHash: hashIter_(plain, salt, PW_ITER), pwIter: PW_ITER,
+      active: true, mustChange: true, failed: 0, lockedUntil: '', createdAt: now, updatedAt: now, lastLogin: '' };
+    appendRow_(DIR.USERS, u);
+    var o = tUserPublic_(u); o.deliveryIds = [];
+    return { ok: true, teacher: o, tempPassword: plain };
+  }
+  var cur = dirFind_(DIR.USERS, 'userId', String(rec.userId || '')); if (!cur || cur.role !== 'teacher') return dirErr_('This teacher no longer exists — reload.');
+  var r = dirPublic_(cur); r.name = name; r.email = email; r.updatedAt = now; updateRow_(DIR.USERS, cur._row, r);
+  return { ok: true };
+}
+function teacherSetActive_(p) {
+  var cur = dirFind_(DIR.USERS, 'userId', String(p.userId || '')); if (!cur || cur.role !== 'teacher') return dirErr_('This teacher no longer exists — reload.');
+  var r = dirPublic_(cur); r.active = !!p.active; r.updatedAt = Date.now(); updateRow_(DIR.USERS, cur._row, r);
+  if (!p.active) tEndSessions_(cur.userId);   // signed out everywhere, module sessions ended
+  return { ok: true };
+}
+function teacherResetPassword_(p) {
+  var cur = dirFind_(DIR.USERS, 'userId', String(p.userId || '')); if (!cur || cur.role !== 'teacher') return dirErr_('This teacher no longer exists — reload.');
+  var given = String(p.password || ''); if (given && given.length < 8) return dirErr_('The password must be at least 8 characters.');
+  var plain = given || genTempPassword_(), salt = randomHex_(16), r = dirPublic_(cur);
+  r.pwSalt = salt; r.pwIter = PW_ITER; r.pwHash = hashIter_(plain, salt, PW_ITER); r.mustChange = true; r.failed = 0; r.lockedUntil = ''; r.updatedAt = Date.now();
+  updateRow_(DIR.USERS, cur._row, r);
+  CacheService.getScriptCache().remove('tlfail:' + sha256Hex_(cur.username));
+  tEndSessions_(cur.userId);
+  return { ok: true, tempPassword: plain };
+}
+/** Replaces a teacher's assignments with exactly this list of deliveries (each = one group + one module). */
+function teacherAssign_(p) {
+  var cur = dirFind_(DIR.USERS, 'userId', String(p.userId || '')); if (!cur || cur.role !== 'teacher') return dirErr_('This teacher no longer exists — reload.');
+  var valid = {}; dirAll_(DIR.DELIV).forEach(function (d) { valid[d.deliveryId] = 1; });
+  var want = {}; (Array.isArray(p.deliveryIds) ? p.deliveryIds : []).slice(0, 500).forEach(function (id) { id = String(id || ''); if (valid[id]) want[id] = 1; });
+  var now = Date.now(), have = dirAll_(DIR.ASSIGN).filter(function (a) { return a.userId === cur.userId; }), haveIds = {}, removed = {};
+  have.forEach(function (a) { haveIds[a.deliveryId] = 1; if (!want[a.deliveryId]) removed[a.deliveryId] = a._row; });
+  Object.keys(removed).map(function (k) { return removed[k]; }).sort(function (a, b) { return b - a; }).forEach(function (row) { deleteRow_(DIR.ASSIGN, row); });
+  Object.keys(want).forEach(function (id) { if (!haveIds[id]) appendRow_(DIR.ASSIGN, { assignmentId: dirNewId_('ASG', DIR.ASSIGN, 'assignmentId'), userId: cur.userId, deliveryId: id, grantedBy: 'admin', grantedAt: now }); });
+  revokeGrants_(function (g) { return g.userId === cur.userId && removed[g.deliveryId]; });   // access withdrawn at once
+  return { ok: true, deliveryIds: Object.keys(want) };
 }

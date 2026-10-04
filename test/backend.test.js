@@ -629,3 +629,101 @@ test('fix: a module delivered after the student signed in is unlocked with the e
   S.dir('rosterSetActive', { groupId: g.groupId, studentId: '11223344', active: false });
   assert.strictEqual(S.call({ module: 'portal', action: 'portalGroupRefresh', g: 'razi-a-26', sessions: { cellinjury: first.modules.cellinjury.token } }).ok, false);
 });
+
+/* ---------------- Step 4: personal teacher accounts ---------------- */
+function teachersSetup() {
+  const S = groupsSetup();
+  // deliveries: Al-Razi A → cellinjury, inflhealing; Misrata A → cellinjury, cardio
+  const D = S.dl;
+  const mk = function (username, name) { const r = S.dir('teacherSave', { create: true, record: { username: username, name: name } }); assert.ok(r.ok, JSON.stringify(r)); return r; };
+  S.ahmed = mk('dr.ahmed', 'Dr. Ahmed'); S.sara = mk('dr.sara', 'Dr. Sara');
+  assert.ok(S.dir('teacherAssign', { userId: S.ahmed.teacher.userId, deliveryIds: [D['cellinjury-razi-a-26'].deliveryId, D['inflhealing-razi-a-26'].deliveryId] }).ok);
+  assert.ok(S.dir('teacherAssign', { userId: S.sara.teacher.userId, deliveryIds: [D['cellinjury-misrata-a-26'].deliveryId] }).ok);
+  S.tlogin = function (u, pw) { return S.call({ module: 'portal', action: 'teacherLogin', username: u, password: pw }); };
+  S.t = function (action, ttoken, o) { return S.call(Object.assign({ module: 'portal', action: action, ttoken: ttoken }, o || {})); };
+  // first sign-in: temporary password → choose own
+  ['ahmed', 'sara'].forEach(function (k) {
+    const l = S.tlogin('dr.' + k, S[k].tempPassword); assert.ok(l.ok && l.user.mustChange, JSON.stringify(l));
+    assert.strictEqual(S.t('teacherOpen', l.ttoken, { deliveryId: D['cellinjury-razi-a-26'].deliveryId }).code, 'mustchange');
+    assert.ok(S.t('teacherChangePassword', l.ttoken, { oldPassword: S[k].tempPassword, newPassword: k + '-own-pass-1' }).ok);
+    S[k].tok = l.ttoken;
+  });
+  return S;
+}
+
+test('teacher accounts: Admin only to manage; a teacher sign-in is never an Admin session', function () {
+  const S = teachersSetup();
+  ['teacherList', 'teacherSave', 'teacherSetActive', 'teacherResetPassword', 'teacherAssign'].forEach(function (a) {
+    assert.strictEqual(S.call({ module: 'portal', action: a, token: S.ahmed.tok, ttoken: S.ahmed.tok, userId: S.ahmed.teacher.userId, create: true, record: { username: 'x1', name: 'X' } }).ok, false, a);
+  });
+  ['portalAdminGet', 'portalAdminSave', 'dirGet', 'dirScan', 'rosterGet', 'portalTeacherOpen'].forEach(function (a) {
+    assert.strictEqual(S.call({ module: 'portal', action: a, token: S.ahmed.tok, ttoken: S.ahmed.tok, modules: ['cellinjury'], groupId: S.ra.groupId }).ok, false, a);
+  });
+  const list = S.dir('teacherList'); assert.deepStrictEqual(list.teachers.map(function (t) { return t.username; }), ['dr.ahmed', 'dr.sara']);
+  assert.strictEqual(JSON.stringify(list).indexOf('pwHash'), -1);
+  assert.strictEqual(S.dir('teacherSave', { create: true, record: { username: 'dr.ahmed', name: 'Again' } }).ok, false, 'unique username');
+  assert.strictEqual(S.dir('teacherSave', { create: true, record: { username: 'admin', name: 'Nope' } }).ok, false);
+  assert.strictEqual(S.tlogin('dr.ahmed', 'wrong').error, 'Incorrect username or password.');
+  assert.strictEqual(S.tlogin('nobody', 'wrong').error, 'Incorrect username or password.');
+});
+
+test('teacher sees and opens ONLY the assigned group + module combinations (the Dr. Ahmed / Dr. Sara example)', function () {
+  const S = teachersSetup(), D = S.dl;
+  const me = S.t('teacherMe', S.ahmed.tok);
+  assert.deepStrictEqual(me.deliveries.map(function (d) { return d.institution + ' · ' + d.groupName + ' · ' + d.moduleId; }),
+    ['Al-Razi University · Group A · cellinjury', 'Al-Razi University · Group A · inflhealing']);
+  const o = S.t('teacherOpen', S.ahmed.tok, { deliveryId: D['cellinjury-razi-a-26'].deliveryId });
+  assert.ok(o.ok, JSON.stringify(o)); assert.strictEqual(o.backendModule, 'cellinjury-razi-a-26');
+  assert.strictEqual(S.call({ module: 'cellinjury-razi-a-26', action: 'studentSession', token: o.token }).role, 'teacher', 'a real teacher session of that delivery');
+  assert.ok(S.call({ module: 'cellinjury-razi-a-26', action: 'listStudents', token: o.token }).ok, 'module management works');
+  // never anywhere else
+  ['cellinjury', 'cellinjury-misrata-a-26', 'inflhealing-razi-a-26', 'portal'].forEach(function (m) {
+    assert.strictEqual(S.call({ module: m, action: 'listStudents', token: o.token }).ok, false, m);
+  });
+  // Ahmed cannot open Misrata (same module, other group) — Sara cannot open Al-Razi or Cardio
+  assert.strictEqual(S.t('teacherOpen', S.ahmed.tok, { deliveryId: D['cellinjury-misrata-a-26'].deliveryId }).code, 'forbidden');
+  assert.strictEqual(S.t('teacherOpen', S.sara.tok, { deliveryId: D['cellinjury-razi-a-26'].deliveryId }).code, 'forbidden');
+  assert.strictEqual(S.t('teacherOpen', S.sara.tok, { deliveryId: D['cardio-misrata-a-26'].deliveryId }).code, 'forbidden', 'not assigned to that module of her own group');
+  assert.ok(S.t('teacherOpen', S.sara.tok, { deliveryId: D['cellinjury-misrata-a-26'].deliveryId }).ok);
+  assert.strictEqual(S.t('teacherOpen', 'x'.repeat(64), { deliveryId: D['cellinjury-razi-a-26'].deliveryId }).code, 'auth');
+});
+
+test('withdrawing access is immediate: unassign, deactivate teacher, deactivate group; sign-out ends module sessions', function () {
+  const S = teachersSetup(), D = S.dl;
+  const ci = S.t('teacherOpen', S.ahmed.tok, { deliveryId: D['cellinjury-razi-a-26'].deliveryId }).token;
+  const ih = S.t('teacherOpen', S.ahmed.tok, { deliveryId: D['inflhealing-razi-a-26'].deliveryId }).token;
+  S.call({ module: 'cellinjury-razi-a-26', action: 'studentSession', token: ci });   // warm the cache
+  // remove Inflammation from his assignments → that module session ends, Cell Injury stays
+  assert.ok(S.dir('teacherAssign', { userId: S.ahmed.teacher.userId, deliveryIds: [D['cellinjury-razi-a-26'].deliveryId] }).ok);
+  assert.strictEqual(S.call({ module: 'inflhealing-razi-a-26', action: 'studentSession', token: ih }).ok, false);
+  assert.strictEqual(S.call({ module: 'cellinjury-razi-a-26', action: 'studentSession', token: ci }).role, 'teacher');
+  assert.strictEqual(S.t('teacherOpen', S.ahmed.tok, { deliveryId: D['inflhealing-razi-a-26'].deliveryId }).code, 'forbidden');
+  // deactivate the group → closed, sessions end; reactivate → can open again
+  S.dir('dirSetActive', { kind: 'group', id: S.ra.groupId, active: false });
+  assert.strictEqual(S.call({ module: 'cellinjury-razi-a-26', action: 'studentSession', token: ci }).ok, false, 'ended even from the cache');
+  assert.strictEqual(S.t('teacherOpen', S.ahmed.tok, { deliveryId: D['cellinjury-razi-a-26'].deliveryId }).code, 'closed');
+  S.dir('dirSetActive', { kind: 'group', id: S.ra.groupId, active: true });
+  const ci2 = S.t('teacherOpen', S.ahmed.tok, { deliveryId: D['cellinjury-razi-a-26'].deliveryId }).token;
+  // deactivate the teacher → signed out, module session ended
+  S.dir('teacherSetActive', { userId: S.ahmed.teacher.userId, active: false });
+  assert.strictEqual(S.t('teacherMe', S.ahmed.tok).code, 'auth');
+  assert.strictEqual(S.call({ module: 'cellinjury-razi-a-26', action: 'studentSession', token: ci2 }).ok, false);
+  assert.strictEqual(S.tlogin('dr.ahmed', 'ahmed-own-pass-1').code, 'inactive');
+  S.dir('teacherSetActive', { userId: S.ahmed.teacher.userId, active: true });
+  // sign-out ends this session and its module sessions
+  const l = S.tlogin('dr.ahmed', 'ahmed-own-pass-1'); const ci3 = S.t('teacherOpen', l.ttoken, { deliveryId: D['cellinjury-razi-a-26'].deliveryId }).token;
+  assert.ok(S.t('teacherLogout', l.ttoken).ok);
+  assert.strictEqual(S.t('teacherMe', l.ttoken).code, 'auth');
+  assert.strictEqual(S.call({ module: 'cellinjury-razi-a-26', action: 'studentSession', token: ci3 }).ok, false);
+  // reset password → old one stops, must choose a new one
+  const rp = S.dir('teacherResetPassword', { userId: S.sara.teacher.userId });
+  assert.strictEqual(S.tlogin('dr.sara', 'sara-own-pass-1').ok, false);
+  assert.ok(S.tlogin('dr.sara', rp.tempPassword).user.mustChange);
+});
+
+test('the Admin keeps full access exactly as before', function () {
+  const S = teachersSetup();
+  const op = S.call({ module: 'portal', action: 'portalTeacherOpen', token: S.admin, modules: ['cellinjury', { module: 'cellinjury', group: 'razi-a-26' }, { module: 'cellinjury', group: 'misrata-a-26' }] });
+  assert.deepStrictEqual(Object.keys(op.modules).sort(), ['cellinjury', 'cellinjury-misrata-a-26', 'cellinjury-razi-a-26']);
+  assert.ok(S.dir('dirGet').ok); assert.ok(S.dir('rosterGet', { groupId: S.ma.groupId }).ok);
+});

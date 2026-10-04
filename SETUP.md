@@ -5,7 +5,7 @@ this repository on GitHub Pages. The front page starts with two modules: **Cell 
 **Inflammation & Healing** (both *Available*); more can be added later in the Teacher Dashboard.
 
 > **Updating from an earlier version?** Replace the contents of the `Portal` file in Apps Script with the new
-> [`backend/Portal.gs`](backend/Portal.gs) (version 1.5.3 — group rosters), save, and deploy
+> [`backend/Portal.gs`](backend/Portal.gs) (version 1.6 — personal teacher accounts), save, and deploy
 > a **new version** (step 1.4). The Code.gs line from step 1.3 stays as it is.
 
 ## 1. Main backend (Cell Injury, Inflammation …)
@@ -110,6 +110,21 @@ Platform directory → **Students** → choose the group:
   recognises them (only with their correct password) and takes them to their group's page, signed in.
 - Adding a student sets the password in every module of the group (also in an account that already existed there), and a
   student added before the group had modules gets their accounts as soon as modules are delivered.
+
+### Teachers (personal accounts)
+
+Platform directory → **Teachers**:
+- **Add a teacher** — username (e.g. `dr.ahmed`), name, optional email and password. A temporary password is shown
+  **once**; the teacher chooses their own at first sign-in.
+- **Assignments** — tick exactly which **group + module** combinations the teacher may manage (e.g. Al-Razi Group A +
+  Cell Injury). The same module in another group is a separate tick.
+- **Reset password**, **Edit**, **Deactivate** (signed out at once, all their module sessions end).
+
+Teachers sign in on **Teacher Sign-In** with their **username** and password and see only their assigned groups and
+modules (with each group's student link). **Open module** / **Teacher Portal** opens that group's module in teacher
+mode; the backend checks the assignment every time. Removing an assignment or deactivating a teacher, group,
+institution, module or delivery ends the teacher module sessions concerned immediately.
+**Administrator:** sign in with the username field **empty** (your existing password) — full access as before.
 
 Records are never deleted (deactivate them instead). The directory uses its own sheets — Institutions, Groups, Modules,
 Deliveries, TeacherAssignments, ModuleContentRoles — created on first use; no existing sheet is changed.

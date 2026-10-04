@@ -174,3 +174,8 @@ code.pw{font-size:14px;font-weight:700;letter-spacing:.03em}
 .roster-bulk .chk{display:flex!important;flex-direction:row;align-items:center;margin:4px 0}
 .roster-bulk input[type=radio]{display:inline-block;width:auto;flex:0 0 auto;margin:0 4px 0 0}
 .roster-bulk input[type=text]{display:inline-block;width:auto;margin:0}
+/* Teachers (Admin) and the personal teacher dashboard */
+.asg-edit fieldset{border:1px solid var(--line);border-radius:10px;padding:6px 12px 10px;margin:8px 0}
+.asg-edit legend{font-weight:700;color:var(--navy);font-size:14px;padding:0 4px}
+.asg-edit .chk{margin:4px 0}
+.my-group .grp-link{margin:0 0 12px}
