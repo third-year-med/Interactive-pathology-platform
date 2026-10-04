@@ -151,3 +151,7 @@ details.dir[open]>summary::before{content:'▾'}
 .hero .grp-inst{font-size:20px;font-weight:700}
 .hero .grp-name{display:inline-block;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.35);border-radius:999px;padding:3px 12px;font-weight:700;font-size:15px}
 .grp-notice{margin:18px 0 0}
+.grp-link{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px}
+.grp-url{flex:1 1 260px;min-width:0;font:inherit;font-size:13px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:#f7f9fb;color:var(--ink)}
+.grp-link .btn{padding:6px 10px;font-size:13px}
+.warn-t{color:#9a5b00;margin-top:4px}

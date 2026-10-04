@@ -380,6 +380,21 @@
   }
 
   /* ---------------- platform directory (Admin; Step 1 — stored, not yet used for access) ---------------- */
+  /** The address students open for a group: this front page + ?g=<link code>. */
+  function groupLink(code) { return location.origin + location.pathname + '?g=' + encodeURIComponent(code); }
+  function copyText(text, inp) {
+    var done = function () { toast('Link copied — paste it into your message to the students.'); };
+    var fallback = function () { try { inp.focus(); inp.select(); if (document.execCommand('copy')) return done(); } catch (e) { } toast('Select the link and copy it (Ctrl+C).'); };
+    var settled = false, once = function (f) { return function () { if (!settled) { settled = true; f(); } }; };
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(once(done), once(fallback));
+        setTimeout(once(fallback), 1200);   // a browser that never answers the clipboard request
+        return;
+      }
+    } catch (e) { }
+    fallback();
+  }
   function dirCall(action, o) { return post(CFG.backendUrl, Object.assign({ module: 'portal', action: action, token: tsess() }, o || {})); }
   function fmtDay(t) { if (!t) return ''; var d = new Date(Number(t)); return isNaN(d) ? '' : d.toISOString().slice(0, 10); }
   function directorySection() {
@@ -467,8 +482,14 @@
       pane.appendChild(list(D.groups.slice().sort(function (a, b) { return groupLabel(a).localeCompare(groupLabel(b)); }), function (g) {
         var ds = D.deliveries.filter(function (d) { return d.groupId === g.groupId; });
         var fields = [['institutionId', 'Institution', 'fixed'], ['name', 'Group name'], ['academicYear', 'Academic year'], ds.length ? ['linkCode', 'Link code (fixed)', 'fixed'] : ['linkCode', 'Link code (?g=…)']];
-        return row('<b>' + esc(groupLabel(g)) + '</b> ' + activePill(g) + '<div class="small muted">link code <code>' + esc(g.linkCode) + '</code> · ' + ds.length + ' module(s) · id ' + esc(g.groupId) + '</div>', 'group', g.groupId, g.active,
+        var link = groupLink(g.linkCode);
+        var el = row('<b>' + esc(groupLabel(g)) + '</b> ' + activePill(g) + '<div class="small muted">link code <code>' + esc(g.linkCode) + '</code> · ' + ds.length + ' module(s) · id ' + esc(g.groupId) + '</div>' +
+          '<div class="grp-link"><span class="small">Student link:</span> <input class="grp-url" readonly value="' + esc(link) + '" aria-label="Student link for ' + esc(groupLabel(g)) + '"> <button class="btn" type="button" data-a="copy">📋 Copy link</button> <a class="btn" href="' + esc(link) + '" target="_blank" rel="noopener">Open ↗</a></div>' +
+          (g.active ? (ds.length ? '' : '<div class="small warn-t">No modules delivered to this group yet — its page will be empty.</div>') : '<div class="small warn-t">Inactive — this link shows the main page until the group is activated.</div>'), 'group', g.groupId, g.active,
           function (r) { editRow(r, fields, Object.assign({}, g, { institutionId: instName(g.institutionId) }), function (o, b) { o.groupId = g.groupId; delete o.institutionId; save('group', o, null, b); }); });
+        var inp = $('.grp-url', el); inp.onclick = function () { inp.select(); };
+        $('[data-a=copy]', el).onclick = function () { copyText(link, inp); };
+        return el;
       }));
     }
     var MOD_F = [['title', 'Title'], ['subtitle', 'Subtitle'], ['url', 'Link (https://…)'], ['storagePrefix', 'Storage prefix (e.g. ci_)'], ['icon', 'Icon (emoji)'], ['color', 'Colour', 'color']];

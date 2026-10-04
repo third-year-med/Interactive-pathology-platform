@@ -81,7 +81,8 @@ platform — nothing in it changes sign-in or module access yet (that comes in l
 ### Group front pages
 
 Each active group has its own front page: `https://third-year-med.github.io/Interactive-pathology-platform/?g=<link code>`
-(e.g. `?g=razi-a-26`). It shows the institution, the group and **only that group's modules** (its active deliveries).
+(e.g. `?g=razi-a-26`). **To get it:** Teacher Dashboard → Platform directory → **Groups** → the group's *Student link*
+→ **📋 Copy link** (or **Open ↗** to check it first). It shows the institution, the group and **only that group's modules** (its active deliveries).
 Students sign in there with the Student ID and password of their account **in that group's delivery** (created in
 that delivery's Teacher Portal → Students for now; group rosters come in Step 3). The link code only selects the group:
 changing it never opens another group's modules — the backend checks the account in each delivery's own storage.
