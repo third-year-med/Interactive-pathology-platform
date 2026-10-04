@@ -72,6 +72,13 @@
  *   assignments), the Admin opens any module from the dashboard. Emergency switch: script property ALLOW_MODULE_LOGIN=true
  *   restores the old behaviour. portalEndModuleSessions (Admin) ends every module teacher session issued earlier.
  *
+ * Content versioning foundation (1.8, Step 6 — nothing is switched on, nothing changes for anyone):
+ *   contentStatus     Admin   per module: versioned content on/off (off), published version (none yet), the storages
+ *                             holding content rows and how many
+ *   contentReport     Admin   READ-ONLY migration report for one module: which rows would become master content, which
+ *                             stay with each group, and how each group's copy differs from the main one
+ *   Sheet ContentVersions (created, empty until publishing exists).
+ *
  * Teacher = a valid teacher session of the "portal" module (Code.gs login/setup with module:"portal").
  * Admin   = the same account (the only platform teacher account until personal teacher accounts exist).
  *
@@ -87,7 +94,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '1.7';
+var PORTAL_VERSION = '1.8';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -139,6 +146,8 @@ function portalHook_(module, p) {
     case 'portalGroupSetPassword': return portalGroupSetPassword_(p);
     case 'portalGroupRefresh': return portalGroupRefresh_(p);
     case 'teacherLogin': return teacherLogin_(p);
+    case 'contentStatus': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentStatus_(); }); });
+    case 'contentReport': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentReport_(p); }); });
     case 'portalEndModuleSessions': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return portalEndModuleSessions_(); }); });
     case 'teacherMe': return tAuthed_(p, function (u) { return teacherMe_(u); });
     case 'teacherOpen': return tAuthed_(p, function (u, ses) { return teacherOpen_(u, ses, p); });
@@ -327,7 +336,7 @@ function portalTeacherClose_(p) {
 var DIR = {
   INST: 'Institutions', GROUP: 'Groups', MOD: 'Modules', DELIV: 'Deliveries',
   ASSIGN: 'TeacherAssignments', ROLES: 'ModuleContentRoles', MEMB: 'StudentMemberships',
-  USERS: 'PortalUsers', PSES: 'PortalSessions', GRANTS: 'PortalGrants'
+  USERS: 'PortalUsers', PSES: 'PortalSessions', GRANTS: 'PortalGrants', CVER: 'ContentVersions'
 };
 var DIR_HEADERS = {
   Institutions: ['institutionId', 'name', 'shortName', 'active', 'sortOrder', 'createdAt', 'updatedAt'],
@@ -341,7 +350,8 @@ var DIR_HEADERS = {
   StudentMemberships: ['membershipId', 'groupId', 'studentId', 'name', 'email', 'active', 'createdAt', 'updatedAt', 'pwSalt', 'pwHash', 'pwIter', 'mustChange'],
   PortalUsers: ['userId', 'role', 'username', 'name', 'email', 'pwSalt', 'pwHash', 'pwIter', 'active', 'mustChange', 'failed', 'lockedUntil', 'createdAt', 'updatedAt', 'lastLogin'],
   PortalSessions: ['tokenHash', 'userId', 'role', 'createdAt', 'expiresAt'],
-  PortalGrants: ['userId', 'deliveryId', 'backendModule', 'tokenHash', 'sessionHash', 'createdAt', 'expiresAt']
+  PortalGrants: ['userId', 'deliveryId', 'backendModule', 'tokenHash', 'sessionHash', 'createdAt', 'expiresAt'],
+  ContentVersions: ['moduleId', 'version', 'label', 'build', 'publishedAt', 'publishedBy', 'notes', 'fingerprint', 'itemCount', 'status']
 };
 var DIR_TEXT = {
   Institutions: ['institutionId', 'name', 'shortName'],
@@ -353,7 +363,8 @@ var DIR_TEXT = {
   StudentMemberships: ['membershipId', 'groupId', 'studentId', 'name', 'email', 'pwSalt', 'pwHash'],
   PortalUsers: ['userId', 'role', 'username', 'name', 'email', 'pwSalt', 'pwHash'],
   PortalSessions: ['tokenHash', 'userId', 'role'],
-  PortalGrants: ['userId', 'deliveryId', 'backendModule', 'tokenHash', 'sessionHash']
+  PortalGrants: ['userId', 'deliveryId', 'backendModule', 'tokenHash', 'sessionHash'],
+  ContentVersions: ['moduleId', 'label', 'build', 'publishedBy', 'notes', 'fingerprint', 'status']
 };
 var DIR_KINDS = {
   institution: { sheet: 'Institutions', key: 'institutionId', prefix: 'INS' },
@@ -1095,4 +1106,62 @@ function portalEndModuleSessions_() {
   }
   if (tSheetsReady_()) dirAll_(DIR.GRANTS).map(function (g) { return g._row; }).sort(function (a, b) { return b - a; }).forEach(function (row) { deleteRow_(DIR.GRANTS, row); });
   return { ok: true, ended: n };
+}
+
+/* ======================================================================
+ * Step 6: content versioning foundation (read-only; nothing is switched on).
+ * ====================================================================== */
+/** Educational content (one master copy per module, later versioned) vs. group activity (stays with each delivery). */
+var CONTENT_MASTER = { customtopics: 1, topicsections: 1, hiddentopics: 1, courseorder: 1, custommedia: 1, practical: 1, presentationdeck: 1,
+  importedquestions: 1, quizextra: 1, revexclude: 1, importbatches: 1, practicalpub: 1, practicalcfg: 1, contentedits: 1, history: 1, 'priv:pracdrafts': 1 };
+var CONTENT_GROUP = { assessments: 1, assessmentversions: 1, assessmeta: 1, 'priv:exams': 1, 'priv:exambank': 1 };
+function contentKind_(coll) { coll = String(coll || ''); return CONTENT_MASTER[coll] ? 'master' : CONTENT_GROUP[coll] ? 'group' : 'other'; }
+function contentMode_(moduleId) { return getSetting_('content:mode:' + moduleId) === 'on' ? 'on' : 'off'; }
+function contentRowsByStorage_() {
+  var by = {};
+  readAll_(SHEETS.CONTENT).forEach(function (r) { var m = String(r.module || ''); if (m) (by[m] = by[m] || []).push(r); });
+  return by;
+}
+function contentStoragesOf_(moduleId, by) {
+  return Object.keys(by).filter(function (m) { return m === moduleId || m.indexOf(moduleId + '-') === 0; }).sort(function (a, b) { return a === moduleId ? -1 : b === moduleId ? 1 : a.localeCompare(b); });
+}
+function contentStatus_() {
+  var by = contentRowsByStorage_(), versions = dirAll_(DIR.CVER), bm = {};
+  dirAll_(DIR.DELIV).forEach(function (d) { bm[d.backendModule] = d.deliveryId; });
+  return { ok: true, modules: dirAll_(DIR.MOD).map(function (m) {
+    var st = contentStoragesOf_(m.moduleId, by).map(function (k) {
+      var rows = by[k].filter(function (r) { return !isTrue_(r.deleted); }), c = { master: 0, group: 0, other: 0 };
+      rows.forEach(function (r) { c[contentKind_(r.collection)]++; });
+      return { storage: k, registered: !!bm[k] || k === m.moduleId, master: c.master, group: c.group, other: c.other };
+    });
+    return { moduleId: m.moduleId, title: m.title, mode: contentMode_(m.moduleId), publishedVersion: m.publishedVersion || '',
+      versions: versions.filter(function (v) { return v.moduleId === m.moduleId; }).length, storages: st };
+  }) };
+}
+/** Read-only migration report for one module. The main storage (plain module name, what the normal link shows) is the
+ *  proposed starting master; each group storage's master-type rows are compared with it item by item. */
+function contentReport_(p) {
+  var moduleId = String(p.moduleId || ''); if (!dirFind_(DIR.MOD, 'moduleId', moduleId)) return dirErr_('Choose a module.');
+  var by = contentRowsByStorage_(), storages = contentStoragesOf_(moduleId, by), json = function (r) { var s = ''; for (var i = 1; i <= CONTENT_JSON_COLS; i++) s += (r['json' + i] || ''); return s; };
+  var live = function (rows) { return (rows || []).filter(function (r) { return !isTrue_(r.deleted); }); };
+  var base = {}; live(by[moduleId]).forEach(function (r) { if (contentKind_(r.collection) === 'master') base[r.collection + '|' + r.id] = r; });
+  var summary = { masterItems: Object.keys(base).length, groupStorages: 0, identical: 0, onlyInGroup: 0, conflicts: 0, groupActivity: 0, other: 0 }, details = [], perStorage = [];
+  var countBase = { master: 0, group: 0, other: 0 }; live(by[moduleId]).forEach(function (r) { countBase[contentKind_(r.collection)]++; });
+  summary.groupActivity += countBase.group; summary.other += countBase.other;
+  perStorage.push({ storage: moduleId, role: 'main', master: countBase.master, group: countBase.group, other: countBase.other, identical: 0, onlyInGroup: 0, conflicts: 0 });
+  storages.filter(function (k) { return k !== moduleId; }).forEach(function (k) {
+    summary.groupStorages++;
+    var ps = { storage: k, role: 'group', master: 0, group: 0, other: 0, identical: 0, onlyInGroup: 0, conflicts: 0 };
+    live(by[k]).forEach(function (r) {
+      var kind = contentKind_(r.collection); ps[kind]++;
+      if (kind === 'group') { summary.groupActivity++; return; }
+      if (kind === 'other') { summary.other++; details.push({ storage: k, collection: r.collection, id: String(r.id), status: 'unknown collection', updatedAt: Number(r.updatedAt) || 0 }); return; }
+      var b = base[r.collection + '|' + r.id];
+      if (!b) { ps.onlyInGroup++; summary.onlyInGroup++; details.push({ storage: k, collection: r.collection, id: String(r.id), status: 'only in this group', updatedAt: Number(r.updatedAt) || 0 }); }
+      else if (json(b) === json(r)) { ps.identical++; summary.identical++; }
+      else { ps.conflicts++; summary.conflicts++; details.push({ storage: k, collection: r.collection, id: String(r.id), status: 'different from the main copy', updatedAt: Number(r.updatedAt) || 0, mainUpdatedAt: Number(b.updatedAt) || 0 }); }
+    });
+    perStorage.push(ps);
+  });
+  return { ok: true, moduleId: moduleId, mode: contentMode_(moduleId), summary: summary, storages: perStorage, details: details.slice(0, 500), truncated: details.length > 500 };
 }

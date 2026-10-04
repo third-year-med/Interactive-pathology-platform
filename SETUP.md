@@ -5,7 +5,7 @@ this repository on GitHub Pages. The front page starts with two modules: **Cell 
 **Inflammation & Healing** (both *Available*); more can be added later in the Teacher Dashboard.
 
 > **Updating from an earlier version?** Replace the contents of the `Portal` file in Apps Script with the new
-> [`backend/Portal.gs`](backend/Portal.gs) (version 1.7 — module teacher passwords closed), save, and deploy
+> [`backend/Portal.gs`](backend/Portal.gs) (version 1.8 — content versioning foundation), save, and deploy
 > a **new version** (step 1.4). The Code.gs line from step 1.3 stays as it is.
 
 ## 1. Main backend (Cell Injury, Inflammation …)
@@ -134,6 +134,13 @@ assignments), and the Administrator opens any module from the dashboard. Code.gs
 After installing 1.7, press **Platform directory → Teachers → End all module teacher sessions** once.
 Emergency only: Apps Script → Project Settings → Script properties → `ALLOW_MODULE_LOGIN` = `true` restores the old
 module sign-in (delete the property to close it again).
+
+### Content (versioning foundation — nothing switched on yet)
+
+Platform directory → **Content** shows, per module, whether versioned content is on (**off** for now), the published
+version (none yet) and where content edits are stored. **📋 Migration report** is read-only: what would become the
+master copy (from the main/normal-link storage), what stays with each group (assessments, exams), and every item in which
+a group's copy differs from the main one — to review before the content is moved in the next step.
 
 Records are never deleted (deactivate them instead). The directory uses its own sheets — Institutions, Groups, Modules,
 Deliveries, TeacherAssignments, ModuleContentRoles — created on first use; no existing sheet is changed.

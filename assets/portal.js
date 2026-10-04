@@ -633,7 +633,7 @@
       $('[data-a=act]', r).onclick = function () { if (!active || window.confirm('Deactivate this record? Nothing is deleted, and it can be activated again.')) setActive(kind, id, !active); };
       return r;
     }
-    var TABS = [['institutions', 'Institutions'], ['groups', 'Groups'], ['modules', 'Modules'], ['deliveries', 'Deliveries'], ['students', 'Students'], ['teachers', 'Teachers'], ['existing', 'Existing data']];
+    var TABS = [['institutions', 'Institutions'], ['groups', 'Groups'], ['modules', 'Modules'], ['deliveries', 'Deliveries'], ['students', 'Students'], ['teachers', 'Teachers'], ['content', 'Content'], ['existing', 'Existing data']];
     var teacherOut = null, openAssign = '';
     var rosterGroup = '', lastAdded = null;
     function draw() {
@@ -643,7 +643,7 @@
       TABS.forEach(function (t) { var b = h('<button type="button" role="tab" class="dir-tab' + (tab === t[0] ? ' on' : '') + '" data-t="' + t[0] + '">' + esc(t[1]) + '</button>'); b.onclick = function () { tab = t[0]; draw(); }; nav.appendChild(b); });
       body.appendChild(nav);
       var pane = h('<div class="dir-pane" data-pane="' + tab + '"></div>'); body.appendChild(pane);
-      ({ institutions: paneInst, groups: paneGroups, modules: paneModules, deliveries: paneDeliveries, students: paneStudents, teachers: paneTeachers, existing: paneExisting })[tab](pane);
+      ({ institutions: paneInst, groups: paneGroups, modules: paneModules, deliveries: paneDeliveries, students: paneStudents, teachers: paneTeachers, content: paneContent, existing: paneExisting })[tab](pane);
     }
     var INST_F = [['name', 'Name', 'text', 'e.g. Al-Razi University'], ['shortName', 'Short name', 'text', 'e.g. Al-Razi'], ['sortOrder', 'Order', 'number']];
     function paneInst(pane) {
@@ -912,6 +912,44 @@
         dirCall('teacherAssign', { userId: t.userId, deliveryIds: ids }).then(function (x) { if (!x.ok) return toast(x.error); toast('Assignments saved (' + x.deliveryIds.length + ').'); openAssign = ''; draw(); });
       };
       return w;
+    }
+    /* ---- Content: versioning foundation (Step 6, read-only) ---- */
+    function paneContent(pane) {
+      pane.appendChild(h('<p class="small muted">One <b>master copy</b> of each module\'s educational content (lectures, sections, images, questions, practicals…) will be versioned and delivered to every group, while assessments, exams, results and attendance stay with each group. <b>Nothing is switched on yet</b> — this page only shows the current state and a read-only report to review before the content is moved (next step).</p>'));
+      var box = h('<div class="content-st"><p class="muted">Loading…</p></div>'); pane.appendChild(box);
+      dirCall('contentStatus').then(function (r) {
+        if (!r.ok) { box.innerHTML = '<p class="err">' + esc(r.code === 'badaction' ? 'Update Portal.gs on the backend (version 1.8, see SETUP.md).' : r.error) + '</p>'; return; }
+        box.innerHTML = '';
+        r.modules.forEach(function (m) {
+          var card = h('<div class="dir-row content-mod" data-module="' + esc(m.moduleId) + '"><div class="dir-main"><b>' + esc(m.title) + '</b> <code>' + esc(m.moduleId) + '</code> ' +
+            (m.mode === 'on' ? '<span class="pill available">Versioned content: on</span>' : '<span class="pill soon">Versioned content: off</span>') +
+            '<div class="small muted">Published version: ' + (m.publishedVersion ? esc(m.publishedVersion) : 'none yet') + ' · ' + m.versions + ' version(s) · content stored in ' + m.storages.length + ' place(s)</div>' +
+            (m.storages.length ? '<div class="tbl-wrap"><table class="dir-tbl"><thead><tr><th>Storage</th><th>Educational rows</th><th>Group activity rows</th><th>Other</th></tr></thead><tbody>' +
+              m.storages.map(function (x) { return '<tr><td><code>' + esc(x.storage) + '</code>' + (x.storage === m.moduleId ? ' <span class="small muted">(main / normal link)</span>' : x.registered ? '' : ' <span class="small muted">(not registered)</span>') + '</td><td>' + x.master + '</td><td>' + x.group + '</td><td>' + x.other + '</td></tr>'; }).join('') + '</tbody></table></div>'
+              : '<p class="small muted">No content edits stored on the backend yet — the module shows its built-in content only.</p>') +
+            '<div class="report"></div></div><div class="dir-btns"><button class="btn" type="button" data-a="rep">📋 Migration report</button></div></div>');
+          $('[data-a=rep]', card).onclick = function () {
+            var b = this, out = $('.report', card); b.disabled = true; out.innerHTML = '<p class="muted small">Building the report…</p>';
+            dirCall('contentReport', { moduleId: m.moduleId }).then(function (x) {
+              b.disabled = false; if (!x.ok) { out.innerHTML = '<p class="err">' + esc(x.error) + '</p>'; return; }
+              out.innerHTML = '';
+              out.appendChild(contentReportView(x));
+            });
+          };
+          box.appendChild(card);
+        });
+      });
+    }
+    function contentReportView(x) {
+      var s = x.summary;
+      var el = h('<div class="note roster-res"><b>Migration report (read-only — nothing has been changed)</b>' +
+        '<ul class="small"><li><b>' + s.masterItems + '</b> educational item(s) in the main copy → would become the starting <b>master v1.0</b>.</li>' +
+        '<li><b>' + s.groupStorages + '</b> group copy/copies compared with it: <b>' + s.identical + '</b> identical (nothing to do), <b>' + s.onlyInGroup + '</b> only in a group, <b>' + s.conflicts + '</b> different from the main copy.</li>' +
+        '<li><b>' + s.groupActivity + '</b> assessment/exam row(s) — these stay with their group, untouched.</li>' + (s.other ? '<li><b>' + s.other + '</b> row(s) of an unknown kind — kept as they are.</li>' : '') + '</ul>' +
+        (x.details.length ? '<p class="small">Items to review in the next step (you will choose for each: keep the main version, use the group\'s version, or keep it as that group\'s local addition):</p><div class="tbl-wrap"><table class="dir-tbl"><thead><tr><th>Group storage</th><th>Kind</th><th>Item</th><th>Status</th><th>Last change</th></tr></thead><tbody>' +
+          x.details.map(function (d) { return '<tr><td><code>' + esc(d.storage) + '</code></td><td>' + esc(d.collection) + '</td><td><code>' + esc(d.id) + '</code></td><td>' + esc(d.status) + '</td><td>' + esc(fmtDay(d.updatedAt)) + '</td></tr>'; }).join('') + '</tbody></table></div>' + (x.truncated ? '<p class="small muted">Only the first 500 items are listed.</p>' : '')
+          : '<p class="small">Nothing to review: no group copy differs from the main copy.</p>') + '</div>');
+      return el;
     }
     function paneExisting(pane) {
       pane.appendChild(h('<p class="small muted">Storage names already present in your data (read-only — nothing is changed). Register one by creating a group whose link code matches the part after “-” and delivering the module to it; the storage of the normal link (no “-”) is registered with the “existing storage of the normal link” option.</p>'));

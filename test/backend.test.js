@@ -779,3 +779,38 @@ test('emergency switch ALLOW_MODULE_LOGIN=true restores the old module sign-in; 
   assert.ok(S.t('teacherMe', S.ahmed.tok).ok, 'teachers stay signed in on the dashboard and can open modules again');
   assert.ok(S.t('teacherOpen', S.ahmed.tok, { deliveryId: S.dl['cellinjury-razi-a-26'].deliveryId }).ok);
 });
+
+/* ---------------- Step 6: content versioning foundation (read-only) ---------------- */
+test('content report: master vs group activity, and each group copy compared with the main copy — nothing changes', function () {
+  const S = teachersSetup();
+  const tMain = S.call({ module: 'portal', action: 'portalTeacherOpen', token: S.admin, modules: ['cellinjury'] }).modules.cellinjury.token;
+  const tGrp = S.t('teacherOpen', S.ahmed.tok, { deliveryId: S.dl['cellinjury-razi-a-26'].deliveryId }).token;
+  const up = function (m, tok, coll, id, data) { const r = S.call({ module: m, action: 'upsert', token: tok, collection: coll, id: id, data: data }); assert.ok(r.ok, JSON.stringify(r)); };
+  up('cellinjury', tMain, 'topicsections', 'T1', { sections: ['A'] });
+  up('cellinjury', tMain, 'customtopics', 'C1', { title: 'Main title' });
+  up('cellinjury', tMain, 'assessments', 'AS1', { title: 'Main quiz' });
+  up('cellinjury-razi-a-26', tGrp, 'topicsections', 'T1', { sections: ['A'] });        // identical
+  up('cellinjury-razi-a-26', tGrp, 'topicsections', 'T2', { sections: ['local'] });    // only in this group
+  up('cellinjury-razi-a-26', tGrp, 'customtopics', 'C1', { title: 'Group title' });    // different
+  up('cellinjury-razi-a-26', tGrp, 'assessments', 'AS9', { title: 'Group quiz' });     // group activity (stays)
+  up('cellinjury-razi-a-26', tGrp, 'somethingnew', 'X1', { a: 1 });                    // unknown collection
+  const contentBefore = JSON.stringify(S.b.sheets.Content._rows);
+  const allBefore = S.call({ module: 'cellinjury-razi-a-26', action: 'getAllContent', token: tGrp, since: 0 });
+  assert.strictEqual(S.call({ module: 'portal', action: 'contentReport', ttoken: S.ahmed.tok, token: S.ahmed.tok, moduleId: 'cellinjury' }).ok, false, 'Admin only');
+  const r = S.dir('contentReport', { moduleId: 'cellinjury' });
+  assert.ok(r.ok, JSON.stringify(r));
+  assert.strictEqual(r.mode, 'off');
+  assert.deepStrictEqual(r.summary, { masterItems: 2, groupStorages: 1, identical: 1, onlyInGroup: 1, conflicts: 1, groupActivity: 2, other: 1 });
+  const st = function (id) { return r.details.filter(function (d) { return d.id === id; })[0].status; };
+  assert.strictEqual(st('T2'), 'only in this group'); assert.strictEqual(st('C1'), 'different from the main copy'); assert.strictEqual(st('X1'), 'unknown collection');
+  assert.ok(!r.details.some(function (d) { return d.id === 'T1' || d.id === 'AS9'; }));
+  assert.strictEqual(JSON.stringify(r).indexOf('Group title'), -1, 'the report lists items, not their content');
+  const s = S.dir('contentStatus'); assert.ok(s.ok);
+  const ci = s.modules.filter(function (m) { return m.moduleId === 'cellinjury'; })[0];
+  assert.strictEqual(ci.mode, 'off'); assert.strictEqual(ci.versions, 0);
+  assert.deepStrictEqual(ci.storages.map(function (x) { return [x.storage, x.master, x.group, x.other]; }), [['cellinjury', 2, 1, 0], ['cellinjury-razi-a-26', 3, 1, 1]]);
+  assert.ok(S.b.sheets.ContentVersions, 'ContentVersions sheet prepared');
+  // nothing changed: the Content sheet and what the module receives are identical
+  assert.strictEqual(JSON.stringify(S.b.sheets.Content._rows), contentBefore);
+  assert.deepStrictEqual(S.call({ module: 'cellinjury-razi-a-26', action: 'getAllContent', token: tGrp, since: 0 }).items, allBefore.items);
+});

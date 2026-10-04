@@ -179,3 +179,6 @@ code.pw{font-size:14px;font-weight:700;letter-spacing:.03em}
 .asg-edit legend{font-weight:700;color:var(--navy);font-size:14px;padding:0 4px}
 .asg-edit .chk{margin:4px 0}
 .my-group .grp-link{margin:0 0 12px}
+.content-mod .dir-main{flex-basis:100%}
+.content-mod .report{margin-top:8px}
+.roster-res ul{margin:6px 0 8px;padding-left:20px}
