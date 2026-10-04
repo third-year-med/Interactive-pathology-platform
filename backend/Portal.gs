@@ -66,7 +66,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '1.5';
+var PORTAL_VERSION = '1.5.1';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -150,7 +150,34 @@ function portalInfo_() {
 function portalCheck_(p) {
   var keys = (Array.isArray(p.modules) ? p.modules : []).map(function (k) { return String(k || '').toLowerCase().replace(/[^a-z0-9_-]/g, ''); })
     .filter(function (k, i, arr) { return k && k !== PORTAL_MODULE && arr.indexOf(k) === i; }).slice(0, 40);
-  return portalAccountCheck_(p, keys.map(function (k) { return { key: k, module: k }; }));
+  var res = portalAccountCheck_(p, keys.map(function (k) { return { key: k, module: k }; }));
+  if (!res.ok && res.code === 'badlogin' && p.username && p.password) {
+    // not an account of the main page — but perhaps a group student who opened the main page: only with the RIGHT password
+    // for an active group membership, the student is told which group page is theirs (nothing else is revealed)
+    var gm = portalMemberGroups_(normUser_(p.username), String(p.password));
+    if (gm.length) { CacheService.getScriptCache().remove('portalfail:' + sha256Hex_(normUser_(p.username))); return { ok: false, code: 'groupmember', groups: gm, error: 'Please sign in on your group\'s page.' }; }
+  }
+  return res;
+}
+/** The active groups (of active institutions) where this Student ID is an active member AND this is the member's password. */
+function portalMemberGroups_(username, pw) {
+  try { if (!username || !pw || !dirReadable_()) return []; } catch (e) { return []; }
+  var sh = getSS_().getSheetByName(DIR.MEMB); if (!sh || sh.getLastRow() < 2) return [];
+  var groups = {}; dirAll_(DIR.GROUP).forEach(function (g) { groups[g.groupId] = g; });
+  var insts = {}; dirAll_(DIR.INST).forEach(function (i) { insts[i.institutionId] = i; });
+  var idx = null, out = [];
+  dirAll_(DIR.MEMB).forEach(function (m) {
+    if (m.studentId !== username || !m.active) return;
+    var g = groups[m.groupId], inst = g && insts[g.institutionId];
+    if (!g || !g.active || !inst || !inst.active) return;
+    var ok = m.pwHash && safeEq_(hashIter_(pw, m.pwSalt, Number(m.pwIter) || PW_ITER), m.pwHash);
+    if (!ok) {   // older memberships without a stored hash: the member's accounts in the group
+      idx = idx || rosterAccounts_();
+      ok = rosterStorages_(g.groupId).some(function (x) { var a = idx[x.storage + '|' + username]; return a && isTrue_(a.active) && safeEq_(hashIter_(pw, a.pwSalt, Number(a.pwIter) || PW_ITER), a.pwHash); });
+    }
+    if (ok) out.push({ g: g.linkCode, group: g.name, academicYear: g.academicYear, institution: inst.name });
+  });
+  return out;
 }
 /** Student ID + password → for each target {key, module (= the storage name)}: may this student enter? Opens a normal
  *  student session of that storage where an active account with this ID and password exists (nothing else is touched). */
@@ -271,7 +298,9 @@ var DIR_HEADERS = {
   Deliveries: ['deliveryId', 'groupId', 'moduleId', 'backendModule', 'status', 'openFrom', 'openUntil', 'active', 'createdAt', 'updatedAt'],
   TeacherAssignments: ['assignmentId', 'userId', 'deliveryId', 'grantedBy', 'grantedAt'],
   ModuleContentRoles: ['userId', 'moduleId', 'role', 'grantedBy', 'grantedAt'],
-  StudentMemberships: ['membershipId', 'groupId', 'studentId', 'name', 'email', 'active', 'createdAt', 'updatedAt']
+  // pwSalt/pwHash/pwIter/mustChange: the member's current password HASH (never the password, never returned), so accounts can be
+  // created in modules delivered to the group later
+  StudentMemberships: ['membershipId', 'groupId', 'studentId', 'name', 'email', 'active', 'createdAt', 'updatedAt', 'pwSalt', 'pwHash', 'pwIter', 'mustChange']
 };
 var DIR_TEXT = {
   Institutions: ['institutionId', 'name', 'shortName'],
@@ -280,7 +309,7 @@ var DIR_TEXT = {
   Deliveries: ['deliveryId', 'groupId', 'moduleId', 'backendModule', 'status'],
   TeacherAssignments: ['assignmentId', 'userId', 'deliveryId', 'grantedBy'],
   ModuleContentRoles: ['userId', 'moduleId', 'role', 'grantedBy'],
-  StudentMemberships: ['membershipId', 'groupId', 'studentId', 'name', 'email']
+  StudentMemberships: ['membershipId', 'groupId', 'studentId', 'name', 'email', 'pwSalt', 'pwHash']
 };
 var DIR_KINDS = {
   institution: { sheet: 'Institutions', key: 'institutionId', prefix: 'INS' },
@@ -576,7 +605,9 @@ function rosterGet_(p) {
       hashes[a.pwSalt + ':' + a.pwHash] = 1;
       acc[x.moduleId] = !isTrue_(a.active) ? 'inactive' : Number(a.lockedUntil) > now ? 'locked' : isTrue_(a.mustChange) ? 'mustchange' : 'ok';
     });
-    return { studentId: m.studentId, name: m.name, email: m.email, active: m.active, accounts: acc, samePassword: Object.keys(hashes).length <= 1 };
+    var none = st.length && st.every(function (x) { return acc[x.moduleId] === 'missing'; });
+    return { studentId: m.studentId, name: m.name, email: m.email, active: m.active, accounts: acc, samePassword: Object.keys(hashes).length <= 1,
+      needsPassword: !!(none && !m.pwHash) };
   }).sort(function (a, b) { return a.studentId.localeCompare(b.studentId); });
   var known = {}; members.forEach(function (m) { known[m.studentId] = 1; });
   var unlisted = {};
@@ -594,15 +625,13 @@ function rosterAdd_(p) {
     var given = String(it.password || '');
     if (given && given.length < STU_MIN_PW) { out.push({ ok: false, studentId: c.studentId, error: 'The password for ' + c.studentId + ' must be at least ' + STU_MIN_PW + ' characters.' }); return; }
     var plain = given || genTempPassword_(), pw = rosterPw_(plain, given ? mustChange : true);
-    var m = { membershipId: dirNewId_('MEM', DIR.MEMB, 'membershipId'), groupId: g.groupId, studentId: c.studentId, name: c.name, email: c.email, active: true, createdAt: now, updatedAt: now };
+    var m = { membershipId: dirNewId_('MEM', DIR.MEMB, 'membershipId'), groupId: g.groupId, studentId: c.studentId, name: c.name, email: c.email, active: true, createdAt: now, updatedAt: now,
+      pwSalt: pw.salt, pwHash: pw.hash, pwIter: pw.iter, mustChange: !!pw.mustChange };
     appendRow_(DIR.MEMB, m);
-    var kept = [];
-    st.forEach(function (x) {
-      var a = idx[x.storage + '|' + c.studentId];
-      if (a) { kept.push(x.moduleId); return; }   // an existing account keeps its own password (reset to align)
-      rosterNewAccount_(x.storage, m, pw, now);
-    });
-    out.push({ ok: true, studentId: c.studentId, name: c.name, tempPassword: given ? '' : plain, keptExisting: kept });
+    // the password given here is THE password for all of the group's modules — also for an account that already existed
+    var updated = st.filter(function (x) { return idx[x.storage + '|' + c.studentId]; }).map(function (x) { return x.moduleId; });
+    rosterApplyPw_(g.groupId, dirFind_(DIR.MEMB, 'membershipId', m.membershipId), pw, null, null);
+    out.push({ ok: true, studentId: c.studentId, name: c.name, tempPassword: given ? '' : plain, updatedExisting: updated });
   });
   return { ok: true, added: out.filter(function (r) { return r.ok; }).length, results: out };
 }
@@ -649,6 +678,10 @@ function rosterResetPassword_(p) {
  *  ends their sessions there — except keep.th in keep.storage (the session that made the change). */
 function rosterApplyPw_(groupId, member, pw, keepStorage, keepHash) {
   var idx = rosterAccounts_(), now = Date.now();
+  if (member && member._row) {
+    var mr = dirPublic_(member); mr.pwSalt = pw.salt; mr.pwHash = pw.hash; mr.pwIter = pw.iter; mr.mustChange = !!pw.mustChange; mr.updatedAt = now;
+    updateRow_(DIR.MEMB, member._row, mr);
+  }
   rosterStorages_(groupId).forEach(function (x) {
     var a = idx[x.storage + '|' + member.studentId];
     if (!a) { rosterNewAccount_(x.storage, member, pw, now); return; }
@@ -668,8 +701,10 @@ function rosterSync_(groupId, quiet) {
       .sort(function (a, b) { return Number(b.updatedAt || 0) - Number(a.updatedAt || 0); });
     var missing = st.filter(function (x) { return !idx[x.storage + '|' + m.studentId]; });
     if (!missing.length) return;
-    if (!have.length) { needReset.push(m.studentId); return; }
-    var src = have[0], pw = { salt: src.pwSalt, hash: src.pwHash, iter: Number(src.pwIter) || PW_ITER, mustChange: isTrue_(src.mustChange) };
+    var pw;
+    if (m.pwHash) pw = { salt: m.pwSalt, hash: m.pwHash, iter: Number(m.pwIter) || PW_ITER, mustChange: isTrue_(m.mustChange) };
+    else if (have.length) { var src = have[0]; pw = { salt: src.pwSalt, hash: src.pwHash, iter: Number(src.pwIter) || PW_ITER, mustChange: isTrue_(src.mustChange) }; }
+    else { needReset.push(m.studentId); return; }
     missing.forEach(function (x) { rosterNewAccount_(x.storage, m, pw, now); created++; });
   });
   return { ok: true, created: created, needPasswordReset: needReset };
@@ -679,10 +714,17 @@ function rosterSync_(groupId, quiet) {
 function rosterImport_(p) {
   var g = rosterGroupOr_(p.groupId); if (!g) return dirErr_('Choose a group.');
   var st = rosterStorages_(g.groupId), names = {}, now = Date.now(), added = 0;
-  st.forEach(function (x) { readAll_(SHEETS.STUDENTS).forEach(function (a) { if (a.module === x.storage) { var o = names[a.username] = names[a.username] || { name: a.name, email: a.email, active: false }; if (isTrue_(a.active)) o.active = true; } }); });
+  st.forEach(function (x) { readAll_(SHEETS.STUDENTS).forEach(function (a) {
+    if (a.module !== x.storage) return;
+    var o = names[a.username] = names[a.username] || { name: a.name, email: a.email, active: false, src: null };
+    if (isTrue_(a.active)) o.active = true;
+    if (!o.src || Number(a.updatedAt || 0) > Number(o.src.updatedAt || 0)) o.src = a;
+  }); });
   Object.keys(names).sort().forEach(function (id) {
     if (rosterMember_(g.groupId, id)) return;
-    appendRow_(DIR.MEMB, { membershipId: dirNewId_('MEM', DIR.MEMB, 'membershipId'), groupId: g.groupId, studentId: id, name: names[id].name || id, email: names[id].email || '', active: names[id].active, createdAt: now, updatedAt: now });
+    var src = names[id].src;
+    appendRow_(DIR.MEMB, { membershipId: dirNewId_('MEM', DIR.MEMB, 'membershipId'), groupId: g.groupId, studentId: id, name: names[id].name || id, email: names[id].email || '', active: names[id].active, createdAt: now, updatedAt: now,
+      pwSalt: src.pwSalt, pwHash: src.pwHash, pwIter: Number(src.pwIter) || PW_ITER, mustChange: isTrue_(src.mustChange) });
     added++;
   });
   return { ok: true, added: added };

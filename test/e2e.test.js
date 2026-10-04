@@ -98,6 +98,7 @@ test('sign-in: wrong password refused; right one unlocks only the modules regist
   await p.goto(url);
   await signIn(p, 's1', 'wrong-password');
   await p.waitForFunction(function () { return /Incorrect Student ID or password/.test(document.querySelector('form.signin .err').textContent); });
+  assert.match(await p.textContent('form.signin .err'), /group link/, 'the main page points students with a group link to it');
   await signIn(p, 'S1', PW);
   await p.waitForSelector('.mod[data-id="cellinjury"] .go');
   assert.match(await cardText(p, 'cellinjury'), /Available to you/);
@@ -367,9 +368,10 @@ test('roster: Admin adds a student → temporary password → the student signs 
   await q.goto(url + '?g=tr-a');
   await q.waitForSelector('form.signin');
   await signIn(q, 'R100', temp);
-  await q.waitForSelector('#p-n1');
+  await q.waitForSelector('#p-n1'); await q.waitForTimeout(300);   // let the new form settle (focus) before typing
   assert.match(await q.textContent('form.signin'), /Choose your own password/);
-  await q.fill('#p-n1', 'laila-own-pass'); await q.fill('#p-n2', 'laila-own-pass'); await q.click('form.signin button[type=submit]');
+  await q.fill('#p-n1', 'laila-own-pass'); await q.fill('#p-n2', 'laila-own-pass');
+  await q.click('form.signin button[type=submit]');
   await q.waitForSelector('.mod[data-id="inflhealing"] .go');
   assert.match(await q.textContent('.card.welcome'), /Laila Hassan/);
   ['cellinjury-tr-a', 'inflhealing-tr-a'].forEach(function (st) {
@@ -386,6 +388,31 @@ test('roster: Admin adds a student → temporary password → the student signs 
   await signIn(q2, 'r100', 'laila-own-pass');
   await q2.waitForFunction(function () { return /Incorrect Student ID or password/.test(document.querySelector('form.signin .err').textContent); });
   await p.context().close(); await q.context().close(); await q2.context().close();
+});
+
+test('a group student who signs in on the MAIN page is taken to their group page, signed in', { skip: SKIP }, async function () {
+  groupFixture();
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const grp = main.call({ module: 'portal', action: 'dirGet', token: t }).groups.filter(function (g) { return g.linkCode === 'tr-a'; })[0];
+  assert.ok(main.call({ module: 'portal', action: 'rosterAdd', token: t, groupId: grp.groupId, students: [{ studentId: '11223344', name: 'Main Page Student', password: 'his-pass-123' }] }).results[0].ok);
+  const p = await page();
+  await p.goto(url);
+  await p.waitForSelector('form.signin');
+  await signIn(p, '11223344', 'his-pass-123');
+  // added with "must choose own password": the main page asks for it first, then opens the group page signed in
+  await p.waitForSelector('#p-n1'); await p.waitForTimeout(300);
+  await p.fill('#p-n1', 'his-own-pass-9'); await p.fill('#p-n2', 'his-own-pass-9'); await p.click('form.signin button[type=submit]');
+  await p.waitForURL(/\?g=tr-a/);
+  await p.waitForSelector('.card.welcome');
+  assert.match(await p.textContent('.hero .grp'), /Test Razi University/);
+  assert.match(await p.textContent('.card.welcome'), /Main Page Student/);
+  await p.waitForSelector('.mod[data-id="cellinjury"] .go');
+  // a wrong password on the main page stays the generic message (with the group-link hint)
+  await p.goto(url); await p.waitForSelector('form.signin');
+  await signIn(p, '11223344', 'his-pass-123');   // the old password no longer works
+  await p.waitForFunction(function () { return /Incorrect Student ID or password[\s\S]*group link/.test(document.querySelector('form.signin .err').textContent); });
+  await p.context().close();
 });
 
 test('the front page fits a phone screen', { skip: SKIP }, async function () {

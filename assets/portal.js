@@ -139,7 +139,9 @@
     main.innerHTML = '';
     var avail = MODULES.filter(function (m) { return m.status === 'available'; }).length;
     var mine = s ? MODULES.filter(function (m) { var a = s.modules && s.modules[m.moduleKey]; return m.status === 'available' && a && a.access; }).length : 0;
-    if (GROUP_NOTICE) main.appendChild(h('<div class="note grp-notice" role="status">' + esc(GROUP_NOTICE) + '</div>'));
+    var note = ''; try { note = sessionStorage.getItem('pp_note') || ''; sessionStorage.removeItem('pp_note'); } catch (e) { }
+    var shown = GROUP_NOTICE || (GINFO ? note : '');   // the redirect note is shown once
+    if (shown) main.appendChild(h('<div class="note grp-notice" role="status">' + esc(shown) + '</div>'));
     var gh = GINFO ? '<p class="grp"><span class="grp-inst">' + esc(GINFO.institution.name) + '</span><span class="grp-name">' + esc(GINFO.group.name) + (GINFO.group.academicYear ? ' · ' + esc(GINFO.group.academicYear) : '') + '</span></p>' : '';
     var hero = h('<section class="hero"><div class="hero-txt"><div class="eyebrow">' + (GINFO ? esc(GINFO.institution.shortName || GINFO.institution.name) + ' · Pathology' : 'Medical education · Pathology') + '</div><h1>' + esc(CFG.title || 'Interactive Pathology Teaching Platform') + '</h1>' + gh + '<p class="by">' + esc(CREATED) + '</p>' +
       '<p class="lead">Interactive lectures, practice questions, case-based learning and assessments for every pathology chapter, in one place.</p>' +
@@ -163,15 +165,34 @@
       err.textContent = ''; btn.disabled = true; btn.textContent = 'Signing in…';
       signIn(u, p, r).then(function (x) {
         btn.disabled = false; btn.textContent = 'Sign in';
-        if (!x.ok) { err.textContent = x.error; $('#p-p', f).select(); return; }
+        if (!x.ok && x.code === 'groupmember') return toGroupPage(f, x.groups, u, p, r);
+        if (!x.ok) { err.textContent = x.error + (GINFO || x.code === 'locked' ? '' : ' If your teacher gave you a group link (ending in ?g=…), please sign in on that page.'); $('#p-p', f).select(); return; }
         if (x.mustChange && GINFO) return choosePassword(f, u, p, r);   // a temporary password: choose your own first (all modules)
         afterSignIn();
       });
     };
     return f;
   }
+  /** The main page was used by a group student (right password): sign them in on their group page and go there. */
+  function toGroupPage(f, groups, u, p, remember) {
+    var label = function (x) { return x.institution + ' · ' + x.group + (x.academicYear ? ' (' + x.academicYear + ')' : ''); };
+    if (groups.length > 1) {
+      f.innerHTML = '<h2>Choose your group</h2><p class="small muted">Your Student ID belongs to these groups. Open your group\'s page and sign in there:</p>' +
+        groups.map(function (x) { return '<a class="btn full grp-pick" href="' + esc(groupUrl(x.g)) + '">' + esc(label(x)) + ' →</a>'; }).join('');
+      return;
+    }
+    var x = groups[0];
+    $('.err', f).textContent = ''; $('button[type=submit]', f).disabled = true; $('button[type=submit]', f).textContent = 'Opening ' + label(x) + '…';
+    groupSignIn(x.g, u, p, remember).then(function (r) {
+      var go = function () { location.href = groupUrl(x.g); };
+      if (r.ok && r.mustChange) { sdel('pp_session_v1:' + x.g); return choosePassword(f, u, p, remember, x.g, go); }   // choose a password first
+      try { sessionStorage.setItem('pp_note', r.ok ? '' : 'Please sign in here, on your group\'s page.'); } catch (e) { }
+      go();
+    });
+  }
   /** Group page, first sign-in with a temporary password: the student chooses a password, set in all of the group's modules. */
-  function choosePassword(f, u, oldPw, remember) {
+  function choosePassword(f, u, oldPw, remember, code, after) {
+    code = code || GINFO.group.linkCode; after = after || afterSignIn;
     f.innerHTML = '<h2>Choose your own password</h2><p class="small muted">For your security, choose a new password before you continue (at least 8 characters, not your Student ID). It will be used for all your modules.</p>' +
       '<label>New password<input id="p-n1" type="password" autocomplete="new-password"></label><label>Repeat new password<input id="p-n2" type="password" autocomplete="new-password"></label><p class="err" role="alert"></p><button class="btn primary full" type="submit">Save and continue</button>';
     var err = $('.err', f), btn = $('button', f);
@@ -182,13 +203,13 @@
       if (n1.length < 8) { err.textContent = 'The new password must be at least 8 characters.'; return; }
       if (n1 !== n2) { err.textContent = 'The two passwords are different.'; return; }
       btn.disabled = true; err.textContent = '';
-      post(CFG.backendUrl, { module: 'portal', action: 'portalGroupSetPassword', g: GINFO.group.linkCode, username: u, password: oldPw, newPassword: n1 }).then(function (r) {
+      post(CFG.backendUrl, { module: 'portal', action: 'portalGroupSetPassword', g: code, username: u, password: oldPw, newPassword: n1 }).then(function (r) {
         if (!r.ok) { btn.disabled = false; err.textContent = r.error || 'Could not change the password.'; return; }
-        return signIn(u, n1, remember).then(function (x) {
+        return groupSignIn(code, u, n1, remember).then(function (x) {
           btn.disabled = false;
           if (!x.ok) { err.textContent = x.error; return; }
           toast('Password saved. Use it for all your modules.');
-          afterSignIn();
+          after();
         });
       });
     };
@@ -204,22 +225,28 @@
     header(); viewHome();
   }
   /** Asks each backend about its own released modules (in parallel) and merges the answers. */
-  function signIn(u, p, remember) {
-    if (GINFO) return post(CFG.backendUrl, { module: 'portal', action: 'portalGroupCheck', g: GINFO.group.linkCode, username: u, password: p, remember: remember }).then(function (r) {
-      if (!r || !r.ok) return { ok: false, error: (r && r.error) || 'Sign-in failed.' };
+  /** Sign-in on a group page (code = link code); the session is kept under that group's own key. */
+  function groupSignIn(code, u, p, remember) {
+    return post(CFG.backendUrl, { module: 'portal', action: 'portalGroupCheck', g: code, username: u, password: p, remember: remember }).then(function (r) {
+      if (!r || !r.ok) return { ok: false, code: r && r.code, error: (r && r.error) || 'Sign-in failed.' };
       var mods = r.modules || {}, exp = 0;
       Object.keys(mods).forEach(function (k) { if (mods[k].expiresAt) exp = Math.max(exp, mods[k].expiresAt); });
-      MODULES.forEach(function (m) { if (m.status === 'available' && !mods[m.moduleKey]) mods[m.moduleKey] = { access: false, reason: 'notregistered' }; });
-      sset(KEY, { student: r.student, modules: mods, remember: remember, at: Date.now(), expiresAt: exp || Date.now() + 12 * 3600000 }, remember);
+      if (GINFO) MODULES.forEach(function (m) { if (m.status === 'available' && !mods[m.moduleKey]) mods[m.moduleKey] = { access: false, reason: 'notregistered' }; });
+      sset('pp_session_v1:' + code, { student: r.student, modules: mods, remember: remember, at: Date.now(), expiresAt: exp || Date.now() + 12 * 3600000 }, remember);
       return { ok: true, mustChange: Object.keys(mods).some(function (k) { return mods[k].access && mods[k].mustChange; }) };
     });
+  }
+  function groupUrl(code) { return location.pathname + '?g=' + encodeURIComponent(code); }
+  function signIn(u, p, remember) {
+    if (GINFO) return groupSignIn(GINFO.group.linkCode, u, p, remember);
     var byBackend = {};
     MODULES.forEach(function (m) { if (m.status === 'available' && m.moduleKey) (byBackend[backendOf(m)] = byBackend[backendOf(m)] || []).push(m.moduleKey); });
     var urls = Object.keys(byBackend);
     if (!urls.length) return Promise.resolve({ ok: false, error: 'No module is open for students yet.' });
     return Promise.all(urls.map(function (url) { return post(url, { module: 'portal', action: 'portalCheck', username: u, password: p, remember: remember, modules: byBackend[url] }); })).then(function (rs) {
-      var mods = {}, student = null, firstErr = null, exp = 0;
+      var mods = {}, student = null, firstErr = null, exp = 0, groups = null;
       rs.forEach(function (r, i) {
+        if (r && r.code === 'groupmember') { groups = r.groups || []; return; }
         if (r && r.ok) { student = student || r.student; Object.keys(r.modules || {}).forEach(function (k) { mods[k] = r.modules[k]; if (r.modules[k].expiresAt) exp = Math.max(exp, r.modules[k].expiresAt); }); }
         else {
           if (!firstErr || (r && r.code === 'locked')) firstErr = r;
@@ -227,7 +254,8 @@
           else byBackend[urls[i]].forEach(function (k) { if (!mods[k]) mods[k] = { access: false, reason: 'notregistered' }; });
         }
       });
-      if (!student) return { ok: false, error: (firstErr && firstErr.error) || 'Sign-in failed.' };
+      if (!student && groups && groups.length) return { ok: false, code: 'groupmember', groups: groups };
+      if (!student) return { ok: false, code: firstErr && firstErr.code, error: (firstErr && firstErr.error) || 'Sign-in failed.' };
       sset(KEY, { student: student, modules: mods, remember: remember, at: Date.now(), expiresAt: exp || Date.now() + 12 * 3600000 }, remember);
       return { ok: true };
     });
@@ -596,7 +624,7 @@
       if (!r.members.length) { box.appendChild(h('<p class="muted small">No students yet.</p>')); return; }
       var tb = h('<div class="tbl-wrap"><table class="dir-tbl roster-tbl"><thead><tr><th>Student ID</th><th>Name</th><th>Status</th>' + mods.map(function (m) { return '<th>' + esc(title(m.moduleId)) + '</th>'; }).join('') + '<th></th></tr></thead><tbody></tbody></table></div>');
       r.members.forEach(function (m) {
-        var tr = h('<tr' + (m.active ? '' : ' class="off"') + '><td><code>' + esc(m.studentId) + '</code></td><td>' + esc(m.name) + (m.email ? '<div class="small muted">' + esc(m.email) + '</div>' : '') + '</td><td>' + activePill(m) + (m.samePassword ? '' : '<div class="small warn-t" title="These accounts were created separately, so their passwords may differ. Reset the password to give all of this group\'s modules the same one.">passwords set separately</div>') + '</td>' +
+        var tr = h('<tr' + (m.active ? '' : ' class="off"') + '><td><code>' + esc(m.studentId) + '</code></td><td>' + esc(m.name) + (m.email ? '<div class="small muted">' + esc(m.email) + '</div>' : '') + '</td><td>' + activePill(m) + (m.needsPassword ? '<div class="small warn-t">Cannot sign in yet — press <b>Reset password</b> to give a password and create the accounts</div>' : '') + (m.samePassword ? '' : '<div class="small warn-t" title="These accounts were created separately, so their passwords may differ. Reset the password to give all of this group\'s modules the same one.">passwords set separately</div>') + '</td>' +
           mods.map(function (x) { var a = ACC[m.accounts[x.moduleId]] || ACC.missing; return '<td title="' + esc(a[1]) + '">' + esc(a[0]) + '</td>'; }).join('') +
           '<td><div class="roster-btns"><button class="btn" type="button" data-a="pw">Reset password</button><button class="btn" type="button" data-a="ed">Edit</button><button class="btn' + (m.active ? ' danger' : '') + '" type="button" data-a="act">' + (m.active ? 'Deactivate' : 'Activate') + '</button></div></td></tr>');
         $('[data-a=pw]', tr).onclick = function () {
@@ -622,7 +650,7 @@
       var p = h('<div class="note roster-res"><b>' + (ok.length && ok[0].reset ? 'New temporary password' : ok.length + ' student(s) added') + '</b>' +
         (withPw.length ? '<p class="small">Give each student their temporary password <b>now</b> — it is shown only this once. They choose their own password at first sign-in.</p><div class="tbl-wrap"><table class="dir-tbl"><thead><tr><th>Student ID</th><th>Name</th><th>Temporary password</th></tr></thead><tbody>' +
           withPw.map(function (x) { return '<tr><td><code>' + esc(x.studentId) + '</code></td><td>' + esc(x.name || '') + '</td><td><code class="pw">' + esc(x.tempPassword) + '</code></td></tr>'; }).join('') + '</tbody></table></div><button class="btn" type="button" data-a="cp">📋 Copy the list</button>' : '') +
-        ok.filter(function (x) { return x.keptExisting && x.keptExisting.length; }).map(function (x) { return '<p class="small warn-t">' + esc(x.studentId) + ' already had an account in ' + esc(x.keptExisting.join(', ')) + ' — kept with its own password (use Reset password to align).</p>'; }).join('') +
+        ok.filter(function (x) { return x.updatedExisting && x.updatedExisting.length; }).map(function (x) { return '<p class="small">' + esc(x.studentId) + ' already had an account in ' + esc(x.updatedExisting.join(', ')) + ' — it now uses this password too.</p>'; }).join('') +
         (bad.length ? '<p class="small err">' + bad.map(function (x) { return esc(x.error); }).join('<br>') + '</p>' : '') + '</div>');
       var cp = $('[data-a=cp]', p);
       if (cp) cp.onclick = function () { var t = withPw.map(function (x) { return x.studentId + '\t' + (x.name || '') + '\t' + x.tempPassword; }).join('\n'); var ta = h('<textarea style="position:absolute;left:-9999px"></textarea>'); ta.value = t; document.body.appendChild(ta); copyText(t, ta); setTimeout(function () { ta.remove(); }, 2000); };

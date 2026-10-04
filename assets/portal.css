@@ -166,3 +166,4 @@ details.dir[open]>summary::before{content:'▾'}
 .roster-btns{display:flex;gap:6px}
 .roster-btns .btn{padding:5px 9px;font-size:12.5px}
 code.pw{font-size:14px;font-weight:700;letter-spacing:.03em}
+.grp-pick{display:block;margin:8px 0;text-align:left}

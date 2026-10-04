@@ -520,3 +520,64 @@ test('student password change INSIDE a module of the group is applied to the gro
   assert.ok(S.call({ module: 'cellinjury', action: 'studentChangePassword', stoken: c.token, oldPassword: PW, newPassword: 'plain-pass-77' }).ok);
   assert.ok(login(S, 'cellinjury', 's1', 'plain-pass-77').ok); assert.ok(login(S, 'inflhealing', 's1', PW).ok, 'other plain module unchanged');
 });
+
+test('fix: a student added BEFORE the group has modules can sign in once modules are delivered (temporary password kept as a hash)', function () {
+  const S = adminSetup();
+  const inst = S.save('institution', { name: 'Al-Razi University' }).record;
+  const g = S.save('group', { institutionId: inst.institutionId, name: 'Group A', linkCode: 'razi-a-26' }).record;
+  const add = S.dir('rosterAdd', { groupId: g.groupId, students: [{ studentId: '2026001', name: 'Early Student' }] });
+  const temp = add.results[0].tempPassword; assert.ok(temp);
+  S.save('delivery', { groupId: g.groupId, moduleId: 'cellinjury', status: 'available' });
+  S.save('delivery', { groupId: g.groupId, moduleId: 'inflhealing', status: 'available' });
+  const r = S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: '2026001', password: temp });
+  assert.ok(r.ok, JSON.stringify(r));
+  assert.ok(r.modules.cellinjury.access && r.modules.inflhealing.access && r.modules.cellinjury.mustChange);
+  const m = S.dir('rosterGet', { groupId: g.groupId }).members[0];
+  assert.strictEqual(m.studentId, '2026001'); assert.strictEqual(m.needsPassword, false);
+  assert.strictEqual(JSON.stringify(S.dir('rosterGet', { groupId: g.groupId })).indexOf(m.pwHash || 'pwHash'), -1, 'the hash is never sent');
+});
+
+test('fix: adding a student who already had an account in a module sets the new password there too', function () {
+  const S = groupsSetup();
+  // "early" already has an account in Cell Injury of Al-Razi A (made in that module's Teacher Portal) with another password
+  const t = S.call({ module: 'cellinjury-razi-a-26', action: 'login', password: 'teacher-cellinjury-razi-a-26' }).token;
+  S.call({ module: 'cellinjury-razi-a-26', action: 'bulkAddStudents', token: t, students: [{ username: 'early', name: 'Early', password: 'old-module-pass', mustChange: false }] });
+  const add = S.dir('rosterAdd', { groupId: S.ra.groupId, students: [{ studentId: 'early', name: 'Early Bird' }] });
+  assert.deepStrictEqual(add.results[0].updatedExisting, ['cellinjury']);
+  const r = S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: 'early', password: add.results[0].tempPassword });
+  assert.ok(r.ok && r.modules.cellinjury.access && r.modules.inflhealing.access, JSON.stringify(r));
+  assert.strictEqual(login(S, 'cellinjury-razi-a-26', 'early', 'old-module-pass').ok, false);
+});
+
+test('fix: a member left without any account (old version) is flagged, and Reset password repairs it', function () {
+  const S = adminSetup();
+  const inst = S.save('institution', { name: 'Al-Razi University' }).record;
+  const g = S.save('group', { institutionId: inst.institutionId, name: 'Group A', linkCode: 'razi-a-26' }).record;
+  S.dir('dirGet');
+  // simulate a 1.5 membership: no stored hash, no accounts
+  S.b.sheets.StudentMemberships._rows.push(['MEM-OLD001', g.groupId, 'old1', 'Old Member', '', true, 1, 1, '', '', '', '']);
+  S.save('delivery', { groupId: g.groupId, moduleId: 'cellinjury', status: 'available' });
+  let m = S.dir('rosterGet', { groupId: g.groupId }).members[0];
+  assert.strictEqual(m.needsPassword, true);
+  const sync = S.dir('rosterSync', { groupId: g.groupId }); assert.deepStrictEqual(sync.needPasswordReset, ['old1']);
+  const rp = S.dir('rosterResetPassword', { groupId: g.groupId, studentId: 'old1' });
+  assert.ok(S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: 'old1', password: rp.tempPassword }).ok);
+  m = S.dir('rosterGet', { groupId: g.groupId }).members[0];
+  assert.strictEqual(m.needsPassword, false); assert.strictEqual(m.accounts.cellinjury, 'mustchange');
+});
+
+test('main page: a group student with the right password is told their group (only then); a wrong password stays generic', function () {
+  const S = groupsSetup();
+  const add = S.dir('rosterAdd', { groupId: S.ra.groupId, students: [{ studentId: '11223344', name: 'Main Page Student', password: 'his-pass-123' }] });
+  assert.ok(add.results[0].ok);
+  const r = S.call({ module: 'portal', action: 'portalCheck', username: '11223344', password: 'his-pass-123', modules: ['cellinjury', 'inflhealing'] });
+  assert.strictEqual(r.ok, false); assert.strictEqual(r.code, 'groupmember');
+  assert.deepStrictEqual(r.groups, [{ g: 'razi-a-26', group: 'Group A', academicYear: '2026-27', institution: 'Al-Razi University' }]);
+  assert.ok(!r.modules, 'no session on the main page');
+  const w = S.call({ module: 'portal', action: 'portalCheck', username: '11223344', password: 'wrong-pass', modules: ['cellinjury'] });
+  assert.strictEqual(w.code, 'badlogin'); assert.ok(!w.groups, 'nothing revealed without the right password');
+  S.dir('rosterSetActive', { groupId: S.ra.groupId, studentId: '11223344', active: false });
+  assert.strictEqual(S.call({ module: 'portal', action: 'portalCheck', username: '11223344', password: 'his-pass-123', modules: ['cellinjury'] }).code, 'badlogin', 'not for a deactivated member');
+  // a main-page account still signs in normally
+  assert.ok(S.call({ module: 'portal', action: 'portalCheck', username: 's1', password: PW, modules: ['cellinjury'] }).ok);
+});

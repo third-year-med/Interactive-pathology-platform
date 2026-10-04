@@ -5,7 +5,7 @@ this repository on GitHub Pages. The front page starts with two modules: **Cell 
 **Inflammation & Healing** (both *Available*); more can be added later in the Teacher Dashboard.
 
 > **Updating from an earlier version?** Replace the contents of the `Portal` file in Apps Script with the new
-> [`backend/Portal.gs`](backend/Portal.gs) (version 1.5 — group rosters), save, and deploy
+> [`backend/Portal.gs`](backend/Portal.gs) (version 1.5.1 — group rosters), save, and deploy
 > a **new version** (step 1.4). The Code.gs line from step 1.3 stays as it is.
 
 ## 1. Main backend (Cell Injury, Inflammation …)
@@ -102,6 +102,10 @@ Platform directory → **Students** → choose the group:
 - **Add N existing account(s) to this group** — accounts made earlier inside a module's Teacher Portal are not on the
   roster; press this once so those students can sign in on the group page.
 - The same Student ID at another university is a different student with separate accounts.
+- Students should use their **group link**. If a group student signs in on the main front page instead, the page
+  recognises them (only with their correct password) and takes them to their group's page, signed in.
+- Adding a student sets the password in every module of the group (also in an account that already existed there), and a
+  student added before the group had modules gets their accounts as soon as modules are delivered.
 
 Records are never deleted (deactivate them instead). The directory uses its own sheets — Institutions, Groups, Modules,
 Deliveries, TeacherAssignments, ModuleContentRoles — created on first use; no existing sheet is changed.
