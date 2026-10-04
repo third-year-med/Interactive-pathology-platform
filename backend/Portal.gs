@@ -78,6 +78,15 @@
  *   contentReport     Admin   READ-ONLY migration report for one module: which rows would become master content, which
  *                             stay with each group, and how each group's copy differs from the main one
  *   Sheet ContentVersions (created, empty until publishing exists).
+ * Content migration (1.9, Step 7 — per module, Admin):
+ *   contentMigrate    copies the main copy's educational rows (+ chosen group versions) into the master v1.0
+ *                     ("<module>@v1", immutable) and a draft ("<module>@draft"); group items marked "keep for this group"
+ *                     go to that group's local layer ("<storage>@local"). ONLY COPIES — original rows are never changed.
+ *   contentUndoMigration   removes what contentMigrate created (only while switched off, before any other version)
+ *   contentSetMode    on / off. ON: modules of this subject receive master (published version) + their group's local layer
+ *                     + their own assessments/exams; teacher edits inside a module go to that group's local layer.
+ *                     OFF: everything exactly as before (instant switch-back). Each switch sends browsers a complete refresh.
+ *   Storage names containing "@" are internal: any request using one is refused.
  *
  * Teacher = a valid teacher session of the "portal" module (Code.gs login/setup with module:"portal").
  * Admin   = the same account (the only platform teacher account until personal teacher accounts exist).
@@ -94,7 +103,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '1.8';
+var PORTAL_VERSION = '1.9';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -115,6 +124,8 @@ var PORTAL_DEFAULT = [
 function portalHook_(module, p) {
   if (String(module) !== PORTAL_MODULE) {
     var act = String(p.action || '');
+    if (String(module).indexOf('@') >= 0) return { ok: false, code: 'badmodule', error: 'Unknown module.' };   // internal storages
+    var cv = contentHook_(String(module), act, p); if (cv) return cv;   // versioned content (only for modules switched on/changed)
     // Step 5: no module-level teacher password any more (teachers → Teacher Sign-In; Admin → dashboard)
     if ((act === 'login' || act === 'setup') && !portalModuleLoginAllowed_()) return PORTAL_MODULE_LOGIN_CLOSED;
     // a student changing the password inside a module of a group: apply it to all of the group's modules
@@ -147,6 +158,9 @@ function portalHook_(module, p) {
     case 'portalGroupRefresh': return portalGroupRefresh_(p);
     case 'teacherLogin': return teacherLogin_(p);
     case 'contentStatus': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentStatus_(); }); });
+    case 'contentMigrate': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentMigrate_(p); }); });
+    case 'contentUndoMigration': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentUndoMigration_(p); }); });
+    case 'contentSetMode': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentSetMode_(p); }); });
     case 'contentReport': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentReport_(p); }); });
     case 'portalEndModuleSessions': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return portalEndModuleSessions_(); }); });
     case 'teacherMe': return tAuthed_(p, function (u) { return teacherMe_(u); });
@@ -1123,7 +1137,7 @@ function contentRowsByStorage_() {
   return by;
 }
 function contentStoragesOf_(moduleId, by) {
-  return Object.keys(by).filter(function (m) { return m === moduleId || m.indexOf(moduleId + '-') === 0; }).sort(function (a, b) { return a === moduleId ? -1 : b === moduleId ? 1 : a.localeCompare(b); });
+  return Object.keys(by).filter(function (m) { return m.indexOf('@') < 0 && (m === moduleId || m.indexOf(moduleId + '-') === 0); }).sort(function (a, b) { return a === moduleId ? -1 : b === moduleId ? 1 : a.localeCompare(b); });
 }
 function contentStatus_() {
   var by = contentRowsByStorage_(), versions = dirAll_(DIR.CVER), bm = {};
@@ -1134,7 +1148,7 @@ function contentStatus_() {
       rows.forEach(function (r) { c[contentKind_(r.collection)]++; });
       return { storage: k, registered: !!bm[k] || k === m.moduleId, master: c.master, group: c.group, other: c.other };
     });
-    return { moduleId: m.moduleId, title: m.title, mode: contentMode_(m.moduleId), publishedVersion: m.publishedVersion || '',
+    return { moduleId: m.moduleId, title: m.title, mode: contentMode_(m.moduleId), publishedVersion: m.publishedVersion || '', migrated: !!getSetting_('content:pub:' + m.moduleId),
       versions: versions.filter(function (v) { return v.moduleId === m.moduleId; }).length, storages: st };
   }) };
 }
@@ -1164,4 +1178,138 @@ function contentReport_(p) {
     perStorage.push(ps);
   });
   return { ok: true, moduleId: moduleId, mode: contentMode_(moduleId), summary: summary, storages: perStorage, details: details.slice(0, 500), truncated: details.length > 500 };
+}
+
+/* ======================================================================
+ * Step 7: migration into a master copy, switch on / off per module.
+ * ====================================================================== */
+/** Educational rows that are versioned (history and private drafts stay where they are). */
+function cvKey_(coll) { return contentKind_(coll) === 'master' && coll !== 'history' && String(coll).indexOf('priv:') !== 0; }
+function cvJson_(r) { var s = ''; for (var i = 1; i <= CONTENT_JSON_COLS; i++) s += (r['json' + i] || ''); return s; }
+function cvCopy_(r, module, now) {
+  var o = { module: module, collection: r.collection, id: String(r.id), updatedAt: now, updatedBy: 'migration', deleted: false };
+  for (var i = 1; i <= CONTENT_JSON_COLS; i++) o['json' + i] = r['json' + i] || '';
+  return o;
+}
+function cvTouch_(moduleId) { setSetting_('content:changed:' + moduleId, String(Date.now())); cvForget_(moduleId); }
+/** {mode, changed, pub} of a module — one read of Settings, cached 60 s (cleared at every change). */
+function cvState_(M) {
+  var c = CacheService.getScriptCache(), k = 'cvstate:' + M, hit = c.get(k);
+  if (hit) { try { return JSON.parse(hit); } catch (e) { } }
+  var o = { mode: '', changed: 0, pub: '' };
+  readAll_(SHEETS.SETTINGS).forEach(function (r) {
+    if (r.key === 'content:mode:' + M) o.mode = String(r.value || '');
+    else if (r.key === 'content:changed:' + M) o.changed = Number(r.value || 0);
+    else if (r.key === 'content:pub:' + M) o.pub = String(r.value || '');
+  });
+  c.put(k, JSON.stringify(o), 60);
+  return o;
+}
+function cvForget_(M) { CacheService.getScriptCache().remove('cvstate:' + M); }
+function cvBaseOf_(module) { var i = module.indexOf('-'); return i < 0 ? module : module.slice(0, i); }
+
+function contentMigrate_(p) {
+  var M = String(p.moduleId || ''), mod = dirFind_(DIR.MOD, 'moduleId', M); if (!mod) return dirErr_('Choose a module.');
+  if (contentMode_(M) === 'on') return dirErr_('Switch versioned content off first.');
+  if (getSetting_('content:pub:' + M) || dirAll_(DIR.CVER).some(function (v) { return v.moduleId === M; })) return dirErr_('A master copy already exists for this module (use “Undo migration” first to redo it).');
+  var dec = p.decisions && typeof p.decisions === 'object' ? p.decisions : {}, rows = readAll_(SHEETS.CONTENT), now = Date.now();
+  var live = function (r) { return !isTrue_(r.deleted) && cvKey_(r.collection); };
+  var v1 = {}; rows.forEach(function (r) { if (r.module === M && live(r)) v1[r.collection + '|' + r.id] = r; });
+  var fromGroup = {}, locals = [], counts = { main: 0, group: 0, local: 0 };
+  rows.forEach(function (r) {
+    var S = String(r.module || ''); if (S.indexOf(M + '-') !== 0 || S.indexOf('@') >= 0 || !live(r)) return;
+    var k = r.collection + '|' + r.id, b = v1[k];
+    if (b && !fromGroup[k] && cvJson_(b) === cvJson_(r)) return;   // identical: nothing to do
+    var choice = String(dec[S + '|' + k] || 'local');
+    if (choice === 'group') {
+      if (fromGroup[k] && cvJson_(fromGroup[k]) !== cvJson_(r)) throw new Error('Two different group versions were chosen for the same item (' + k + '). Choose only one.');
+      fromGroup[k] = r; counts.group++;
+    } else if (choice === 'main') counts.main++;
+    else { locals.push({ storage: S, row: r }); counts.local++; }
+  });
+  Object.keys(fromGroup).forEach(function (k) { v1[k] = fromGroup[k]; });
+  var keys = Object.keys(v1).sort();
+  var fp = sha256Hex_(JSON.stringify(keys.map(function (k) { return [k, cvJson_(v1[k])]; })));
+  keys.forEach(function (k) { appendRow_(SHEETS.CONTENT, cvCopy_(v1[k], M + '@v1', now)); appendRow_(SHEETS.CONTENT, cvCopy_(v1[k], M + '@draft', now)); });
+  locals.forEach(function (x) { appendRow_(SHEETS.CONTENT, cvCopy_(x.row, x.storage + '@local', now)); });
+  appendRow_(DIR.CVER, { moduleId: M, version: 1, label: '1.0', build: '', publishedAt: now, publishedBy: 'admin', notes: 'Starting master copy (migration)', fingerprint: fp, itemCount: keys.length, status: 'published' });
+  var mr = dirPublic_(mod); mr.publishedVersion = '1.0'; mr.updatedAt = now; updateRow_(DIR.MOD, mod._row, mr);
+  setSetting_('content:pub:' + M, '1'); cvForget_(M);
+  return { ok: true, moduleId: M, version: '1.0', masterItems: keys.length, decided: counts, fingerprint: fp };
+}
+function contentUndoMigration_(p) {
+  var M = String(p.moduleId || ''), mod = dirFind_(DIR.MOD, 'moduleId', M); if (!mod) return dirErr_('Choose a module.');
+  if (contentMode_(M) === 'on') return dirErr_('Switch versioned content off first.');
+  var vers = dirAll_(DIR.CVER).filter(function (v) { return v.moduleId === M; });
+  if (vers.length > 1) return dirErr_('Other versions were published after the migration — it can no longer be undone this way.');
+  var rows = readAll_(SHEETS.CONTENT), n = 0;
+  for (var i = rows.length - 1; i >= 0; i--) {
+    var m = String(rows[i].module || '');
+    if (m === M + '@v1' || m === M + '@draft' || (m.indexOf(M + '-') === 0 && /@local$/.test(m))) { deleteRow_(SHEETS.CONTENT, rows[i]._row); n++; }
+  }
+  vers.map(function (v) { return v._row; }).sort(function (a, b) { return b - a; }).forEach(function (row) { deleteRow_(DIR.CVER, row); });
+  var mr = dirPublic_(mod); mr.publishedVersion = ''; mr.updatedAt = Date.now(); updateRow_(DIR.MOD, mod._row, mr);
+  setSetting_('content:pub:' + M, ''); cvForget_(M);
+  return { ok: true, removedRows: n };
+}
+function contentSetMode_(p) {
+  var M = String(p.moduleId || ''); if (!dirFind_(DIR.MOD, 'moduleId', M)) return dirErr_('Choose a module.');
+  var on = p.mode === 'on';
+  if (on && !getSetting_('content:pub:' + M)) return dirErr_('Create the master copy first (migration).');
+  setSetting_('content:mode:' + M, on ? 'on' : 'off');
+  cvTouch_(M);   // every browser gets a complete refresh at its next sync
+  return { ok: true, moduleId: M, mode: on ? 'on' : 'off' };
+}
+
+/** Intercepts content reads/writes of modules whose versioned content is on (or was just switched off). null = Code.gs as usual. */
+function contentHook_(module, act, p) {
+  if (act !== 'getAllContent' && act !== 'upsert' && act !== 'delete' && act !== 'importCourse') return null;
+  var M = cvBaseOf_(module), st = cvState_(M), mode = st.mode, changed = st.changed;
+  if (!mode) return null;                                              // never switched on: untouched
+  if (act === 'getAllContent') {
+    var since = Number(p.since || 0);
+    if (mode !== 'on' && !(since && since <= changed)) return null;      // off and already refreshed: Code.gs as before
+    if (typeof studentAuthOn_ === 'function' && studentAuthOn_(module)) { var gate = gateRequest_(module, p); if (gate) return gate; }
+    return contentResolve_(module, M, mode === 'on', since, changed);
+  }
+  if (mode !== 'on') return null;
+  // writes while on: educational items of this storage go to its local layer (assessments etc. stay where they are)
+  if (act === 'importCourse') return authed_(module, p, function () {
+    (p.items || []).forEach(function (it) { actionUpsert_(cvKey_(it.collection) ? module + '@local' : module, { collection: it.collection, id: it.id, data: it.data }); });
+    return { ok: true, count: (p.items || []).length };
+  });
+  if (!cvKey_(p.collection)) return null;
+  return authed_(module, p, function () { return act === 'upsert' ? actionUpsert_(module + '@local', p) : actionDelete_(module + '@local', p); });
+}
+/** What a storage receives. Full refresh (with removals) after a switch or publish; otherwise only what changed. */
+function contentResolve_(S, M, on, since, changed) {
+  var rows = readAll_(SHEETS.CONTENT), now = Date.now(), full = !since || since <= changed, items = [], present = {};
+  var visible = function (r) { return r.collection !== 'history' && String(r.collection).indexOf('priv:') !== 0; };
+  var item = function (r) { return { collection: r.collection, id: r.id, data: isTrue_(r.deleted) ? null : unpackJson_(r), deleted: isTrue_(r.deleted) }; };
+  var N = cvState_(M).pub || '1', V = M + '@v' + N, L = S + '@local';
+  if (!full) {   // incremental: this storage's own non-educational rows + its local layer, changed since
+    rows.forEach(function (r) {
+      if (Number(r.updatedAt) <= since || !visible(r)) return;
+      if ((on && r.module === L && cvKey_(r.collection)) || (r.module === S && (!on || !cvKey_(r.collection)))) items.push(item(r));
+    });
+    return { ok: true, items: items, serverTime: now };
+  }
+  var cur = {};
+  if (on) {
+    rows.forEach(function (r) { if (r.module === V && cvKey_(r.collection) && !isTrue_(r.deleted)) cur[r.collection + '|' + r.id] = r; });
+    rows.forEach(function (r) { if (r.module === L && cvKey_(r.collection)) cur[r.collection + '|' + r.id] = r; });   // local layer wins (incl. hiding)
+    rows.forEach(function (r) { if (r.module === S && visible(r) && !cvKey_(r.collection)) items.push(item(r)); });   // assessments etc.
+  } else {
+    rows.forEach(function (r) { if (r.module === S && visible(r)) { if (cvKey_(r.collection)) cur[r.collection + '|' + r.id] = r; else items.push(item(r)); } });
+  }
+  Object.keys(cur).forEach(function (k) { items.push(item(cur[k])); if (!isTrue_(cur[k].deleted)) present[k] = 1; });
+  // removals: every educational item this browser may hold from another state (original rows, local layer, any version)
+  var seen = {};
+  rows.forEach(function (r) {
+    var m = String(r.module || ''); if (!cvKey_(r.collection)) return;
+    if (m !== S && m !== L && m.indexOf(M + '@v') !== 0) return;
+    var k = r.collection + '|' + r.id; if (present[k] || seen[k] || (cur[k] && isTrue_(cur[k].deleted))) return;
+    seen[k] = 1; items.push({ collection: r.collection, id: r.id, data: null, deleted: true });
+  });
+  return { ok: true, items: items, serverTime: now };
 }

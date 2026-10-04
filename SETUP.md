@@ -5,7 +5,7 @@ this repository on GitHub Pages. The front page starts with two modules: **Cell 
 **Inflammation & Healing** (both *Available*); more can be added later in the Teacher Dashboard.
 
 > **Updating from an earlier version?** Replace the contents of the `Portal` file in Apps Script with the new
-> [`backend/Portal.gs`](backend/Portal.gs) (version 1.8 — content versioning foundation), save, and deploy
+> [`backend/Portal.gs`](backend/Portal.gs) (version 1.9 — content migration, versioned content on/off), save, and deploy
 > a **new version** (step 1.4). The Code.gs line from step 1.3 stays as it is.
 
 ## 1. Main backend (Cell Injury, Inflammation …)
@@ -135,12 +135,20 @@ After installing 1.7, press **Platform directory → Teachers → End all module
 Emergency only: Apps Script → Project Settings → Script properties → `ALLOW_MODULE_LOGIN` = `true` restores the old
 module sign-in (delete the property to close it again).
 
-### Content (versioning foundation — nothing switched on yet)
+### Content: master copy (migration) and versioned content on/off
 
-Platform directory → **Content** shows, per module, whether versioned content is on (**off** for now), the published
-version (none yet) and where content edits are stored. **📋 Migration report** is read-only: what would become the
-master copy (from the main/normal-link storage), what stays with each group (assessments, exams), and every item in which
-a group's copy differs from the main one — to review before the content is moved in the next step.
+Platform directory → **Content**, per module (do Cell Injury first, then Inflammation):
+1. **📋 Migration report** (read-only): what becomes the master copy (from the main/normal-link storage), what stays with
+   each group (assessments, exams), and every item where a group's copy differs from the main one.
+2. Choose for each differing item: **Keep for this group only** (default — no group loses anything), **Use the main
+   version** (or **Drop** for an item only that group had), or **Use this group's version for everyone**.
+3. **Create master v1.0 from this report** — only *copies*; your original content is never changed, and nothing changes
+   for students yet. (**Undo migration** removes the copies again, to redo your decisions.)
+4. **Switch versioned content ON** — every group of the module receives the master copy plus its own kept items; their
+   assessments, exams, results and attendance stay theirs. Teacher edits inside a module stay with that group (editing
+   the master copy itself comes in the next step).
+5. **Switch OFF** at any time — every group goes back to exactly what it had before (edits made meanwhile are kept and
+   return when switched on again). Browsers receive a complete refresh at their next sync after each switch.
 
 Records are never deleted (deactivate them instead). The directory uses its own sheets — Institutions, Groups, Modules,
 Deliveries, TeacherAssignments, ModuleContentRoles — created on first use; no existing sheet is changed.

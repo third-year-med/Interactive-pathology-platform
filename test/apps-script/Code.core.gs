@@ -111,6 +111,9 @@ function route_(p) {
     case 'unlockStudent': return authed_(module, p, function () { return actionUnlockStudent_(module, p); });
     case 'upsert': return authed_(module, p, function () { return actionUpsert_(module, p); });
     case 'delete': return authed_(module, p, function () { return actionDelete_(module, p); });
+    case 'getAllContent': return actionGetAllContent_(module, p);
+    case 'exportCourse': return authed_(module, p, function () { return actionExportCourse_(module); });
+    case 'importCourse': return authed_(module, p, function () { return actionImportCourse_(module, p); });
     default: return { ok: false, error: 'Unknown action: ' + action, code: 'badaction' };
   }
 }
@@ -618,4 +621,24 @@ function exTeachingLock_(module, username) {
       return { ok: false, code: 'examlock', error: 'The teaching platform is closed for you while the official exam “' + L.title + '” is running. It reopens at ' + Utilities.formatDate(new Date(L.to), Session.getScriptTimeZone(), 'HH:mm') + '.' };
   }
   return null;
+}
+
+/* ---- content read/import/export: copied verbatim from Code.gs ---- */
+function actionGetAllContent_(module, p) {
+  var since = Number(p.since || 0);
+  var rows = readAll_(SHEETS.CONTENT).filter(function (r) { return r.module === module && Number(r.updatedAt) > since && r.collection !== 'history' && String(r.collection).indexOf('priv:') !== 0; });
+  var items = rows.map(function (r) {
+    return { collection: r.collection, id: r.id, data: r.deleted ? null : unpackJson_(r), deleted: !!r.deleted };
+  });
+  return { ok: true, items: items, serverTime: Date.now() };
+}
+function actionImportCourse_(module, p) {
+  var items = p.items || [];
+  items.forEach(function (it) { actionUpsert_(module, { collection: it.collection, id: it.id, data: it.data }); });
+  return { ok: true, count: items.length };
+}
+function actionExportCourse_(module) {
+  var rows = readAll_(SHEETS.CONTENT).filter(function (r) { return r.module === module && !r.deleted && r.collection !== 'history'; });
+  var items = rows.map(function (r) { return { collection: r.collection, id: r.id, data: unpackJson_(r) }; });
+  return { ok: true, items: items, exportedAt: new Date().toISOString() };
 }

@@ -581,6 +581,44 @@ test('Admin: Content tab shows each module (versioning off) and a read-only migr
   await p.context().close();
 });
 
+test('Admin: Content tab — decide, create master v1.0, switch ON (every group gets it), switch OFF, undo', { skip: SKIP }, async function () {
+  groupFixture();
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const tok = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['cellinjury', { module: 'cellinjury', group: 'tr-a' }, { module: 'cellinjury', group: 'tm-a' }] }).modules;
+  main.call({ module: 'cellinjury', action: 'upsert', token: tok.cellinjury.token, collection: 'topicsections', id: 'T1', data: { sections: ['A'] } });
+  main.call({ module: 'cellinjury-tr-a', action: 'upsert', token: tok['cellinjury-tr-a'].token, collection: 'topicsections', id: 'T1', data: { sections: ['B'] } });
+  const original = JSON.stringify(main.sheets.Content._rows);
+  const viewOf = function (storage) { const r = main.call({ module: storage, action: 'getAllContent', token: tok[storage].token, since: 0 }); const o = {}; r.items.forEach(function (i) { if (i.deleted) delete o[i.collection + '|' + i.id]; else o[i.collection + '|' + i.id] = i.data; }); return o; };
+  const p = await page();
+  await p.goto(url + '#/teacher');
+  await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+  await p.waitForSelector('#t-dir details.dir'); await p.click('#t-dir summary');
+  await p.click('#t-dir .dir-tab[data-t=content]');
+  const card = '#t-dir .content-mod[data-module="cellinjury"]';
+  await p.waitForSelector(card + ' [data-a=rep]');
+  await p.click(card + ' [data-a=rep]');
+  await p.waitForSelector(card + ' select[data-key="cellinjury-tr-a|topicsections|T1"]');
+  await p.selectOption(card + ' select[data-key="cellinjury-tr-a|topicsections|T1"]', 'group');
+  if (process.env.SHOTS) await (await p.$(card)).screenshot({ path: path.join(process.env.SHOTS, 'content-migrate.png') });
+  await p.click(card + ' [data-a=mig]');
+  await p.waitForSelector(card + ' [data-a=on]');
+  assert.match(await p.textContent(card), /Master copy: v1\.0[\s\S]*not used yet/);
+  assert.deepStrictEqual(viewOf('cellinjury-tm-a'), {}, 'nothing changes before switching on');
+  await p.click(card + ' [data-a=on]');
+  await p.waitForSelector(card + ' [data-a=off]');
+  assert.match(await p.textContent(card), /Versioned content: on/);
+  assert.deepStrictEqual(viewOf('cellinjury-tm-a'), { 'topicsections|T1': { sections: ['B'] } }, 'Misrata receives the master (the chosen group version)');
+  assert.deepStrictEqual(viewOf('cellinjury'), { 'topicsections|T1': { sections: ['B'] } });
+  await p.click(card + ' [data-a=off]');
+  await p.waitForSelector(card + ' [data-a=undo]');
+  assert.deepStrictEqual(viewOf('cellinjury'), { 'topicsections|T1': { sections: ['A'] } }, 'off → exactly as before');
+  await p.click(card + ' [data-a=undo]');
+  await p.waitForSelector(card + ' [data-a=rep]');
+  assert.strictEqual(JSON.stringify(main.sheets.Content._rows), original, 'undo → the exact original rows');
+  await p.context().close();
+});
+
 test('the front page fits a phone screen', { skip: SKIP }, async function () {
   const p = await page({ width: 390, height: 844 });
   await p.goto(url);
@@ -738,6 +776,38 @@ REAL.forEach(function (M) {
 });
 
 REAL.forEach(function (M) {
+  test('versioned content ON: the real ' + M[1] + ' opens normally for a group student and receives the master copy', { skip: SKIP || (!fs.existsSync(M[2]) && 'module page not available') }, async function () {
+    groupFixture();
+    main.call({ module: 'portal', action: 'setup', password: TPW });
+    const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+    const tok = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: [M[0]] }).modules[M[0]].token;
+    main.call({ module: M[0], action: 'upsert', token: tok, collection: 'customtopics', id: 'zz-master-' + M[0], data: { title: 'Master topic', units: [] } });
+    assert.ok(main.call({ module: 'portal', action: 'contentMigrate', token: t, moduleId: M[0], decisions: {} }).ok);
+    assert.ok(main.call({ module: 'portal', action: 'contentSetMode', token: t, moduleId: M[0], mode: 'on' }).ok);
+    try {
+      const calls = [], answers = [];
+      const p = await realPage(M, calls);
+      p.on('response', async function (res) { if (/script\.google\.com/.test(res.url())) { try { answers.push(await res.json()); } catch (e) { } } });
+      await p.goto(HOME + '?g=tr-a');
+      await p.waitForSelector('.mod[data-id="' + M[0] + '"]');
+      await signIn(p, 'ahmed', PW);
+      await p.waitForSelector('.mod[data-id="' + M[0] + '"] .go');
+      await p.click('.mod[data-id="' + M[0] + '"] .go');
+      await p.waitForURL(new RegExp(M[1]));
+      await p.waitForFunction(function () { return window.NEO_BOOT && (window.NEO_BOOT.role || document.querySelector('#neo-boot .nb-msg.bad')); }, null, { timeout: 15000 });
+      if (M[3]) {
+        assert.strictEqual(await p.evaluate(function () { return window.NEO_BOOT.role; }), 'student');
+        await p.waitForTimeout(2500);
+        assert.ok(calls.some(function (c) { return c.action === 'getAllContent' && c.module === M[0] + '-tr-a'; }), 'the module synced its content');
+        assert.ok(answers.some(function (a) { return a && a.ok && Array.isArray(a.items) && a.items.some(function (i) { return i.id === 'zz-master-' + M[0] && !i.deleted; }); }), 'and received the master copy');
+      }
+      await p.context().close();
+    } finally {
+      main.call({ module: 'portal', action: 'contentSetMode', token: t, moduleId: M[0], mode: 'off' });
+      main.call({ module: 'portal', action: 'contentUndoMigration', token: t, moduleId: M[0] });
+    }
+  });
+
   test('personal teacher: opens the real ' + M[1] + ' for his group in teacher mode → Back to Teacher Dashboard → his own dashboard', { skip: SKIP || (!fs.existsSync(M[2]) && 'module page not available') }, async function () {
     groupFixture();
     main.call({ module: 'portal', action: 'setup', password: TPW });

@@ -796,6 +796,7 @@ test('content report: master vs group activity, and each group copy compared wit
   up('cellinjury-razi-a-26', tGrp, 'somethingnew', 'X1', { a: 1 });                    // unknown collection
   const contentBefore = JSON.stringify(S.b.sheets.Content._rows);
   const allBefore = S.call({ module: 'cellinjury-razi-a-26', action: 'getAllContent', token: tGrp, since: 0 });
+  assert.ok(allBefore.ok && allBefore.items.length === 5, JSON.stringify(allBefore).slice(0, 200));
   assert.strictEqual(S.call({ module: 'portal', action: 'contentReport', ttoken: S.ahmed.tok, token: S.ahmed.tok, moduleId: 'cellinjury' }).ok, false, 'Admin only');
   const r = S.dir('contentReport', { moduleId: 'cellinjury' });
   assert.ok(r.ok, JSON.stringify(r));
@@ -813,4 +814,104 @@ test('content report: master vs group activity, and each group copy compared wit
   // nothing changed: the Content sheet and what the module receives are identical
   assert.strictEqual(JSON.stringify(S.b.sheets.Content._rows), contentBefore);
   assert.deepStrictEqual(S.call({ module: 'cellinjury-razi-a-26', action: 'getAllContent', token: tGrp, since: 0 }).items, allBefore.items);
+});
+
+/* ---------------- Step 7: migration into a master copy; on / off per module ---------------- */
+function pause() { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5); }
+function contentSetup() {
+  const S = teachersSetup();
+  S.tMain = S.call({ module: 'portal', action: 'portalTeacherOpen', token: S.admin, modules: ['cellinjury'] }).modules.cellinjury.token;
+  S.tRa = S.t('teacherOpen', S.ahmed.tok, { deliveryId: S.dl['cellinjury-razi-a-26'].deliveryId }).token;
+  S.tMa = S.t('teacherOpen', S.sara.tok, { deliveryId: S.dl['cellinjury-misrata-a-26'].deliveryId }).token;
+  S.up = function (m, tok, coll, id, data) { const r = S.call({ module: m, action: 'upsert', token: tok, collection: coll, id: id, data: data }); assert.ok(r.ok, JSON.stringify(r)); return r; };
+  S.up('cellinjury', S.tMain, 'topicsections', 'T1', { sections: ['A'] });
+  S.up('cellinjury', S.tMain, 'customtopics', 'C1', { title: 'Main title' });
+  S.up('cellinjury', S.tMain, 'assessments', 'AS1', { title: 'Main quiz' });
+  S.up('cellinjury-razi-a-26', S.tRa, 'topicsections', 'T1', { sections: ['A'] });
+  S.up('cellinjury-razi-a-26', S.tRa, 'topicsections', 'T2', { sections: ['razi local'] });
+  S.up('cellinjury-razi-a-26', S.tRa, 'customtopics', 'C1', { title: 'Razi title' });
+  S.up('cellinjury-razi-a-26', S.tRa, 'assessments', 'AS9', { title: 'Razi quiz' });
+  S.get = function (m, tok, since) { const r = S.call({ module: m, action: 'getAllContent', token: tok, since: since || 0 }); assert.ok(r.ok, JSON.stringify(r)); return r; };
+  S.view = function (r) { const o = {}; r.items.forEach(function (it) { const k = it.collection + '|' + it.id; if (it.deleted) delete o[k]; else o[k] = it.data; }); return o; };
+  S.cdir = function (a, o) { return S.dir(a, Object.assign({ moduleId: 'cellinjury' }, o || {})); };
+  return S;
+}
+
+test('migration only copies; nothing changes while off; switching on keeps every group\'s current content (defaults)', function () {
+  const S = contentSetup();
+  const original = JSON.stringify(S.b.sheets.Content._rows);
+  const before = { main: S.view(S.get('cellinjury', S.tMain)), ra: S.view(S.get('cellinjury-razi-a-26', S.tRa)), ma: S.view(S.get('cellinjury-misrata-a-26', S.tMa)) };
+  assert.strictEqual(S.cdir('contentSetMode', { mode: 'on' }).ok, false, 'not before the master copy exists');
+  assert.strictEqual(S.call({ module: 'portal', action: 'contentMigrate', ttoken: S.ahmed.tok, token: S.ahmed.tok, moduleId: 'cellinjury' }).ok, false, 'Admin only');
+  const m = S.cdir('contentMigrate', { decisions: {} });
+  assert.ok(m.ok, JSON.stringify(m)); assert.strictEqual(m.masterItems, 2); assert.deepStrictEqual(m.decided, { main: 0, group: 0, local: 2 });
+  assert.strictEqual(S.cdir('contentMigrate', {}).ok, false, 'only once');
+  // the original rows are exactly as before (new rows were only appended)
+  assert.strictEqual(JSON.stringify(S.b.sheets.Content._rows.slice(0, JSON.parse(original).length)), original);
+  assert.strictEqual(S.dir('contentStatus').modules.filter(function (x) { return x.moduleId === 'cellinjury'; })[0].publishedVersion, '1.0');
+  // still off → identical to before
+  assert.deepStrictEqual(S.view(S.get('cellinjury-razi-a-26', S.tRa)), before.ra);
+  // ON → each group sees what it saw before (its own differing items were kept as its local layer)
+  assert.ok(S.cdir('contentSetMode', { mode: 'on' }).ok);
+  assert.deepStrictEqual(S.view(S.get('cellinjury', S.tMain)), before.main);
+  assert.deepStrictEqual(S.view(S.get('cellinjury-razi-a-26', S.tRa)), before.ra);
+  // Misrata had no edits of its own: it now receives the master copy
+  assert.deepStrictEqual(S.view(S.get('cellinjury-misrata-a-26', S.tMa)), { 'topicsections|T1': { sections: ['A'] }, 'customtopics|C1': { title: 'Main title' } });
+  assert.deepStrictEqual(before.ma, {});
+});
+
+test('while on: edits stay with their group; students read only their own group; internal storages are refused; switch-off refreshes browsers', function () {
+  const S = contentSetup();
+  S.cdir('contentMigrate', { decisions: {} });
+  const r0 = S.get('cellinjury-razi-a-26', S.tRa);   // a browser that synced BEFORE the switch
+  assert.ok(S.cdir('contentSetMode', { mode: 'on' }).ok);
+  pause();   // real browsers sync seconds apart; the test runs within milliseconds
+  // that browser's next (incremental) sync becomes a complete refresh
+  const r1 = S.get('cellinjury-razi-a-26', S.tRa, r0.serverTime);
+  pause();
+  assert.ok(r1.items.length >= 4);
+  // a teacher edit inside Al-Razi goes to Al-Razi's local layer only
+  S.up('cellinjury-razi-a-26', S.tRa, 'topicsections', 'T3', { sections: ['new razi'] });
+  const inc = S.get('cellinjury-razi-a-26', S.tRa, r1.serverTime);
+  assert.deepStrictEqual(inc.items.map(function (i) { return i.id; }), ['T3'], 'incremental sync brings only the change');
+  assert.ok(!('topicsections|T3' in S.view(S.get('cellinjury-misrata-a-26', S.tMa))), 'not in Misrata');
+  assert.ok(!S.b.sheets.Content._rows.some(function (r) { return r[0] === 'cellinjury-razi-a-26' && r[2] === 'T3'; }), 'stored in the local layer, not in the original rows');
+  // students: their own group with a session; nothing without one; never another group
+  const stu = S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: 'ahmed', password: PW }).modules.cellinjury.token;
+  assert.ok('topicsections|T3' in S.view(S.call({ module: 'cellinjury-razi-a-26', action: 'getAllContent', stoken: stu, since: 0 })));
+  assert.strictEqual(S.call({ module: 'cellinjury-razi-a-26', action: 'getAllContent', since: 0 }).ok, false, 'no session → nothing');
+  assert.strictEqual(S.call({ module: 'cellinjury-misrata-a-26', action: 'getAllContent', stoken: stu, since: 0 }).ok, false, 'other group → nothing');
+  ['cellinjury@v1', 'cellinjury@draft', 'cellinjury-razi-a-26@local'].forEach(function (m) { assert.strictEqual(S.call({ module: m, action: 'getAllContent', since: 0 }).code, 'badmodule', m); });
+  // students cannot write
+  assert.strictEqual(S.call({ module: 'cellinjury-razi-a-26', action: 'upsert', stoken: stu, collection: 'topicsections', id: 'T9', data: {} }).ok, false);
+  // switch OFF: the next sync is a complete refresh of the original content, removing the local-only T3
+  const before = S.get('cellinjury-razi-a-26', S.tRa, 0).serverTime;
+  pause();
+  assert.ok(S.cdir('contentSetMode', { mode: 'off' }).ok);
+  pause();
+  const off = S.get('cellinjury-razi-a-26', S.tRa, before);
+  pause();
+  assert.ok(off.items.some(function (i) { return i.id === 'T3' && i.deleted; }), 'removal sent');
+  assert.deepStrictEqual(S.view({ items: off.items }), { 'topicsections|T1': { sections: ['A'] }, 'topicsections|T2': { sections: ['razi local'] }, 'customtopics|C1': { title: 'Razi title' }, 'assessments|AS9': { title: 'Razi quiz' } });
+  // after that, Code.gs serves as before (incremental, nothing new)
+  assert.deepStrictEqual(S.get('cellinjury-razi-a-26', S.tRa, off.serverTime).items, []);
+  // switching on again restores the local edit (it was kept)
+  S.cdir('contentSetMode', { mode: 'on' });
+  assert.ok('topicsections|T3' in S.view(S.get('cellinjury-razi-a-26', S.tRa, 0)));
+});
+
+test('decisions: use a group\'s version for everyone, or the main version; undo migration restores the exact original state', function () {
+  const S = contentSetup();
+  const original = JSON.stringify(S.b.sheets.Content._rows);
+  const m = S.cdir('contentMigrate', { decisions: { 'cellinjury-razi-a-26|customtopics|C1': 'group', 'cellinjury-razi-a-26|topicsections|T2': 'main' } });
+  assert.deepStrictEqual(m.decided, { main: 1, group: 1, local: 0 });
+  S.cdir('contentSetMode', { mode: 'on' });
+  assert.deepStrictEqual(S.view(S.get('cellinjury-misrata-a-26', S.tMa)), { 'topicsections|T1': { sections: ['A'] }, 'customtopics|C1': { title: 'Razi title' } }, 'Razi\'s title became the master');
+  assert.ok(!('topicsections|T2' in S.view(S.get('cellinjury-razi-a-26', S.tRa))), '"main version" → the group-only item is not carried over');
+  assert.strictEqual(S.cdir('contentUndoMigration').ok, false, 'switch off first');
+  S.cdir('contentSetMode', { mode: 'off' });
+  const u = S.cdir('contentUndoMigration'); assert.ok(u.ok, JSON.stringify(u));
+  assert.strictEqual(JSON.stringify(S.b.sheets.Content._rows), original, 'exactly the original rows again');
+  assert.strictEqual(S.dir('contentStatus').modules.filter(function (x) { return x.moduleId === 'cellinjury'; })[0].publishedVersion, '');
+  assert.ok(S.cdir('contentMigrate', { decisions: {} }).ok, 'can be redone');
 });

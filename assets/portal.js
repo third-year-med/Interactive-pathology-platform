@@ -923,12 +923,27 @@
         r.modules.forEach(function (m) {
           var card = h('<div class="dir-row content-mod" data-module="' + esc(m.moduleId) + '"><div class="dir-main"><b>' + esc(m.title) + '</b> <code>' + esc(m.moduleId) + '</code> ' +
             (m.mode === 'on' ? '<span class="pill available">Versioned content: on</span>' : '<span class="pill soon">Versioned content: off</span>') +
-            '<div class="small muted">Published version: ' + (m.publishedVersion ? esc(m.publishedVersion) : 'none yet') + ' · ' + m.versions + ' version(s) · content stored in ' + m.storages.length + ' place(s)</div>' +
+            '<div class="small muted">Master copy: ' + (m.publishedVersion ? 'v' + esc(m.publishedVersion) : 'not created yet') + ' · ' + m.versions + ' version(s) · content stored in ' + m.storages.filter(function (x) { return x.storage.indexOf('@') < 0; }).length + ' place(s)</div>' +
+            (m.mode === 'on' ? '<p class="small">Every group of this module now receives the master copy plus its own kept items. Teacher edits inside a module stay with that group (editing the master copy comes next).</p>' : m.migrated ? '<p class="small">The master copy exists but is <b>not used yet</b>. Press “Switch versioned content ON” to use it — or “Undo migration” to redo your decisions.</p>' : '') +
             (m.storages.length ? '<div class="tbl-wrap"><table class="dir-tbl"><thead><tr><th>Storage</th><th>Educational rows</th><th>Group activity rows</th><th>Other</th></tr></thead><tbody>' +
-              m.storages.map(function (x) { return '<tr><td><code>' + esc(x.storage) + '</code>' + (x.storage === m.moduleId ? ' <span class="small muted">(main / normal link)</span>' : x.registered ? '' : ' <span class="small muted">(not registered)</span>') + '</td><td>' + x.master + '</td><td>' + x.group + '</td><td>' + x.other + '</td></tr>'; }).join('') + '</tbody></table></div>'
+              m.storages.filter(function (x) { return x.storage.indexOf('@') < 0; }).map(function (x) { return '<tr><td><code>' + esc(x.storage) + '</code>' + (x.storage === m.moduleId ? ' <span class="small muted">(main / normal link)</span>' : x.registered ? '' : ' <span class="small muted">(not registered)</span>') + '</td><td>' + x.master + '</td><td>' + x.group + '</td><td>' + x.other + '</td></tr>'; }).join('') + '</tbody></table></div>'
               : '<p class="small muted">No content edits stored on the backend yet — the module shows its built-in content only.</p>') +
-            '<div class="report"></div></div><div class="dir-btns"><button class="btn" type="button" data-a="rep">📋 Migration report</button></div></div>');
-          $('[data-a=rep]', card).onclick = function () {
+            '<div class="report"></div></div><div class="dir-btns">' +
+            (m.migrated ? (m.mode === 'on' ? '<button class="btn danger" type="button" data-a="off">Switch OFF (back to before)</button>'
+              : '<button class="btn primary" type="button" data-a="on">Switch versioned content ON</button><button class="btn" type="button" data-a="undo">Undo migration</button>')
+              : '<button class="btn" type="button" data-a="rep">📋 Migration report</button>') + '</div></div>');
+          var act = function (sel, action, extra, question, done) {
+            var b = $(sel, card); if (!b) return;
+            b.onclick = function () {
+              if (question && !window.confirm(question)) return;
+              b.disabled = true;
+              dirCall(action, Object.assign({ moduleId: m.moduleId }, extra || {})).then(function (x) { b.disabled = false; if (!x.ok) return toast(x.code === 'badaction' ? 'Update Portal.gs on the backend (version 1.9).' : x.error); toast(done(x)); draw(); });
+            };
+          };
+          act('[data-a=on]', 'contentSetMode', { mode: 'on' }, 'Switch versioned content ON for ' + m.title + '? Every group of this module then receives the master copy (v' + (m.publishedVersion || '1.0') + ') plus its own kept items. Switching off again is instant.', function () { return 'Versioned content is ON for ' + m.title + '.'; });
+          act('[data-a=off]', 'contentSetMode', { mode: 'off' }, 'Switch versioned content OFF for ' + m.title + '? Every group goes back to exactly what it had before (edits made meanwhile are kept and return when you switch on again).', function () { return 'Versioned content is OFF — back to before.'; });
+          act('[data-a=undo]', 'contentUndoMigration', {}, 'Undo the migration of ' + m.title + '? The master copy and the kept group items are removed; your original content was never changed.', function (x) { return 'Migration undone (' + x.removedRows + ' copied row(s) removed).'; });
+          if ($('[data-a=rep]', card)) $('[data-a=rep]', card).onclick = function () {
             var b = this, out = $('.report', card); b.disabled = true; out.innerHTML = '<p class="muted small">Building the report…</p>';
             dirCall('contentReport', { moduleId: m.moduleId }).then(function (x) {
               b.disabled = false; if (!x.ok) { out.innerHTML = '<p class="err">' + esc(x.error) + '</p>'; return; }
@@ -946,9 +961,25 @@
         '<ul class="small"><li><b>' + s.masterItems + '</b> educational item(s) in the main copy → would become the starting <b>master v1.0</b>.</li>' +
         '<li><b>' + s.groupStorages + '</b> group copy/copies compared with it: <b>' + s.identical + '</b> identical (nothing to do), <b>' + s.onlyInGroup + '</b> only in a group, <b>' + s.conflicts + '</b> different from the main copy.</li>' +
         '<li><b>' + s.groupActivity + '</b> assessment/exam row(s) — these stay with their group, untouched.</li>' + (s.other ? '<li><b>' + s.other + '</b> row(s) of an unknown kind — kept as they are.</li>' : '') + '</ul>' +
-        (x.details.length ? '<p class="small">Items to review in the next step (you will choose for each: keep the main version, use the group\'s version, or keep it as that group\'s local addition):</p><div class="tbl-wrap"><table class="dir-tbl"><thead><tr><th>Group storage</th><th>Kind</th><th>Item</th><th>Status</th><th>Last change</th></tr></thead><tbody>' +
-          x.details.map(function (d) { return '<tr><td><code>' + esc(d.storage) + '</code></td><td>' + esc(d.collection) + '</td><td><code>' + esc(d.id) + '</code></td><td>' + esc(d.status) + '</td><td>' + esc(fmtDay(d.updatedAt)) + '</td></tr>'; }).join('') + '</tbody></table></div>' + (x.truncated ? '<p class="small muted">Only the first 500 items are listed.</p>' : '')
-          : '<p class="small">Nothing to review: no group copy differs from the main copy.</p>') + '</div>');
+        (x.details.length ? '<p class="small">Choose for each item. The safe default <b>keeps it for that group only</b>, so no group loses anything:</p><div class="tbl-wrap"><table class="dir-tbl"><thead><tr><th>Group storage</th><th>Kind</th><th>Item</th><th>Status</th><th>Last change</th><th>Decision</th></tr></thead><tbody>' +
+          x.details.map(function (d) {
+            var key = d.storage + '|' + d.collection + '|' + d.id, sel = d.status === 'unknown collection' ? '<span class="muted small">kept as it is</span>'
+              : '<select data-key="' + esc(key) + '"><option value="local">Keep for this group only</option><option value="main">' + (d.status === 'only in this group' ? 'Drop (not in the master)' : 'Use the main version') + '</option><option value="group">Use this group\'s version for everyone</option></select>';
+            return '<tr><td><code>' + esc(d.storage) + '</code></td><td>' + esc(d.collection) + '</td><td><code>' + esc(d.id) + '</code></td><td>' + esc(d.status) + '</td><td>' + esc(fmtDay(d.updatedAt)) + '</td><td>' + sel + '</td></tr>';
+          }).join('') + '</tbody></table></div>' + (x.truncated ? '<p class="small muted">Only the first 500 items are listed.</p>' : '')
+          : '<p class="small">Nothing to review: no group copy differs from the main copy.</p>') +
+        (x.mode === 'off' ? '<div class="roster-tools"><button class="btn primary" type="button" data-a="mig">Create master v1.0 from this report</button></div><p class="small muted">This only <b>copies</b> — your original content is not changed, and nothing changes for students until you press “Switch versioned content ON”.</p>' : '') + '</div>');
+      var mig = $('[data-a=mig]', el);
+      if (mig) mig.onclick = function () {
+        var dec = {}; $$('select[data-key]', el).forEach(function (sl) { dec[sl.dataset.key] = sl.value; });
+        if (!window.confirm('Create the master copy v1.0 of this module with your decisions? (Copies only — nothing changes for students yet.)')) return;
+        mig.disabled = true;
+        dirCall('contentMigrate', { moduleId: x.moduleId, decisions: dec }).then(function (r) {
+          mig.disabled = false;
+          if (!r.ok) return toast(r.code === 'badaction' ? 'Update Portal.gs on the backend (version 1.9).' : r.error);
+          toast('Master v' + r.version + ' created: ' + r.masterItems + ' item(s). Now press “Switch versioned content ON” when ready.'); draw();
+        });
+      };
       return el;
     }
     function paneExisting(pane) {
