@@ -5,7 +5,7 @@ this repository on GitHub Pages. The front page starts with two modules: **Cell 
 **Inflammation & Healing** (both *Available*); more can be added later in the Teacher Dashboard.
 
 > **Updating from an earlier version?** Replace the contents of the `Portal` file in Apps Script with the new
-> [`backend/Portal.gs`](backend/Portal.gs) (version 1.2 — single teacher sign-in for modules, including group links), save, and deploy
+> [`backend/Portal.gs`](backend/Portal.gs) (version 1.3 — adds the Admin's platform directory), save, and deploy
 > a **new version** (step 1.4). The Code.gs line from step 1.3 stays as it is.
 
 ## 1. Main backend (Cell Injury, Inflammation …)
@@ -62,6 +62,24 @@ The module list (Teacher Management):
      Teacher Dashboard then gets a **Group link** chooser: pick a group and press **Open module →** or **Teacher Portal**
      to enter that group (its own students, results and attendance) in teacher mode — no group password.
 2. **Save changes.** Students see the new list the next time they open or reload the page.
+
+## Platform directory (Admin)
+
+Teacher Dashboard → **Platform directory** (bottom of the page; opens when you click it). It records the structure of the
+platform — nothing in it changes sign-in or module access yet (that comes in later steps):
+
+- **Institutions** (e.g. Al-Razi University, Misrata University).
+- **Groups** — each belongs to one institution (two universities can both have a "Group A"). Each group has a unique
+  **link code** (e.g. `razi-a-26`): its address `…/?g=razi-a-26`. The code is fixed once the group has a delivery.
+- **Modules** — one record per subject (filled from the front-page list the first time). A module is never copied.
+- **Deliveries** — a module given to a group. Each delivery keeps its own students, results, attendance and assessments
+  under its **storage name** `module-linkcode` (e.g. `cellinjury-razi-a-26`), which never changes.
+- **Existing data** — a read-only scan of the storage names already in your data (e.g. `cellinjury`, `cellinjury-B`).
+  To register existing data: create a group whose link code matches the part after "-" (e.g. `B`) and deliver the module
+  to it; for the normal link (no `?g=`) tick *Use the existing storage of the normal link* when adding the delivery.
+
+Records are never deleted (deactivate them instead). The directory uses its own sheets — Institutions, Groups, Modules,
+Deliveries, TeacherAssignments, ModuleContentRoles — created on first use; no existing sheet is changed.
 
 ## 5. Give students access
 

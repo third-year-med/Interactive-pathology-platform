@@ -265,6 +265,7 @@
     var mg = h('<section class="t-sec" id="t-manage"><div class="sec-head"><h2>Teacher Management</h2><span class="small muted">Front-page modules, statuses and links</span></div><div class="t-box"><p class="muted">Loading…</p></div></section>');
     main.appendChild(mg);
     var box = $('.t-box', mg);
+    main.appendChild(directorySection());
     post(CFG.backendUrl, { module: 'portal', action: 'portalAdminGet', token: tok }).then(function (r) {
       if (!r.ok) { if (r.code === 'auth') { sdel(TKEY); return route(); } box.innerHTML = '<p class="err">' + esc(r.error) + '</p>'; return; }
       editor(box, r);
@@ -359,6 +360,146 @@
       });
     };
     draw();
+  }
+
+  /* ---------------- platform directory (Admin; Step 1 — stored, not yet used for access) ---------------- */
+  function dirCall(action, o) { return post(CFG.backendUrl, Object.assign({ module: 'portal', action: action, token: tsess() }, o || {})); }
+  function fmtDay(t) { if (!t) return ''; var d = new Date(Number(t)); return isNaN(d) ? '' : d.toISOString().slice(0, 10); }
+  function directorySection() {
+    var sec = h('<section class="t-sec" id="t-dir"><details class="dir"><summary><span class="dir-h">Platform directory</span><span class="small muted">Admin · institutions, groups, modules and deliveries</span></summary><div class="dir-body"><p class="muted">Loading…</p></div></details></section>');
+    var det = $('details', sec), body = $('.dir-body', sec), D = null, tab = 'institutions', scan = null;
+    det.addEventListener('toggle', function () { if (det.open && !D) load(); });
+    function load() {
+      dirCall('dirGet').then(function (r) {
+        if (!r.ok) { if (r.code === 'auth') { sdel(TKEY); return route(); } body.innerHTML = '<p class="err">' + esc(r.code === 'badaction' ? 'Update Portal.gs on the backend (version 1.3, see SETUP.md) to use the platform directory.' : r.error) + '</p>'; return; }
+        D = r; draw();
+      });
+    }
+    function byId(list, k, v) { return (D[list] || []).filter(function (x) { return x[k] === v; })[0]; }
+    function instName(id) { var i = byId('institutions', 'institutionId', id); return i ? (i.shortName || i.name) : '?'; }
+    function groupLabel(g) { return instName(g.institutionId) + ' · ' + g.name + (g.academicYear ? ' (' + g.academicYear + ')' : ''); }
+    function activePill(r) { return r.active ? '<span class="pill available">Active</span>' : '<span class="pill locked">Inactive</span>'; }
+    function save(kind, record, extra, btn) {
+      if (btn) btn.disabled = true;
+      return dirCall('dirSave', Object.assign({ kind: kind, record: record }, extra || {})).then(function (r) {
+        if (btn) btn.disabled = false;
+        if (!r.ok) { if (r.code === 'auth') { sdel(TKEY); return route(); } toast(r.error); return false; }
+        toast('Saved.'); scan = null; load(); return true;
+      });
+    }
+    function setActive(kind, id, on) { dirCall('dirSetActive', { kind: kind, id: id, active: on }).then(function (r) { if (!r.ok) return toast(r.error); toast(on ? 'Activated.' : 'Deactivated.'); load(); }); }
+    /* a small form from a field list: [key, label, type, options] */
+    function form(fields, values, submitLabel, onSubmit) {
+      var f = h('<form class="dir-form rowed" novalidate></form>');
+      fields.forEach(function (fd) {
+        var v = values && values[fd[0]] != null ? values[fd[0]] : '', lab;
+        if (fd[2] === 'select') lab = h('<label>' + esc(fd[1]) + '<select data-k="' + fd[0] + '">' + fd[3].map(function (o) { return '<option value="' + esc(o[0]) + '"' + (String(o[0]) === String(v) ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select></label>');
+        else if (fd[2] === 'check') lab = h('<label class="chk"><input type="checkbox" data-k="' + fd[0] + '"' + (v ? ' checked' : '') + '> ' + esc(fd[1]) + '</label>');
+        else if (fd[2] === 'fixed') lab = h('<label>' + esc(fd[1]) + '<input value="' + esc(v) + '" disabled></label>');
+        else lab = h('<label>' + esc(fd[1]) + '<input data-k="' + fd[0] + '" type="' + (fd[2] || 'text') + '" value="' + esc(fd[2] === 'date' ? fmtDay(v) : v) + '"' + (fd[3] ? ' placeholder="' + esc(fd[3]) + '"' : '') + '></label>');
+        f.appendChild(lab);
+      });
+      var b = h('<div class="dir-act"><button class="btn primary" type="submit">' + esc(submitLabel) + '</button></div>'); f.appendChild(b);
+      f.onsubmit = function (e) {
+        e.preventDefault(); var o = {};
+        $$('[data-k]', f).forEach(function (i) { o[i.dataset.k] = i.type === 'checkbox' ? i.checked : i.value; });
+        onSubmit(o, $('button', b));
+      };
+      return f;
+    }
+    function editRow(host, fields, values, onSave) {
+      var cur = $('.dir-edit', host); if (cur) { cur.remove(); return; }
+      var w = h('<div class="dir-edit"></div>'); w.appendChild(form(fields, values, 'Save changes', onSave)); host.appendChild(w);
+    }
+    function list(items, render) { var l = h('<div class="dir-list"></div>'); if (!items.length) l.appendChild(h('<p class="muted small">None yet.</p>')); items.forEach(function (x) { l.appendChild(render(x)); }); return l; }
+    function row(html, kind, id, active, onEdit) {
+      var r = h('<div class="dir-row' + (active ? '' : ' off') + '"><div class="dir-main">' + html + '</div><div class="dir-btns"><button class="btn" type="button" data-a="edit">Edit</button><button class="btn' + (active ? ' danger' : '') + '" type="button" data-a="act">' + (active ? 'Deactivate' : 'Activate') + '</button></div></div>');
+      $('[data-a=edit]', r).onclick = function () { onEdit(r); };
+      $('[data-a=act]', r).onclick = function () { if (!active || window.confirm('Deactivate this record? Nothing is deleted, and it can be activated again.')) setActive(kind, id, !active); };
+      return r;
+    }
+    var TABS = [['institutions', 'Institutions'], ['groups', 'Groups'], ['modules', 'Modules'], ['deliveries', 'Deliveries'], ['existing', 'Existing data']];
+    function draw() {
+      body.innerHTML = '';
+      body.appendChild(h('<div class="note small" style="margin-bottom:12px"><b>Step 1 — directory only.</b> These records are stored but do not yet change who can sign in or open anything. Records are never deleted; deactivate them instead.</div>'));
+      var nav = h('<div class="dir-tabs" role="tablist"></div>');
+      TABS.forEach(function (t) { var b = h('<button type="button" role="tab" class="dir-tab' + (tab === t[0] ? ' on' : '') + '" data-t="' + t[0] + '">' + esc(t[1]) + '</button>'); b.onclick = function () { tab = t[0]; draw(); }; nav.appendChild(b); });
+      body.appendChild(nav);
+      var pane = h('<div class="dir-pane" data-pane="' + tab + '"></div>'); body.appendChild(pane);
+      ({ institutions: paneInst, groups: paneGroups, modules: paneModules, deliveries: paneDeliveries, existing: paneExisting })[tab](pane);
+    }
+    var INST_F = [['name', 'Name', 'text', 'e.g. Al-Razi University'], ['shortName', 'Short name', 'text', 'e.g. Al-Razi'], ['sortOrder', 'Order', 'number']];
+    function paneInst(pane) {
+      pane.appendChild(h('<h3>Add an institution</h3>'));
+      pane.appendChild(form(INST_F, {}, '＋ Add institution', function (o, b) { save('institution', o, null, b); }));
+      pane.appendChild(h('<h3>Institutions</h3>'));
+      pane.appendChild(list(D.institutions.slice().sort(function (a, b) { return (a.sortOrder || 0) - (b.sortOrder || 0) || a.name.localeCompare(b.name); }), function (i) {
+        var n = D.groups.filter(function (g) { return g.institutionId === i.institutionId; }).length;
+        return row('<b>' + esc(i.name) + '</b>' + (i.shortName ? ' <span class="muted">(' + esc(i.shortName) + ')</span>' : '') + ' ' + activePill(i) + '<div class="small muted">' + n + ' group(s) · id ' + esc(i.institutionId) + '</div>', 'institution', i.institutionId, i.active,
+          function (r) { editRow(r, INST_F, i, function (o, b) { o.institutionId = i.institutionId; save('institution', o, null, b); }); });
+      }));
+    }
+    function paneGroups(pane) {
+      var insts = D.institutions.map(function (i) { return [i.institutionId, i.name + (i.active ? '' : ' (inactive)')]; });
+      pane.appendChild(h('<h3>Add a group</h3>'));
+      if (!insts.length) pane.appendChild(h('<p class="muted small">Add an institution first.</p>'));
+      else pane.appendChild(form([['institutionId', 'Institution', 'select', insts], ['name', 'Group name', 'text', 'e.g. Group A'], ['academicYear', 'Academic year', 'text', 'e.g. 2026-27'],
+        ['linkCode', 'Link code (?g=…)', 'text', 'e.g. razi-a-26']], {}, '＋ Add group', function (o, b) { save('group', o, null, b); }));
+      pane.appendChild(h('<p class="small muted">The link code is the group\'s unique address (…/?g=<i>code</i>). Letters, digits, “-” and “_”. It is fixed once the group has a delivery, because that group\'s data is stored under it.</p>'));
+      pane.appendChild(h('<h3>Groups</h3>'));
+      pane.appendChild(list(D.groups.slice().sort(function (a, b) { return groupLabel(a).localeCompare(groupLabel(b)); }), function (g) {
+        var ds = D.deliveries.filter(function (d) { return d.groupId === g.groupId; });
+        var fields = [['institutionId', 'Institution', 'fixed'], ['name', 'Group name'], ['academicYear', 'Academic year'], ds.length ? ['linkCode', 'Link code (fixed)', 'fixed'] : ['linkCode', 'Link code (?g=…)']];
+        return row('<b>' + esc(groupLabel(g)) + '</b> ' + activePill(g) + '<div class="small muted">link code <code>' + esc(g.linkCode) + '</code> · ' + ds.length + ' module(s) · id ' + esc(g.groupId) + '</div>', 'group', g.groupId, g.active,
+          function (r) { editRow(r, fields, Object.assign({}, g, { institutionId: instName(g.institutionId) }), function (o, b) { o.groupId = g.groupId; delete o.institutionId; save('group', o, null, b); }); });
+      }));
+    }
+    var MOD_F = [['title', 'Title'], ['subtitle', 'Subtitle'], ['url', 'Link (https://…)'], ['storagePrefix', 'Storage prefix (e.g. ci_)'], ['icon', 'Icon (emoji)'], ['color', 'Colour', 'color']];
+    function paneModules(pane) {
+      pane.appendChild(h('<h3>Add a module</h3>'));
+      pane.appendChild(form([['moduleId', 'Module id (fixed, e.g. cardio)', 'text', 'lowercase letters/digits']].concat(MOD_F), { color: '#0f2a4a' }, '＋ Add module', function (o, b) { save('module', o, { create: true }, b); }));
+      pane.appendChild(h('<h3>Modules</h3><p class="small muted">One record per subject. The same module can be delivered to many groups; it is never copied.</p>'));
+      pane.appendChild(list(D.modules, function (m) {
+        var n = D.deliveries.filter(function (d) { return d.moduleId === m.moduleId; }).length;
+        return row('<b>' + esc(m.icon || '') + ' ' + esc(m.title) + '</b> ' + activePill(m) + '<div class="small muted">id <code>' + esc(m.moduleId) + '</code> · delivered to ' + n + ' group(s)' + (m.url ? ' · ' + esc(m.url) : '') + '</div>', 'module', m.moduleId, m.active,
+          function (r) { editRow(r, [['moduleId', 'Module id', 'fixed']].concat(MOD_F), m, function (o, b) { o.moduleId = m.moduleId; save('module', o, null, b); }); });
+      }));
+    }
+    var ST = [['available', 'Available'], ['ready', 'Completed – not yet released'], ['soon', 'Coming soon']];
+    function paneDeliveries(pane) {
+      var gs = D.groups.map(function (g) { return [g.groupId, groupLabel(g)]; }), ms = D.modules.map(function (m) { return [m.moduleId, m.title]; });
+      pane.appendChild(h('<h3>Deliver a module to a group</h3>'));
+      if (!gs.length || !ms.length) pane.appendChild(h('<p class="muted small">Add a group and a module first.</p>'));
+      else pane.appendChild(form([['groupId', 'Group', 'select', gs], ['moduleId', 'Module', 'select', ms], ['status', 'Status', 'select', ST], ['openFrom', 'Opens (optional)', 'date'], ['openUntil', 'Closes (optional)', 'date'],
+        ['adoptPlain', 'Use the existing storage of the normal link (no ?g=) — only to register existing data', 'check']], { status: 'soon' }, '＋ Add delivery', function (o, b) { save('delivery', o, null, b); }));
+      pane.appendChild(h('<p class="small muted">Each delivery keeps its own students, results, attendance and assessments, stored under its storage name (module-linkcode). The storage name never changes.</p>'));
+      pane.appendChild(h('<h3>Deliveries</h3>'));
+      var items = D.deliveries.slice().sort(function (a, b) { var ga = byId('groups', 'groupId', a.groupId), gb = byId('groups', 'groupId', b.groupId); return (ga ? groupLabel(ga) : '').localeCompare(gb ? groupLabel(gb) : '') || a.moduleId.localeCompare(b.moduleId); });
+      pane.appendChild(list(items, function (d) {
+        var g = byId('groups', 'groupId', d.groupId), m = byId('modules', 'moduleId', d.moduleId), st = STATUS[d.status] || STATUS.soon;
+        var dates = (d.openFrom || d.openUntil) ? ' · ' + (fmtDay(d.openFrom) || '…') + ' → ' + (fmtDay(d.openUntil) || '…') : '';
+        return row('<b>' + esc(g ? groupLabel(g) : '?') + '</b> → <b>' + esc(m ? m.title : d.moduleId) + '</b> <span class="pill ' + st.cls + '">' + esc(st.label) + '</span> ' + activePill(d) +
+          '<div class="small muted">storage <code>' + esc(d.backendModule) + '</code>' + dates + ' · id ' + esc(d.deliveryId) + '</div>', 'delivery', d.deliveryId, d.active,
+          function (r) { editRow(r, [['backendModule', 'Storage (fixed)', 'fixed'], ['status', 'Status', 'select', ST], ['openFrom', 'Opens', 'date'], ['openUntil', 'Closes', 'date']], d, function (o, b) { o.deliveryId = d.deliveryId; save('delivery', o, null, b); }); });
+      }));
+    }
+    function paneExisting(pane) {
+      pane.appendChild(h('<p class="small muted">Storage names already present in your data (read-only — nothing is changed). Register one by creating a group whose link code matches the part after “-” and delivering the module to it; the storage of the normal link (no “-”) is registered with the “existing storage of the normal link” option.</p>'));
+      var b = h('<button class="btn" type="button">' + (scan ? '↻ Scan again' : '🔍 Scan existing data') + '</button>'); pane.appendChild(b);
+      var out = h('<div class="dir-scan"></div>'); pane.appendChild(out);
+      function show() {
+        if (!scan) return;
+        if (!scan.length) { out.innerHTML = '<p class="muted small">No module data found yet.</p>'; return; }
+        out.innerHTML = '<div class="tbl-wrap"><table class="dir-tbl"><thead><tr><th>Storage</th><th>Module</th><th>Link code</th><th>Students</th><th>Results</th><th>Assessment records</th><th>Attendance sessions</th><th>Content rows</th><th>Registered</th></tr></thead><tbody>' +
+          scan.map(function (x) {
+            var d = x.deliveryId && byId('deliveries', 'deliveryId', x.deliveryId), g = d && byId('groups', 'groupId', d.groupId);
+            return '<tr><td><code>' + esc(x.backendModule) + '</code></td><td>' + esc(x.moduleId) + '</td><td>' + esc(x.linkCode || '— (normal link)') + '</td><td>' + x.students + '</td><td>' + x.results + '</td><td>' + x.assessRecords + '</td><td>' + x.attendanceSessions + '</td><td>' + x.contentRows + '</td><td>' + (g ? '✓ ' + esc(groupLabel(g)) : '<span class="muted">not yet</span>') + '</td></tr>';
+          }).join('') + '</tbody></table></div>';
+      }
+      b.onclick = function () { b.disabled = true; dirCall('dirScan').then(function (r) { b.disabled = false; if (!r.ok) return toast(r.error); scan = r.storages; b.textContent = '↻ Scan again'; show(); }); };
+      show();
+    }
+    return sec;
   }
 
   /* ---------------- start ---------------- */

@@ -196,6 +196,70 @@ test('teacher: one sign-in → Teacher Dashboard → open any module directly as
   await p.context().close();
 });
 
+test('Admin: platform directory — add institutions, groups (same name at two universities), deliveries; scan existing data; nothing else changes', { skip: SKIP }, async function () {
+  const p = await page();
+  const infoBefore = JSON.stringify(main.call({ module: 'portal', action: 'portalInfo' }).modules);
+  const studentsBefore = JSON.stringify(main.sheets.Students._rows);
+  await p.goto(url + '#/teacher');
+  await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+  await p.waitForSelector('#t-dir details.dir');
+  await p.click('#t-dir summary');
+  await p.waitForSelector('#t-dir .dir-tabs');
+  const pane = '#t-dir .dir-pane';
+  async function saved() { await p.waitForFunction(function () { return /Saved/.test((document.querySelector('.toast') || {}).textContent || ''); }); await p.waitForTimeout(150); await p.evaluate(function () { document.querySelectorAll('.toast').forEach(function (t) { t.remove(); }); }); }
+  // institutions
+  for (const n of [['Al-Razi University', 'Al-Razi'], ['Misrata University', 'Misrata']]) {
+    await p.fill(pane + ' form [data-k=name]', n[0]); await p.fill(pane + ' form [data-k=shortName]', n[1]);
+    await p.click(pane + ' form button[type=submit]'); await saved();
+    await p.waitForFunction(function (t) { return document.querySelector('#t-dir .dir-list').textContent.indexOf(t) >= 0; }, n[0]);
+  }
+  // groups: "Group A" at both institutions
+  await p.click('#t-dir .dir-tab[data-t=groups]');
+  for (const g of [['Al-Razi University', 'razi-a-26'], ['Misrata University', 'misrata-a-26']]) {
+    await p.selectOption(pane + ' form [data-k=institutionId]', { label: g[0] });
+    await p.fill(pane + ' form [data-k=name]', 'Group A'); await p.fill(pane + ' form [data-k=academicYear]', '2026-27'); await p.fill(pane + ' form [data-k=linkCode]', g[1]);
+    await p.click(pane + ' form button[type=submit]'); await saved();
+    await p.waitForFunction(function (c) { return document.querySelector('#t-dir .dir-list').textContent.indexOf(c) >= 0; }, g[1]);
+  }
+  assert.match(await p.textContent('#t-dir .dir-list'), /Al-Razi · Group A \(2026-27\)[\s\S]*Misrata · Group A \(2026-27\)/);
+  // a duplicate link code is refused with a clear message
+  await p.selectOption(pane + ' form [data-k=institutionId]', { label: 'Misrata University' });
+  await p.fill(pane + ' form [data-k=name]', 'Group B'); await p.fill(pane + ' form [data-k=linkCode]', 'RAZI-A-26');
+  await p.click(pane + ' form button[type=submit]');
+  await p.waitForFunction(function () { return /already used/.test((document.querySelector('.toast') || {}).textContent || ''); });
+  // deliveries: Cell Injury to both groups
+  await p.click('#t-dir .dir-tab[data-t=deliveries]');
+  for (const g of ['Al-Razi · Group A (2026-27)', 'Misrata · Group A (2026-27)']) {
+    await p.selectOption(pane + ' form [data-k=groupId]', { label: g });
+    await p.selectOption(pane + ' form [data-k=moduleId]', { label: 'Cell Injury & Cell Death' });
+    await p.selectOption(pane + ' form [data-k=status]', 'available');
+    await p.click(pane + ' form button[type=submit]'); await saved();
+  }
+  await p.waitForFunction(function () { return document.querySelectorAll('#t-dir .dir-row').length === 2; });
+  const txt = await p.textContent('#t-dir .dir-list');
+  assert.match(txt, /cellinjury-razi-a-26/); assert.match(txt, /cellinjury-misrata-a-26/);
+  // edit a delivery (status) and deactivate a group
+  await p.click('#t-dir .dir-row:first-child [data-a=edit]');
+  await p.selectOption('#t-dir .dir-row:first-child .dir-edit [data-k=status]', 'ready');
+  await p.click('#t-dir .dir-row:first-child .dir-edit button[type=submit]'); await saved();
+  await p.waitForFunction(function () { return /Completed – not yet released/.test(document.querySelector('#t-dir .dir-list').textContent); });
+  await p.click('#t-dir .dir-tab[data-t=groups]');
+  await p.click('#t-dir .dir-row:first-child [data-a=act]');
+  await p.waitForSelector('#t-dir .dir-row.off');
+  // existing data scan (read-only)
+  await p.click('#t-dir .dir-tab[data-t=existing]');
+  await p.click(pane + ' > button');
+  await p.waitForSelector('#t-dir .dir-tbl');
+  assert.match(await p.textContent('#t-dir .dir-tbl'), /cellinjury[\s\S]*normal link/);
+  if (process.env.SHOTS) { await p.click('#t-dir .dir-tab[data-t=deliveries]'); await p.screenshot({ path: path.join(process.env.SHOTS, 'directory.png'), fullPage: true }); }
+  await p.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await p.evaluate(function () { return document.documentElement.scrollWidth - window.innerWidth; }) <= 1, 'directory fits a phone');
+  // the directory changed nothing the students or modules use
+  assert.strictEqual(JSON.stringify(main.call({ module: 'portal', action: 'portalInfo' }).modules), infoBefore);
+  assert.strictEqual(JSON.stringify(main.sheets.Students._rows), studentsBefore);
+  await p.context().close();
+});
+
 test('the front page fits a phone screen', { skip: SKIP }, async function () {
   const p = await page({ width: 390, height: 844 });
   await p.goto(url);
