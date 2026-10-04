@@ -415,6 +415,43 @@ test('a group student who signs in on the MAIN page is taken to their group page
   await p.context().close();
 });
 
+test('roster: temporary passwords for a whole group in one click (different each, or one shared), with a downloadable list', { skip: SKIP }, async function () {
+  groupFixture();
+  const p = await page();
+  await p.goto(url + '#/teacher');
+  await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+  await p.waitForSelector('#t-dir details.dir'); await p.click('#t-dir summary');
+  await p.click('#t-dir .dir-tab[data-t=students]');
+  await p.selectOption('#t-dir [data-k=rg]', { label: 'Test Misrata · Group A (2026-27)' });
+  await p.waitForSelector('#t-dir .roster-add');
+  await p.fill('#t-dir .roster-add textarea', 'm201, Many One\nm202, Many Two\nm203, Many Three');
+  await p.click('#t-dir .roster-add button[type=submit]');
+  await p.waitForSelector('#t-dir .roster-bulk');
+  // different passwords for those still on a temporary one (the three new; sara has her own)
+  assert.match(await p.textContent('#t-dir .roster-bulk'), /not chosen their own password yet \(3\)/);
+  assert.ok(await p.isChecked('#t-dir .roster-bulk input[name=bs][value=temp]') && await p.isChecked('#t-dir .roster-bulk input[name=bp][value=same]'), 'defaults: not-yet-chosen students, one shared password');
+  await p.check('#t-dir .roster-bulk input[name=bp][value=each]');
+  await p.click('#t-dir .roster-bulk button[type=submit]');
+  await p.waitForFunction(function () { return /New temporary passwords for 3 students/.test((document.querySelector('#t-dir .roster-res') || {}).textContent || ''); });
+  const pws = await p.$$eval('#t-dir .roster-res code.pw', function (els) { return els.map(function (e) { return e.textContent.trim(); }); });
+  assert.strictEqual(pws.length, 3); assert.strictEqual(new Set(pws).size, 3);
+  const ids = await p.$$eval('#t-dir .roster-res tbody tr td:first-child', function (els) { return els.map(function (e) { return e.textContent.trim(); }); });
+  ids.forEach(function (id, i) { assert.ok(main.call({ module: 'cellinjury-tm-a', action: 'studentLogin', username: id, password: pws[i] }).ok, id); });
+  const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#t-dir .roster-res [data-a=dl]')]);
+  const csv = fs.readFileSync(await dl.path(), 'utf8');
+  assert.match(csv, /Student ID,Name,Temporary password,Group link/); assert.ok(csv.indexOf(pws[0]) > 0 && /\?g=tm-a/.test(csv));
+  if (process.env.SHOTS) await (await p.$('#t-dir')).screenshot({ path: path.join(process.env.SHOTS, 'bulk.png') });
+  // one shared password for everyone
+  await p.check('#t-dir .roster-bulk input[name=bs][value=all]');
+  await p.check('#t-dir .roster-bulk input[name=bp][value=each]');
+  await p.fill('#t-dir .roster-bulk [data-k=shared]', 'Misrata-2026');   // typing in the box selects "the same password"
+  assert.ok(await p.isChecked('#t-dir .roster-bulk input[name=bp][value=same]'));
+  await p.click('#t-dir .roster-bulk button[type=submit]');
+  await p.waitForFunction(function () { return /New temporary passwords for 4 students/.test((document.querySelector('#t-dir .roster-res') || {}).textContent || ''); });
+  ['m201', 'm202', 'm203', 'sara'].forEach(function (id) { const r = main.call({ module: 'cellinjury-tm-a', action: 'studentLogin', username: id, password: 'Misrata-2026' }); assert.ok(r.ok && r.mustChange, id); });
+  await p.context().close();
+});
+
 test('the front page fits a phone screen', { skip: SKIP }, async function () {
   const p = await page({ width: 390, height: 844 });
   await p.goto(url);

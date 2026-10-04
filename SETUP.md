@@ -5,7 +5,7 @@ this repository on GitHub Pages. The front page starts with two modules: **Cell 
 **Inflammation & Healing** (both *Available*); more can be added later in the Teacher Dashboard.
 
 > **Updating from an earlier version?** Replace the contents of the `Portal` file in Apps Script with the new
-> [`backend/Portal.gs`](backend/Portal.gs) (version 1.5.1 — group rosters), save, and deploy
+> [`backend/Portal.gs`](backend/Portal.gs) (version 1.5.2 — group rosters), save, and deploy
 > a **new version** (step 1.4). The Code.gs line from step 1.3 stays as it is.
 
 ## 1. Main backend (Cell Injury, Inflammation …)
@@ -97,7 +97,11 @@ Platform directory → **Students** → choose the group:
   and shown **once** (📋 Copy the list); the student chooses their own at first sign-in on the group page, and that new
   password is applied to all the group's modules. A password changed later inside a module also applies to all of them.
 - A module delivered to the group later gets the members' accounts automatically (with their current password).
-- **Reset password** gives a new temporary password for all of the group's modules. **Deactivate** closes all of the
+- **Temporary passwords for many students** (one click): for the students who have not chosen their own password yet
+  (or all active students), set **one password you type** — the same for all of them, so you can send it any time — or a
+  different generated one each. Every student must choose their own password at the next sign-in. The list can be copied
+  or downloaded (CSV, with the group link).
+- **Reset password** gives a new temporary password for all of the group's modules (type one, or leave empty to generate). **Deactivate** closes all of the
   group's modules for that student at once (nothing is deleted).
 - **Add N existing account(s) to this group** — accounts made earlier inside a module's Teacher Portal are not on the
   roster; press this once so those students can sign in on the group page.

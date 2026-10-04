@@ -45,6 +45,8 @@
  *
  * Group rosters (1.5, Step 3 — Admin):
  *   rosterGet / rosterAdd / rosterSave / rosterSetActive / rosterResetPassword / rosterSync / rosterImport
+ *   rosterResetMany   new temporary passwords for many members in one go (those still on a temporary password, or all
+ *                     active members): a different generated one each, or one password typed by the Admin for all
  *   A student is a MEMBER of a group (sheet StudentMemberships) and has a normal account in EACH delivery of that group
  *   (the existing Students rows, e.g. cellinjury-razi-a-26), all with the same password. The group page requires an
  *   active membership; deactivating a membership also deactivates the accounts. A password changed by the student (on the
@@ -66,7 +68,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '1.5.1';
+var PORTAL_VERSION = '1.5.2';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -109,6 +111,7 @@ function portalHook_(module, p) {
     case 'rosterSave': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return rosterSave_(p); }); });
     case 'rosterSetActive': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return rosterSetActive_(p); }); });
     case 'rosterResetPassword': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return rosterResetPassword_(p); }); });
+    case 'rosterResetMany': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return rosterResetMany_(p); }); });
     case 'rosterSync': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return rosterSync_(p.groupId); }); });
     case 'rosterImport': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return rosterImport_(p); }); });
     case 'portalGroupSetPassword': return portalGroupSetPassword_(p);
@@ -777,4 +780,41 @@ function rosterModulePassword_(module, p) {
     stuCache_().remove('stok:' + st.th);
     return { ok: true, contentKey: contentKey_(module) };
   } finally { lock.releaseLock(); }
+}
+
+/** Bulk reset (one pass over the sheets, so a whole class takes seconds). Every member in scope gets a temporary password
+ *  (must choose their own at the next sign-in) in all of the group's modules; their open sessions end. */
+function rosterResetMany_(p) {
+  var g = rosterGroupOr_(p.groupId); if (!g) return dirErr_('Choose a group.');
+  var scope = p.scope === 'all' ? 'all' : 'temp', shared = String(p.password || '');
+  if (shared && shared.length < STU_MIN_PW) return dirErr_('The password must be at least ' + STU_MIN_PW + ' characters.');
+  var st = rosterStorages_(g.groupId), idx = rosterAccounts_(), now = Date.now();
+  var members = dirAll_(DIR.MEMB).filter(function (m) {
+    if (m.groupId !== g.groupId || !m.active) return false;
+    if (scope === 'all') return true;
+    // still on a temporary password: the roster says so, or one of the accounts does, or there is no account/password yet
+    var accs = st.map(function (x) { return idx[x.storage + '|' + m.studentId]; }).filter(Boolean);
+    return isTrue_(m.mustChange) || !m.pwHash || !accs.length || accs.some(function (a) { return isTrue_(a.mustChange); });
+  }).slice(0, 1000);
+  var touched = {}, out = [];
+  members.forEach(function (m) {
+    var plain = shared || genTempPassword_(), pw = rosterPw_(plain, true);
+    var mr = dirPublic_(m); mr.pwSalt = pw.salt; mr.pwHash = pw.hash; mr.pwIter = pw.iter; mr.mustChange = true; mr.updatedAt = now;
+    updateRow_(DIR.MEMB, m._row, mr);
+    st.forEach(function (x) {
+      var a = idx[x.storage + '|' + m.studentId];
+      if (!a) { rosterNewAccount_(x.storage, m, pw, now); return; }
+      a.pwSalt = pw.salt; a.pwHash = pw.hash; a.pwIter = pw.iter; a.mustChange = true; a.failed = 0; a.lockedUntil = ''; a.updatedAt = now;
+      updateRow_(SHEETS.STUDENTS, a._row, a);
+      touched[x.storage + '|' + m.studentId] = 1;
+    });
+    out.push({ ok: true, studentId: m.studentId, name: m.name, tempPassword: shared ? '' : plain });
+  });
+  // end their sessions: one read of the sessions sheet, deleting from the bottom
+  var rows = readAll_(SHEETS.STU_SESSIONS), c = stuCache_();
+  for (var i = rows.length - 1; i >= 0; i--) {
+    var r = rows[i];
+    if (touched[r.module + '|' + r.username]) { c.remove('stok:' + r.tokenHash); deleteRow_(SHEETS.STU_SESSIONS, r._row); }
+  }
+  return { ok: true, scope: scope, shared: !!shared, count: out.length, results: out };
 }

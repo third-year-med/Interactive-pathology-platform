@@ -581,3 +581,31 @@ test('main page: a group student with the right password is told their group (on
   // a main-page account still signs in normally
   assert.ok(S.call({ module: 'portal', action: 'portalCheck', username: 's1', password: PW, modules: ['cellinjury'] }).ok);
 });
+
+test('bulk temporary passwords: only students still on a temporary password, or all; different or one shared; sessions end', function () {
+  const S = groupsSetup();
+  // ahmed (imported) already uses his own password; three new students get temporary ones
+  const add = S.dir('rosterAdd', { groupId: S.ra.groupId, students: [{ studentId: 'b1', name: 'Bulk One' }, { studentId: 'b2', name: 'Bulk Two' }, { studentId: 'b3', name: 'Bulk Three' }] });
+  assert.strictEqual(add.added, 3);
+  S.dir('rosterSetActive', { groupId: S.ra.groupId, studentId: 'b3', active: false });
+  const sesAhmed = login(S, 'cellinjury-razi-a-26', 'ahmed', PW).token;
+  assert.strictEqual(S.call({ module: 'portal', action: 'rosterResetMany', groupId: S.ra.groupId }).ok, false, 'Admin only');
+  // 1) only those still on a temporary password, each a different one
+  const r = S.dir('rosterResetMany', { groupId: S.ra.groupId, scope: 'temp' });
+  assert.ok(r.ok, JSON.stringify(r));
+  assert.deepStrictEqual(r.results.map(function (x) { return x.studentId; }).sort(), ['b1', 'b2'], 'not ahmed (own password), not b3 (inactive)');
+  assert.notStrictEqual(r.results[0].tempPassword, r.results[1].tempPassword);
+  r.results.forEach(function (x) { RA.forEach(function (st) { const a = login(S, st, x.studentId, x.tempPassword); assert.ok(a.ok && a.mustChange, st); }); });
+  assert.strictEqual(login(S, 'cellinjury-razi-a-26', 'b1', add.results[0].tempPassword).ok, false, 'old temporary password stopped');
+  assert.ok(login(S, 'cellinjury-razi-a-26', 'ahmed', PW).ok, 'ahmed untouched');
+  assert.strictEqual(S.call({ module: 'cellinjury-razi-a-26', action: 'studentSession', stoken: sesAhmed }).role, 'student', 'his session untouched');
+  // 2) all active students, one shared password typed by the Admin
+  assert.strictEqual(S.dir('rosterResetMany', { groupId: S.ra.groupId, scope: 'all', password: 'short' }).ok, false);
+  const all = S.dir('rosterResetMany', { groupId: S.ra.groupId, scope: 'all', password: 'Welcome-2026' });
+  assert.strictEqual(all.count, 3); assert.ok(all.shared); assert.ok(all.results.every(function (x) { return x.tempPassword === ''; }), 'the shared password is not sent back');
+  ['ahmed', 'b1', 'b2'].forEach(function (id) { assert.ok(S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: id, password: 'Welcome-2026' }).ok, id); });
+  assert.strictEqual(S.call({ module: 'cellinjury-razi-a-26', action: 'studentSession', stoken: sesAhmed }).ok, false, 'sessions ended');
+  assert.strictEqual(login(S, 'cellinjury-misrata-a-26', 'sara', PW).ok, true, 'the other university untouched');
+  // each must choose their own password at the next sign-in
+  assert.ok(S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: 'b1', password: 'Welcome-2026' }).modules.cellinjury.mustChange);
+});

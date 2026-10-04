@@ -167,3 +167,10 @@ details.dir[open]>summary::before{content:'▾'}
 .roster-btns .btn{padding:5px 9px;font-size:12.5px}
 code.pw{font-size:14px;font-weight:700;letter-spacing:.03em}
 .grp-pick{display:block;margin:8px 0;text-align:left}
+.roster-bulk{margin-top:14px;border:1px solid var(--line);border-radius:12px;padding:4px 14px 12px;background:#fbfcfd}
+.roster-bulk .opt{display:flex;flex-direction:column;gap:2px;margin:6px 0}
+.roster-bulk .chk{display:flex;align-items:center;flex-wrap:wrap;gap:6px;font-weight:500}
+.roster-bulk input[type=text]{flex:1 1 180px;min-width:0;max-width:260px;font:inherit;font-size:14px;padding:5px 8px;border:1px solid var(--line);border-radius:8px}
+.roster-bulk .chk{display:flex!important;flex-direction:row;align-items:center;margin:4px 0}
+.roster-bulk input[type=radio]{display:inline-block;width:auto;flex:0 0 auto;margin:0 4px 0 0}
+.roster-bulk input[type=text]{display:inline-block;width:auto;margin:0}

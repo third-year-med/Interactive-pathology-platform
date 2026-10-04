@@ -618,6 +618,7 @@
         });
       };
       box.appendChild(add);
+      if (r.members.length) box.appendChild(bulkReset(r));
       if (lastAdded) box.appendChild(addedPanel(lastAdded));
       // the list
       box.appendChild(h('<h3>Students in this group (' + r.members.length + ')</h3>'));
@@ -628,8 +629,11 @@
           mods.map(function (x) { var a = ACC[m.accounts[x.moduleId]] || ACC.missing; return '<td title="' + esc(a[1]) + '">' + esc(a[0]) + '</td>'; }).join('') +
           '<td><div class="roster-btns"><button class="btn" type="button" data-a="pw">Reset password</button><button class="btn" type="button" data-a="ed">Edit</button><button class="btn' + (m.active ? ' danger' : '') + '" type="button" data-a="act">' + (m.active ? 'Deactivate' : 'Activate') + '</button></div></td></tr>');
         $('[data-a=pw]', tr).onclick = function () {
-          if (!window.confirm('Give ' + m.studentId + ' a new temporary password for all of this group\'s modules? Their current password stops working.')) return;
-          rosterCall('rosterResetPassword', { studentId: m.studentId }).then(function (x) { if (!x.ok) return toast(x.error); lastAdded = [{ ok: true, studentId: m.studentId, name: m.name, tempPassword: x.tempPassword, reset: true }]; draw(); });
+          var typed = window.prompt('New temporary password for ' + m.studentId + ' (all of this group\'s modules).\nType one (at least 8 characters), or leave empty to generate one. Their current password stops working.', '');
+          if (typed == null) return;
+          typed = typed.trim();
+          if (typed && typed.length < 8) return toast('The password must be at least 8 characters.');
+          rosterCall('rosterResetPassword', { studentId: m.studentId, password: typed }).then(function (x) { if (!x.ok) return toast(x.error); lastAdded = [{ ok: true, studentId: m.studentId, name: m.name, tempPassword: x.tempPassword || typed, reset: true }]; draw(); });
         };
         $('[data-a=ed]', tr).onclick = function () {
           var n = window.prompt('Name of ' + m.studentId, m.name); if (n == null) return;
@@ -644,14 +648,54 @@
       });
       box.appendChild(tb);
     }
+    function rosterLink() { var g = byId('groups', 'groupId', rosterGroup); return g ? groupLink(g.linkCode) : ''; }
+    /** Temporary passwords for many students in one go. */
+    function bulkReset(r) {
+      var temp = r.members.filter(function (m) { return m.active && (m.needsPassword || Object.keys(m.accounts).some(function (k) { return m.accounts[k] === 'mustchange' || m.accounts[k] === 'missing'; })); }).length;
+      var all = r.members.filter(function (m) { return m.active; }).length;
+      var f = h('<form class="roster-bulk" novalidate><h3>Temporary passwords for many students</h3>' +
+        '<div class="opt"><label class="chk"><input type="radio" name="bs" value="temp" checked> Students who have not chosen their own password yet (<b>' + temp + '</b>)</label>' +
+        '<label class="chk"><input type="radio" name="bs" value="all"> All active students in this group (<b>' + all + '</b>) — their current passwords stop working</label></div>' +
+        '<div class="opt"><label class="chk"><input type="radio" name="bp" value="same" checked> The same password for all of them: <input type="text" data-k="shared" placeholder="at least 8 characters" autocomplete="off" spellcheck="false"></label>' +
+        '<label class="chk"><input type="radio" name="bp" value="each"> A different password for each student</label></div>' +
+        '<p class="small muted">Each student must choose their own password at the next sign-in. With one shared password, a student could open a classmate\'s account until that classmate has signed in once — so ask students to sign in and choose their own password soon.</p>' +
+        '<div class="dir-act"><button class="btn primary" type="submit">Create temporary passwords</button></div></form>');
+      var sharedInp = $('[data-k=shared]', f);
+      sharedInp.addEventListener('focus', function () { $('input[name=bp][value=same]', f).checked = true; });
+      f.onsubmit = function (e) {
+        e.preventDefault();
+        var scope = $('input[name=bs]:checked', f).value, same = $('input[name=bp]:checked', f).value === 'same', pw = same ? sharedInp.value.trim() : '';
+        var n = scope === 'all' ? all : temp;
+        if (!n) return toast('No student to reset.');
+        if (same && pw.length < 8) return toast('Type the shared password (at least 8 characters).');
+        if (!window.confirm('Create a new temporary password for ' + n + ' student(s)' + (same ? ' (the same for all)' : '') + '? Their current passwords stop working and they choose their own at the next sign-in.')) return;
+        var b = $('button[type=submit]', f); b.disabled = true; b.textContent = 'Working…';
+        rosterCall('rosterResetMany', { scope: scope, password: pw }).then(function (x) {
+          b.disabled = false; b.textContent = 'Create temporary passwords';
+          if (!x.ok) return toast(x.error);
+          lastAdded = x.results.map(function (y) { return Object.assign({}, y, { reset: true, tempPassword: y.tempPassword || pw }); });
+          toast(x.count + ' temporary password(s) created.'); draw();
+        });
+      };
+      return f;
+    }
     function addedPanel(results) {
       var ok = results.filter(function (x) { return x.ok; }), bad = results.filter(function (x) { return !x.ok; });
       var withPw = ok.filter(function (x) { return x.tempPassword; });
-      var p = h('<div class="note roster-res"><b>' + (ok.length && ok[0].reset ? 'New temporary password' : ok.length + ' student(s) added') + '</b>' +
+      var title = ok.length && ok[0].reset ? (ok.length > 1 ? 'New temporary passwords for ' + ok.length + ' students' : 'New temporary password') : ok.length + ' student(s) added';
+      var p = h('<div class="note roster-res"><b>' + esc(title) + '</b>' +
         (withPw.length ? '<p class="small">Give each student their temporary password <b>now</b> — it is shown only this once. They choose their own password at first sign-in.</p><div class="tbl-wrap"><table class="dir-tbl"><thead><tr><th>Student ID</th><th>Name</th><th>Temporary password</th></tr></thead><tbody>' +
-          withPw.map(function (x) { return '<tr><td><code>' + esc(x.studentId) + '</code></td><td>' + esc(x.name || '') + '</td><td><code class="pw">' + esc(x.tempPassword) + '</code></td></tr>'; }).join('') + '</tbody></table></div><button class="btn" type="button" data-a="cp">📋 Copy the list</button>' : '') +
+          withPw.map(function (x) { return '<tr><td><code>' + esc(x.studentId) + '</code></td><td>' + esc(x.name || '') + '</td><td><code class="pw">' + esc(x.tempPassword) + '</code></td></tr>'; }).join('') + '</tbody></table></div><div class="roster-tools"><button class="btn" type="button" data-a="cp">📋 Copy the list</button><button class="btn" type="button" data-a="dl">⬇ Download the list (CSV)</button></div>' : '') +
         ok.filter(function (x) { return x.updatedExisting && x.updatedExisting.length; }).map(function (x) { return '<p class="small">' + esc(x.studentId) + ' already had an account in ' + esc(x.updatedExisting.join(', ')) + ' — it now uses this password too.</p>'; }).join('') +
         (bad.length ? '<p class="small err">' + bad.map(function (x) { return esc(x.error); }).join('<br>') + '</p>' : '') + '</div>');
+      var dl = $('[data-a=dl]', p);
+      if (dl) dl.onclick = function () {
+        var q = function (v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+        var csv = '\ufeffStudent ID,Name,Temporary password,Group link\r\n' + withPw.map(function (x) { return [x.studentId, x.name || '', x.tempPassword, rosterLink()].map(q).join(','); }).join('\r\n');
+        var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+        a.download = 'temporary-passwords-' + (byId('groups', 'groupId', rosterGroup) || { linkCode: 'group' }).linkCode + '.csv';
+        document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+      };
       var cp = $('[data-a=cp]', p);
       if (cp) cp.onclick = function () { var t = withPw.map(function (x) { return x.studentId + '\t' + (x.name || '') + '\t' + x.tempPassword; }).join('\n'); var ta = h('<textarea style="position:absolute;left:-9999px"></textarea>'); ta.value = t; document.body.appendChild(ta); copyText(t, ta); setTimeout(function () { ta.remove(); }, 2000); };
       return p;
