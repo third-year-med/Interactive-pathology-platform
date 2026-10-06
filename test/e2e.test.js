@@ -984,4 +984,50 @@ test('Draft → Preview → Publish: Edit master draft opens the real module on 
   }
 });
 
+test('Step 9: Group local changes — hidden / local addition listed; "Show it again" and "Copy to master draft"', { skip: SKIP || (!fs.existsSync(REAL[0][2]) && 'module page not available') }, async function () {
+  const M = REAL[0];
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const tok = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: [{ module: M[0], group: 'tm-a' }] }).modules;
+  const G = M[0] + '-tm-a', gt = tok[G].token;
+  if (!main.call({ module: 'portal', action: 'contentStatus', token: t }).modules.filter(function (m) { return m.moduleId === M[0]; })[0].migrated) {
+    main.call({ module: M[0], action: 'upsert', token: main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: [M[0]] }).modules[M[0]].token, collection: 'customtopics', id: 'draft-test', data: { title: 'Published title', units: [] } });
+    assert.ok(main.call({ module: 'portal', action: 'contentMigrate', token: t, moduleId: M[0], decisions: {} }).ok);
+  }
+  assert.ok(main.call({ module: 'portal', action: 'contentSetMode', token: t, moduleId: M[0], mode: 'on' }).ok);
+  const has = function (id) { const it = main.call({ module: G, action: 'getAllContent', token: gt, since: 0 }).items.filter(function (i) { return i.id === id; })[0]; return !!(it && !it.deleted); };
+  try {
+    // the group's teacher hides a master topic and adds its own topic
+    assert.ok(main.call({ module: G, action: 'delete', token: gt, collection: 'customtopics', id: 'draft-test' }).ok);
+    assert.ok(main.call({ module: G, action: 'upsert', token: gt, collection: 'customtopics', id: 'loc-add', data: { title: 'Group A only', units: [] } }).ok);
+    assert.ok(!has('draft-test') && has('loc-add'));
+    const p = await realPage(M, []);
+    await p.goto(HOME + '#/teacher');
+    await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+    await p.waitForSelector('#t-dir details.dir'); await p.click('#t-dir summary');
+    await p.click('#t-dir .dir-tab[data-t=content]');
+    const card = '#t-dir .content-mod[data-module="' + M[0] + '"]';
+    await p.waitForSelector(card + ' [data-a=loc]');
+    await p.click(card + ' [data-a=loc]');
+    await p.waitForSelector(card + ' .loc-g');
+    const txt = await p.textContent(card + ' .report');
+    assert.match(txt, new RegExp(G)); assert.match(txt, /Hidden for this group[\s\S]*draft-test|draft-test[\s\S]*Hidden for this group/); assert.match(txt, /Local addition/);
+    if (process.env.SHOTS) await (await p.$(card)).screenshot({ path: path.join(process.env.SHOTS, 'content-local.png') });
+    // copy the group's addition into the master draft
+    await p.click(card + ' .loc-g tr:has-text("loc-add") button[data-op=pr]');
+    await p.waitForFunction(function () { return /Copied to the master draft/.test((document.querySelector('.toast') || {}).textContent || ''); });
+    assert.ok(main.call({ module: 'portal', action: 'contentDraft', token: t, moduleId: M[0] }).added.indexOf('customtopics|loc-add') >= 0);
+    // show the hidden master topic again
+    await p.waitForSelector(card + ' [data-a=loc]'); await p.click(card + ' [data-a=loc]');
+    await p.waitForSelector(card + ' .loc-g tr:has-text("draft-test") button[data-op=rm]');
+    assert.match(await p.textContent(card + ' .loc-g tr:has-text("draft-test") button[data-op=rm]'), /Show it again/);
+    await p.click(card + ' .loc-g tr:has-text("draft-test") button[data-op=rm]');
+    await p.waitForFunction(function () { return /gets the master version/.test((document.querySelector('.toast') || {}).textContent || ''); });
+    assert.ok(has('draft-test'), 'the group sees the master topic again');
+    await p.context().close();
+  } finally {
+    main.call({ module: 'portal', action: 'contentDiscardDraft', token: t, moduleId: M[0] });
+    main.call({ module: 'portal', action: 'contentSetMode', token: t, moduleId: M[0], mode: 'off' });
+  }
+});
+
 test('no JavaScript errors', { skip: SKIP }, function () { assert.deepStrictEqual(errors, []); });

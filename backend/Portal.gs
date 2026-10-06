@@ -95,6 +95,12 @@
  *   contentDiscardDraft    the draft goes back to the published version
  *   contentRestore    publishes a copy of an older version as a new version (history is never rewritten)
  *   contentFreeze     blocks / allows publishing
+ * Group local changes (2.1, Step 9 — Admin):
+ *   contentLocal      every group's local layer of a module, item by item: local addition / hidden for this group /
+ *                     changes a master item (masks future master updates of that item) / same as master
+ *   contentLocalRemove     removes one local item → that group gets the master version again
+ *   contentLocalPromote    copies one local item into the master DRAFT (published later like any draft change)
+ *   contentDraft also lists which groups changed or hid items that the draft changes or removes.
  *
  * Teacher = a valid teacher session of the "portal" module (Code.gs login/setup with module:"portal").
  * Admin   = the same account (the only platform teacher account until personal teacher accounts exist).
@@ -111,7 +117,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.0';
+var PORTAL_VERSION = '2.1';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -175,6 +181,9 @@ function portalHook_(module, p) {
     case 'contentDiscardDraft': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentDiscardDraft_(p); }); });
     case 'contentRestore': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentRestore_(p); }); });
     case 'contentFreeze': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentFreeze_(p); }); });
+    case 'contentLocal': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentLocal_(p); }); });
+    case 'contentLocalRemove': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentLocalRemove_(p); }); });
+    case 'contentLocalPromote': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentLocalPromote_(p); }); });
     case 'contentReport': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentReport_(p); }); });
     case 'portalEndModuleSessions': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return portalEndModuleSessions_(); }); });
     case 'teacherMe': return tAuthed_(p, function (u) { return teacherMe_(u); });
@@ -1394,7 +1403,13 @@ function contentDraftHook_(M, act, p) {
 }
 function contentDraft_(p) {
   var M = String(p.moduleId || ''); if (!getSetting_('content:pub:' + M)) return dirErr_('No master copy yet.');
-  var d = cvDiff_(M); return { ok: true, moduleId: M, added: d.added, changed: d.changed, removed: d.removed, count: d.count };
+  var rows = readAll_(SHEETS.CONTENT), d = cvDiff_(M, rows), touched = {}, affected = [];
+  d.changed.concat(d.removed).forEach(function (k) { touched[k] = 1; });
+  rows.forEach(function (r) {
+    var m = String(r.module || ''); if (!/@local$/.test(m) || cvBaseOf_(m.replace(/@local$/, '')) !== M || !cvKey_(r.collection)) return;
+    var k = r.collection + '|' + r.id; if (touched[k]) affected.push({ storage: m.replace(/@local$/, ''), item: k, hidden: isTrue_(r.deleted) });
+  });
+  return { ok: true, moduleId: M, added: d.added, changed: d.changed, removed: d.removed, count: d.count, affectedGroups: affected };
 }
 /** Writes version N from a map of rows, verifies it, then makes it current. Nothing changes for anyone if verification fails. */
 function cvPublishMap_(M, map, notes, label) {
@@ -1449,4 +1464,60 @@ function contentFreeze_(p) {
   var M = String(p.moduleId || ''); if (!dirFind_(DIR.MOD, 'moduleId', M)) return dirErr_('Choose a module.');
   setSetting_('content:freeze:' + M, p.frozen ? '1' : '');
   return { ok: true, frozen: !!p.frozen };
+}
+
+/* ======================================================================
+ * Step 9: group local changes — see them, remove them, promote them to the master draft.
+ * ====================================================================== */
+function cvLocalKind_(r, pub) {
+  var k = r.collection + '|' + r.id, m = pub[k];
+  if (isTrue_(r.deleted)) return m ? 'hidden' : 'removed-addition';
+  if (r.collection === 'hiddentopics') { var d = unpackJson_(r); return d && d.hidden ? 'hidden' : 'same'; }
+  if (!m) return 'addition';
+  return cvJson_(m) === cvJson_(r) ? 'same' : 'override';
+}
+function contentLocal_(p) {
+  var M = String(p.moduleId || ''), N = getSetting_('content:pub:' + M); if (!N) return dirErr_('No master copy yet.');
+  var rows = readAll_(SHEETS.CONTENT), pub = cvLive_(rows, M + '@v' + N), bm = {}, groups = [];
+  dirAll_(DIR.DELIV).forEach(function (d) { bm[d.backendModule] = d; });
+  var gname = {}; dirAll_(DIR.GROUP).forEach(function (g) { gname[g.groupId] = g; });
+  var inst = {}; dirAll_(DIR.INST).forEach(function (i) { inst[i.institutionId] = i; });
+  var by = {};
+  rows.forEach(function (r) {
+    var m = String(r.module || ''); if (!/@local$/.test(m) || !cvKey_(r.collection)) return;
+    var S = m.replace(/@local$/, ''); if (cvBaseOf_(S) !== M) return;
+    var kind = cvLocalKind_(r, pub); if (kind === 'removed-addition') return;
+    (by[S] = by[S] || []).push({ collection: r.collection, id: String(r.id), kind: kind, updatedAt: Number(r.updatedAt) || 0 });
+  });
+  Object.keys(by).sort().forEach(function (S) {
+    var d = bm[S], g = d && gname[d.groupId], i = g && inst[g.institutionId];
+    var label = S === M ? 'Main / normal link' : g ? (i ? (i.shortName || i.name) + ' · ' : '') + g.name + (g.academicYear ? ' (' + g.academicYear + ')' : '') : S;
+    var items = by[S].sort(function (a, b) { return a.kind.localeCompare(b.kind) || (a.collection + a.id).localeCompare(b.collection + b.id); });
+    var c = { addition: 0, hidden: 0, override: 0, same: 0 }; items.forEach(function (x) { c[x.kind]++; });
+    groups.push({ storage: S, label: label, counts: c, items: items });
+  });
+  return { ok: true, moduleId: M, publishedVersion: N, groups: groups };
+}
+function cvLocalRow_(S, coll, id) {
+  var rows = readAll_(SHEETS.CONTENT), L = S + '@local';
+  for (var i = 0; i < rows.length; i++) if (rows[i].module === L && rows[i].collection === coll && String(rows[i].id) === String(id)) return rows[i];
+  return null;
+}
+function contentLocalRemove_(p) {
+  var S = String(p.storage || ''), M = cvBaseOf_(S); if (S.indexOf('@') >= 0 || !getSetting_('content:pub:' + M)) return dirErr_('Unknown storage.');
+  var r = cvLocalRow_(S, String(p.collection || ''), String(p.id || '')); if (!r) return dirErr_('This local item no longer exists — reload.');
+  deleteRow_(SHEETS.CONTENT, r._row);
+  cvTouch_(M);   // browsers get a complete refresh, so the group sees the master version again
+  return { ok: true };
+}
+function contentLocalPromote_(p) {
+  var S = String(p.storage || ''), M = cvBaseOf_(S); if (S.indexOf('@') >= 0 || !getSetting_('content:pub:' + M)) return dirErr_('Unknown storage.');
+  var r = cvLocalRow_(S, String(p.collection || ''), String(p.id || '')); if (!r) return dirErr_('This local item no longer exists — reload.');
+  if (isTrue_(r.deleted)) return dirErr_('A hidden item cannot be copied to the master — remove it from the master draft instead (Edit master draft).');
+  var D = M + '@draft', ex = null, rows = readAll_(SHEETS.CONTENT), now = Date.now();
+  for (var i = 0; i < rows.length; i++) if (rows[i].module === D && rows[i].collection === r.collection && String(rows[i].id) === String(r.id)) { ex = rows[i]; break; }
+  var row = cvCopy_(r, D, now); row.updatedBy = 'promoted from ' + S;
+  if (ex) updateRow_(SHEETS.CONTENT, ex._row, row); else appendRow_(SHEETS.CONTENT, row);
+  if (p.removeLocal) { var again = cvLocalRow_(S, r.collection, r.id); if (again) deleteRow_(SHEETS.CONTENT, again._row); cvTouch_(M); }
+  return { ok: true };
 }

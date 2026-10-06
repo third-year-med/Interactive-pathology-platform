@@ -5,7 +5,7 @@ this repository on GitHub Pages. The front page starts with two modules: **Cell 
 **Inflammation & Healing** (both *Available*); more can be added later in the Teacher Dashboard.
 
 > **Updating from an earlier version?** Replace the contents of the `Portal` file in Apps Script with the new
-> [`backend/Portal.gs`](backend/Portal.gs) (version 2.0 — draft, publish, version history), save, and deploy
+> [`backend/Portal.gs`](backend/Portal.gs) (version 2.1 — draft, publish, version history, group local changes), save, and deploy
 > a **new version** (step 1.4). The Code.gs line from step 1.3 stays as it is.
 
 ## 1. Main backend (Cell Injury, Inflammation …)
@@ -160,6 +160,20 @@ Platform directory → **Content**, per module (do Cell Injury first, then Infla
 - **Version history** lists every version; **Restore** publishes a copy of an older version as a new version (nothing is
   deleted). **🔒 Freeze publishing** blocks publishing and restoring until unfrozen.
 - A rebuild of a module's packaged course on GitHub is not covered here (see the plan: separate procedure).
+
+**Group local changes (additions and hiding per group)** — while versioned content is on, a group's teacher who edits
+the module from that group's link changes **only that group**: new topics/questions are local additions, deleting or
+hiding a master topic hides it for that group only, and editing a master item gives that group its own version. The
+master copy is never modified by a group. Content tab → **Group local changes** lists, per group:
+- *Local addition* — only this group has it; it stays when you publish new master versions. **Copy to master draft**
+  puts it in the master draft (every group gets it after you publish); **Remove** deletes it for the group.
+- *Hidden for this group* — **Show it again** gives the group the master item back.
+- *⚠ Changes a master item* — the group sees its own version, so your later corrections of that item do not reach it.
+  **Use the master again** removes the group's version; **Copy to master draft** adopts it for everyone.
+- *Same as master* — redundant, safe to remove.
+
+**Changes in draft** and **⬆ Publish draft** warn when an item you changed or removed is changed or hidden locally by a
+group. Removing a local item reaches the group at its next sync.
 
 Records are never deleted (deactivate them instead). The directory uses its own sheets — Institutions, Groups, Modules,
 Deliveries, TeacherAssignments, ModuleContentRoles — created on first use; no existing sheet is changed.

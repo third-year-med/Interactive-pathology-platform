@@ -989,3 +989,44 @@ test('draft sessions: only the Admin\'s draft token writes the draft; normal tea
   S.dir('portalEndModuleSessions');
   assert.strictEqual(S.call({ module: 'cellinjury', action: 'upsert', token: dt, collection: 'topicsections', id: 'T8', data: {} }).ok, false);
 });
+
+/* ---------------- Step 9: group local changes ---------------- */
+test('local changes: listed by kind; draft warns about affected groups; remove → master again; promote → master draft', function () {
+  const S = contentSetup();
+  S.cdir('contentMigrate', { decisions: {} });   // Al-Razi keeps T2 (addition) and C1 (its own version) locally
+  S.cdir('contentSetMode', { mode: 'on' });
+  // inside Al-Razi's module: hide master item T1, hide a built-in topic, re-save an item identical to the master
+  assert.ok(S.call({ module: 'cellinjury-razi-a-26', action: 'delete', token: S.tRa, collection: 'topicsections', id: 'T1' }).ok);
+  S.up('cellinjury-razi-a-26', S.tRa, 'hiddentopics', 'packaged-topic-7', { hidden: true });
+  assert.strictEqual(S.call({ module: 'portal', action: 'contentLocal', ttoken: S.ahmed.tok, token: S.ahmed.tok, moduleId: 'cellinjury' }).ok, false, 'Admin only');
+  const L = S.cdir('contentLocal'); assert.ok(L.ok, JSON.stringify(L));
+  const ra = L.groups.filter(function (g) { return g.storage === 'cellinjury-razi-a-26'; })[0];
+  assert.match(ra.label, /Al-Razi · Group A \(2026-27\)/);
+  const kind = function (id) { return ra.items.filter(function (x) { return x.id === id; })[0].kind; };
+  assert.strictEqual(kind('T2'), 'addition'); assert.strictEqual(kind('C1'), 'override'); assert.strictEqual(kind('T1'), 'hidden'); assert.strictEqual(kind('packaged-topic-7'), 'hidden');
+  assert.deepStrictEqual(ra.counts, { addition: 1, hidden: 2, override: 1, same: 0 });
+  assert.ok(!('topicsections|T1' in S.view(S.get('cellinjury-razi-a-26', S.tRa))), 'hidden for Al-Razi');
+  assert.ok('topicsections|T1' in S.view(S.get('cellinjury-misrata-a-26', S.tMa)), 'not for Misrata');
+  // the draft changes C1 and T1 → Al-Razi is listed as affected
+  const dt = S.cdir('contentEditDraft').token;
+  S.up('cellinjury', dt, 'customtopics', 'C1', { title: 'Corrected main title' });
+  S.up('cellinjury', dt, 'topicsections', 'T1', { sections: ['A2'] });
+  const d = S.cdir('contentDraft');
+  assert.deepStrictEqual(d.affectedGroups.map(function (a) { return a.storage + ' ' + a.item + (a.hidden ? ' hidden' : ''); }).sort(),
+    ['cellinjury-razi-a-26 customtopics|C1', 'cellinjury-razi-a-26 topicsections|T1 hidden']);
+  // "use the master again" for C1 → Al-Razi gets the master version (at its next sync: full refresh)
+  const before = S.get('cellinjury-razi-a-26', S.tRa).serverTime; pause();
+  assert.ok(S.dir('contentLocalRemove', { storage: 'cellinjury-razi-a-26', collection: 'customtopics', id: 'C1' }).ok);
+  pause();
+  assert.deepStrictEqual(S.view({ items: S.get('cellinjury-razi-a-26', S.tRa, before).items })['customtopics|C1'], { title: 'Main title' });
+  // promote Al-Razi's T2 into the master draft (and drop the local copy) → after publishing every group has it
+  assert.ok(S.dir('contentLocalPromote', { storage: 'cellinjury-razi-a-26', collection: 'topicsections', id: 'T2', removeLocal: true }).ok);
+  assert.ok(S.cdir('contentDraft').added.indexOf('topicsections|T2') >= 0);
+  assert.strictEqual(S.dir('contentLocalPromote', { storage: 'cellinjury-razi-a-26', collection: 'topicsections', id: 'T1' }).ok, false, 'a hidden item cannot be promoted');
+  assert.ok(S.cdir('contentPublish', { notes: 'with Al-Razi T2' }).ok);
+  assert.deepStrictEqual(S.view(S.get('cellinjury-misrata-a-26', S.tMa))['topicsections|T2'], { sections: ['razi local'] });
+  const ra2 = S.view(S.get('cellinjury-razi-a-26', S.tRa));
+  assert.deepStrictEqual(ra2['topicsections|T2'], { sections: ['razi local'] }); assert.deepStrictEqual(ra2['customtopics|C1'], { title: 'Corrected main title' }, 'Al-Razi now receives master corrections of C1');
+  assert.ok(!('topicsections|T1' in ra2), 'T1 is still hidden for Al-Razi (its choice) even after the master update');
+  assert.strictEqual(S.dir('contentLocalRemove', { storage: 'cellinjury@v1', collection: 'x', id: 'y' }).ok, false, 'internal storages refused');
+});

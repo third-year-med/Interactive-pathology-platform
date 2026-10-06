@@ -937,6 +937,7 @@
               '<button class="btn primary" type="button" data-a="pub"' + (m.draftChanges && !m.frozen ? '' : ' disabled') + '>⬆ Publish draft</button>' +
               '<button class="btn" type="button" data-a="disc"' + (m.draftChanges ? '' : ' disabled') + '>Discard draft</button>' +
               '<button class="btn" type="button" data-a="hist">Version history</button>' +
+              '<button class="btn" type="button" data-a="loc">Group local changes</button>' +
               '<button class="btn" type="button" data-a="frz">' + (m.frozen ? '🔓 Unfreeze publishing' : '🔒 Freeze publishing') + '</button>' +
               (m.mode === 'on' ? '<button class="btn danger" type="button" data-a="off">Switch OFF (back to before)</button>'
               : '<button class="btn primary" type="button" data-a="on">Switch versioned content ON</button>' + ((m.versionList || []).length <= 1 ? '<button class="btn" type="button" data-a="undo">Undo migration</button>' : ''))
@@ -955,8 +956,10 @@
           act('[data-a=disc]', 'contentDiscardDraft', {}, 'Throw away all changes in the draft of ' + m.title + '? The draft goes back to the published version ' + (m.publishedVersion || '') + '.', function () { return 'Draft discarded.'; });
           act('[data-a=frz]', 'contentFreeze', { frozen: !m.frozen }, null, function (x) { return x.frozen ? 'Publishing is frozen for ' + m.title + '.' : 'Publishing is allowed again.'; });
           var bPub = $('[data-a=pub]', card);
-          if (bPub) bPub.onclick = function () {
-            var notes = window.prompt('Publish the draft of ' + m.title + ' as a new version for every group.\nWhat changed? (shown in the version history — optional)', ''); if (notes == null) return;
+          if (bPub) bPub.onclick = async function () {
+            var dr = await dirCall('contentDraft', { moduleId: m.moduleId }), aff = (dr && dr.affectedGroups) || [];
+            var warn = aff.length ? '\n\nNote: ' + aff.length + ' item(s) you changed or removed are changed or hidden locally by a group, so that group will NOT see your update of those items (see “Group local changes”):\n' + aff.slice(0, 8).map(function (a) { return '• ' + a.storage + ': ' + a.item + (a.hidden ? ' (hidden)' : ''); }).join('\n') : '';
+            var notes = window.prompt('Publish the draft of ' + m.title + ' as a new version for every group.' + warn + '\n\nWhat changed? (shown in the version history — optional)', ''); if (notes == null) return;
             bPub.disabled = true;
             dirCall('contentPublish', { moduleId: m.moduleId, notes: notes }).then(function (x) { bPub.disabled = false; if (!x.ok) return toast(x.error); toast('Version ' + x.label + ' published (' + x.added + ' added, ' + x.changed + ' changed, ' + x.removed + ' removed). Every group receives it at its next sync.'); draw(); });
           };
@@ -967,7 +970,36 @@
               if (!x.ok) { out.innerHTML = '<p class="err">' + esc(x.error) + '</p>'; return; }
               var li = function (arr, label) { return arr.length ? '<li><b>' + label + ' (' + arr.length + '):</b> ' + arr.map(function (k) { return '<code>' + esc(k.replace('|', ' · ')) + '</code>'; }).join(' ') + '</li>' : ''; };
               out.innerHTML = '<div class="note roster-res"><b>Changes in the draft compared with the published version ' + esc(m.publishedVersion) + '</b>' +
-                (x.count ? '<ul class="small">' + li(x.added, 'Added') + li(x.changed, 'Changed') + li(x.removed, 'Removed') + '</ul>' : '<p class="small">No changes — the draft is the same as the published version.</p>') + '</div>';
+                (x.count ? '<ul class="small">' + li(x.added, 'Added') + li(x.changed, 'Changed') + li(x.removed, 'Removed') + '</ul>' : '<p class="small">No changes — the draft is the same as the published version.</p>') +
+                ((x.affectedGroups || []).length ? '<p class="small warn-t"><b>Note:</b> these groups changed or hid some of these items locally, so they will not see your update of them until their local item is removed (“Group local changes” → “Use the master again”): ' + x.affectedGroups.map(function (a) { return '<code>' + esc(a.storage) + '</code> ' + esc(a.item.replace('|', ' · ')) + (a.hidden ? ' (hidden)' : ''); }).join(', ') + '</p>' : '') + '</div>';
+            });
+          };
+          var bLoc = $('[data-a=loc]', card);
+          if (bLoc) bLoc.onclick = function () {
+            var out = $('.report', card); out.innerHTML = '<p class="muted small">Loading…</p>';
+            dirCall('contentLocal', { moduleId: m.moduleId }).then(function (x) {
+              if (!x.ok) { out.innerHTML = '<p class="err">' + esc(x.code === 'badaction' ? 'Update Portal.gs on the backend (version 2.1).' : x.error) + '</p>'; return; }
+              var KIND = { addition: ['Local addition', 'Only this group has it; it stays when the master is updated.'], hidden: ['Hidden for this group', 'This group does not see this master item or topic.'],
+                override: ['⚠ Changes a master item', 'This group sees its own version — your future corrections of this item will not reach this group.'], same: ['Same as master', 'Redundant — can be removed safely.'] };
+              var w = h('<div class="note roster-res"><b>Group local changes (on top of the published master v' + esc(m.publishedVersion) + ')</b>' +
+                (x.groups.length ? '' : '<p class="small">No group has local changes — every group sees exactly the master copy.</p>') + '</div>');
+              x.groups.forEach(function (g) {
+                var sec = h('<div class="loc-g"><p class="small"><b>' + esc(g.label) + '</b> <code>' + esc(g.storage) + '</code> — ' + g.counts.addition + ' addition(s), ' + g.counts.hidden + ' hidden, ' + g.counts.override + ' changed master item(s)' + (g.counts.same ? ', ' + g.counts.same + ' same as master' : '') + '</p>' +
+                  '<div class="tbl-wrap"><table class="dir-tbl"><thead><tr><th>Kind</th><th>Item</th><th>Last change</th><th></th></tr></thead><tbody>' +
+                  g.items.map(function (it, i) { var k = KIND[it.kind] || [it.kind, '']; return '<tr><td title="' + esc(k[1]) + '">' + esc(k[0]) + '</td><td>' + esc(it.collection) + ' · <code>' + esc(it.id) + '</code></td><td>' + esc(fmtDay(it.updatedAt)) + '</td><td class="roster-btns">' +
+                    '<button class="btn" type="button" data-i="' + i + '" data-op="rm">' + (it.kind === 'hidden' ? 'Show it again' : it.kind === 'addition' ? 'Remove' : 'Use the master again') + '</button>' +
+                    (it.kind === 'addition' || it.kind === 'override' ? '<button class="btn" type="button" data-i="' + i + '" data-op="pr">Copy to master draft</button>' : '') + '</td></tr>'; }).join('') + '</tbody></table></div></div>');
+                $$('button[data-op]', sec).forEach(function (b) {
+                  b.onclick = function () {
+                    var it = g.items[Number(b.dataset.i)], rm = b.dataset.op === 'rm';
+                    if (!window.confirm(rm ? 'Remove this local item for ' + g.label + '? That group then gets the master version (or no longer has an item only it had).' : 'Copy this item from ' + g.label + ' into the master DRAFT? Every group receives it when you publish the draft.')) return;
+                    b.disabled = true;
+                    dirCall(rm ? 'contentLocalRemove' : 'contentLocalPromote', { storage: g.storage, collection: it.collection, id: it.id }).then(function (r) { b.disabled = false; if (!r.ok) return toast(r.error); toast(rm ? 'Done — the group gets the master version at its next sync.' : 'Copied to the master draft — publish the draft to deliver it.'); draw(); });
+                  };
+                });
+                w.appendChild(sec);
+              });
+              out.innerHTML = ''; out.appendChild(w);
             });
           };
           var bHist = $('[data-a=hist]', card);
