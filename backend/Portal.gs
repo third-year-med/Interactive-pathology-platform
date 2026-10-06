@@ -34,6 +34,8 @@
  *   Sheets (created on first use; no existing sheet is touched): Institutions, Groups, Modules, Deliveries,
  *   TeacherAssignments, ModuleContentRoles (the last two are prepared for later steps and stay empty for now).
  *
+ * Group local changes (2.4): contentLocalItem — READ-ONLY preview of one group's local item (+ the master's version).
+ *
  * Packaged releases (2.3 — a rebuilt module goes live without losing edits; see docs/REBUILD.md):
  *   (module) studentSession {preview:1}  the preview file (…/preview/) asks for its key: given ONLY to the Admin's
  *                     master-draft session (derived from the module's content key; students never receive it)
@@ -131,7 +133,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.3';
+var PORTAL_VERSION = '2.4';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -198,6 +200,7 @@ function portalHook_(module, p) {
     case 'contentRestore': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentRestore_(p); }); });
     case 'contentFreeze': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentFreeze_(p); }); });
     case 'contentLocal': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentLocal_(p); }); });
+    case 'contentLocalItem': return authed_(PORTAL_MODULE, p, function () { return contentLocalItem_(p); });
     case 'contentLocalRemove': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentLocalRemove_(p); }); });
     case 'contentLocalPromote': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentLocalPromote_(p); }); });
     case 'contentRebuildCheck': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentRebuildCheck_(p); }); });
@@ -1530,6 +1533,16 @@ function cvLocalRow_(S, coll, id) {
   var rows = readAll_(SHEETS.CONTENT), L = S + '@local';
   for (var i = 0; i < rows.length; i++) if (rows[i].module === L && rows[i].collection === coll && String(rows[i].id) === String(id)) return rows[i];
   return null;
+}
+/** READ-ONLY (2.4): one local item of a group as it is now, and the published master's version of the same item. */
+function contentLocalItem_(p) {
+  var S = String(p.storage || ''), M = cvBaseOf_(S), coll = String(p.collection || ''), id = String(p.id || '');
+  if (S.indexOf('@') >= 0 || !getSetting_('content:pub:' + M)) return dirErr_('Unknown storage.');
+  if (!cvKey_(coll)) return dirErr_('Not an educational item.');
+  var r = cvLocalRow_(S, coll, id); if (!r) return dirErr_('This local item no longer exists.');
+  var V = M + '@v' + getSetting_('content:pub:' + M), mr = findContentRow_(V, coll, id);
+  return { ok: true, storage: S, collection: coll, id: id, deleted: isTrue_(r.deleted), updatedAt: Number(r.updatedAt) || 0, updatedBy: String(r.updatedBy || ''),
+    data: isTrue_(r.deleted) ? null : unpackJson_(r), master: mr && !isTrue_(mr.deleted) ? unpackJson_(mr) : null };
 }
 function contentLocalRemove_(p) {
   var S = String(p.storage || ''), M = cvBaseOf_(S); if (S.indexOf('@') >= 0 || !getSetting_('content:pub:' + M)) return dirErr_('Unknown storage.');

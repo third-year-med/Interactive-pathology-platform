@@ -1005,6 +1005,11 @@ test('Step 9: Group local changes — hidden / local addition listed; "Show it a
     assert.ok(main.call({ module: G, action: 'delete', token: gt, collection: 'customtopics', id: 'draft-test' }).ok);
     assert.ok(main.call({ module: G, action: 'upsert', token: gt, collection: 'customtopics', id: 'loc-add', data: { title: 'Group A only', units: [] } }).ok);
     assert.ok(!has('draft-test') && has('loc-add'));
+    const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    assert.ok(main.call({ module: G, action: 'upsert', token: gt, collection: 'custommedia', id: 's0202', data: { items: [{ id: 'm1', type: 'image', url: PNG, caption: 'Hypertrophied heart, gross', credit: 'Dept. collection' }, { id: 'm2', type: 'video', url: 'https://www.youtube.com/watch?v=abc', caption: 'Hypertrophy lecture' }] } }).ok);
+    assert.ok(main.call({ module: G, action: 'upsert', token: gt, collection: 'practicalpub', id: 'prac_e2e1', data: { id: 'prac_e2e1', number: 3, title: 'Myocardial hypertrophy', version: 1, objectives: ['Recognise LVH'], specimen: { organ: 'Heart' },
+      gross: 'Thick left ventricular wall.', microscopic: 'Enlarged myocytes with boxcar nuclei.', keyFeatures: ['Boxcar nuclei'], diagnosis: 'Left ventricular hypertrophy', teachingPoints: [], images: [{ id: 'i1', url: PNG, caption: 'Low power', stain: 'H&E' }], diagrams: [], questions: [{ q: 'What causes LVH?', a: 'Pressure overload' }], viva: [], resources: [] } }).ok);
+    const sheetsBefore = JSON.stringify(main.sheets.Content._rows);
     const p = await realPage(M, []);
     await p.goto(HOME + '#/teacher');
     await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
@@ -1017,6 +1022,22 @@ test('Step 9: Group local changes — hidden / local addition listed; "Show it a
     const txt = await p.textContent(card + ' .report');
     assert.match(txt, new RegExp(G)); assert.match(txt, /Hidden for this group[\s\S]*draft-test|draft-test[\s\S]*Hidden for this group/); assert.match(txt, /Local addition/);
     if (process.env.SHOTS) await (await p.$(card)).screenshot({ path: path.join(process.env.SHOTS, 'content-local.png') });
+    // 👁 Preview: the media with its picture and captions, and the practical's text — nothing is copied or published
+    await p.click(card + ' .loc-g tr:has-text("s0202") button[data-pv]');
+    await p.waitForSelector(card + ' .pv-row .pv-fig img');
+    let pv = await p.textContent(card + ' .pv-row');
+    assert.match(pv, /Media added to a Learn section[\s\S]*Topic 2, section 2[\s\S]*Not in the master — only this group has it[\s\S]*Hypertrophied heart, gross[\s\S]*Dept\. collection[\s\S]*Video: Hypertrophy lecture/);
+    assert.ok(await p.$eval(card + ' .pv-row .pv-fig img', function (i) { return i.complete && i.naturalWidth > 0; }), 'the picture is shown');
+    await p.click(card + ' .loc-g tr:has-text("prac_e2e1") button[data-pv]');
+    await p.waitForFunction(function (c) { return /Myocardial hypertrophy/.test(document.querySelector(c).textContent); }, card + ' .loc-g');
+    pv = await p.textContent(card + ' .loc-g tr:has-text("prac_e2e1") + tr.pv-row');
+    assert.match(pv, /Practical 3 — Myocardial hypertrophy[\s\S]*Recognise LVH[\s\S]*Heart[\s\S]*Thick left ventricular wall[\s\S]*boxcar nuclei[\s\S]*Left ventricular hypertrophy[\s\S]*Low power · H&E[\s\S]*What causes LVH\?[\s\S]*Pressure overload/);
+    await p.click(card + ' .loc-g tr:has-text("draft-test") button[data-pv]');
+    await p.waitForFunction(function (c) { return /hidden\/removed for this group/.test(document.querySelector(c).textContent); }, card + ' .loc-g');
+    if (process.env.SHOTS) await (await p.$(card + ' .report')).screenshot({ path: path.join(process.env.SHOTS, 'content-local-preview.png') });
+    await p.click(card + ' .loc-g tr:has-text("s0202") button[data-pv]');   // closes again
+    assert.strictEqual(await p.$(card + ' .loc-g tr:has-text("s0202") + tr.pv-row'), null);
+    assert.strictEqual(JSON.stringify(main.sheets.Content._rows), sheetsBefore, 'previewing changes nothing');
     // copy the group's addition into the master draft
     await p.click(card + ' .loc-g tr:has-text("loc-add") button[data-op=pr]');
     await p.waitForFunction(function () { return /Copied to the master draft/.test((document.querySelector('.toast') || {}).textContent || ''); });

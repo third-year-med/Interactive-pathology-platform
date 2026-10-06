@@ -1143,3 +1143,19 @@ test('new build: preview key only for the Admin draft session; manifests; compat
   assert.strictEqual(stat.builds.live.build, 'b2'); assert.strictEqual(stat.builds.preview, null); assert.strictEqual(stat.versionList[0].build, 'b2');
   assert.strictEqual(S.cdir('contentRebuildCheck').code, 'nopreview', 'the preview is consumed');
 });
+
+test('local changes: Preview of one local item is read-only, Admin only, and includes the master version', function () {
+  const S = contentSetup();
+  S.cdir('contentMigrate', { decisions: {} }); S.cdir('contentSetMode', { mode: 'on' });
+  S.up('cellinjury-razi-a-26', S.tRa, 'custommedia', 's0202', { items: [{ id: 'm1', type: 'image', url: 'https://drive.google.com/thumbnail?id=X&sz=w2000', caption: 'LVH gross' }] });
+  const before = JSON.stringify(Object.keys(S.b.sheets).sort().map(function (n) { return [n, S.b.sheets[n]._rows]; }));
+  const a = S.dir('contentLocalItem', { storage: 'cellinjury-razi-a-26', collection: 'custommedia', id: 's0202' }); assert.ok(a.ok, JSON.stringify(a));
+  assert.deepStrictEqual(a.data.items[0].caption, 'LVH gross'); assert.strictEqual(a.master, null); assert.strictEqual(a.deleted, false);
+  const c = S.dir('contentLocalItem', { storage: 'cellinjury-razi-a-26', collection: 'customtopics', id: 'C1' });
+  assert.deepStrictEqual([c.data, c.master], [{ title: 'Razi title' }, { title: 'Main title' }], 'its own version next to the master version');
+  assert.strictEqual(S.dir('contentLocalItem', { storage: 'cellinjury-razi-a-26', collection: 'custommedia', id: 'nope' }).ok, false);
+  assert.strictEqual(S.dir('contentLocalItem', { storage: 'cellinjury@draft', collection: 'custommedia', id: 's0202' }).ok, false, 'internal storages refused');
+  assert.strictEqual(S.dir('contentLocalItem', { storage: 'cellinjury-razi-a-26', collection: 'assessments', id: 'AS9' }).ok, false, 'only educational items');
+  assert.strictEqual(S.call({ module: 'portal', action: 'contentLocalItem', token: S.ahmed.tok, storage: 'cellinjury-razi-a-26', collection: 'custommedia', id: 's0202' }).ok, false, 'Admin only');
+  assert.strictEqual(JSON.stringify(Object.keys(S.b.sheets).sort().map(function (n) { return [n, S.b.sheets[n]._rows]; })), before, 'nothing changed');
+});

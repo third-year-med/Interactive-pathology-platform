@@ -5,7 +5,7 @@ this repository on GitHub Pages. The front page starts with two modules: **Cell 
 **Inflammation & Healing** (both *Available*); more can be added later in the Teacher Dashboard.
 
 > **Updating from an earlier version?** Replace the contents of the `Portal` file in Apps Script with the new
-> [`backend/Portal.gs`](backend/Portal.gs) (version 2.3 — draft, publish, version history, group local changes, results & attendance overviews, new builds), save, and deploy
+> [`backend/Portal.gs`](backend/Portal.gs) (version 2.4 — draft, publish, version history, group local changes with preview, results & attendance overviews, new builds), save, and deploy
 > a **new version** (step 1.4). The Code.gs line from step 1.3 stays as it is.
 
 ## 1. Main backend (Cell Injury, Inflammation …)
@@ -173,6 +173,9 @@ master copy is never modified by a group. Content tab → **Group local changes*
 - *⚠ Changes a master item* — the group sees its own version, so your later corrections of that item do not reach it.
   **Use the master again** removes the group's version; **Copy to master draft** adopts it for everyone.
 - *Same as master* — redundant, safe to remove.
+- **👁 Preview** on every row shows the item's content right there — pictures with their captions and credits, videos and
+  links, a practical's full text, pictures and questions — and, for an item that changes or hides a master item, the
+  master version next to it. Preview only reads: nothing is copied or published.
 
 **Changes in draft** and **⬆ Publish draft** warn when an item you changed or removed is changed or hidden locally by a
 group. Removing a local item reaches the group at its next sync.

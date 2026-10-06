@@ -589,6 +589,69 @@
   }
   function dirCall(action, o) { return post(CFG.backendUrl, Object.assign({ module: 'portal', action: action, token: tsess() }, o || {})); }
   function fmtDay(t) { if (!t) return ''; var d = new Date(Number(t)); return isNaN(d) ? '' : d.toISOString().slice(0, 10); }
+  /* ---------------- Group local changes: read-only preview of one item ---------------- */
+  var PV_COLL = { custommedia: 'Media added to a Learn section', practicalpub: 'Published practical (what students see)', practical: 'Practical (teacher’s working copy)',
+    customtopics: 'Topic', topicsections: 'Sections of a topic', contentedits: 'Correction of a course item', importedquestions: 'Imported question',
+    hiddentopics: 'Hidden topic', courseorder: 'Topic order', presentationdeck: 'Presentation', quizextra: 'Extra quiz questions', revexclude: 'Questions left out of Revision' };
+  function pvText(v) { return '<div class="pv-txt">' + esc(String(v)) + '</div>'; }
+  function pvImg(im) {
+    im = im || {};
+    var u = String(im.url || im.src || ''), cap = [im.caption, im.annotation, im.stain, im.magnification].filter(Boolean).map(String).join(' · '), cred = im.credit ? '<div class="small muted">' + esc(im.credit) + '</div>' : '';
+    if (/^fig:/.test(u)) return '<div class="pv-fig pv-note">Built-in course figure <code>' + esc(u.slice(4)) + '</code>' + (cap ? ' — ' + esc(cap) : '') + '</div>';
+    if (/^pimg:/.test(u)) return '<div class="pv-fig pv-warn">⚠ This picture is stored only in the browser of the teacher who added it, so it cannot be shown here and would not reach other groups.' + (cap ? ' Caption: ' + esc(cap) : '') + '</div>';
+    if (!/^(https:|data:image\/)/.test(u)) return '<div class="pv-fig pv-note">Picture without a usable address' + (cap ? ' — ' + esc(cap) : '') + '</div>';
+    return '<figure class="pv-fig"><a href="' + esc(u) + '" target="_blank" rel="noopener noreferrer"><img src="' + esc(u) + '" alt="' + esc(im.caption || 'picture') + '" loading="lazy" referrerpolicy="no-referrer"></a>' +
+      (cap ? '<figcaption>' + esc(cap) + '</figcaption>' : '') + cred + '</figure>';
+  }
+  function pvMedia(m) {
+    var t = m.type || (m.url && /youtu|vimeo|\.mp4/i.test(m.url) ? 'video' : 'image');
+    if (t === 'image') return pvImg(m);
+    var u = String(m.url || ''), safe = /^https:/.test(u);
+    return '<div class="pv-fig pv-note">' + (t === 'video' ? '🎬 Video' : '🔗 Link') + ': ' + (safe ? '<a href="' + esc(u) + '" target="_blank" rel="noopener noreferrer">' + esc(m.caption || m.title || u) + '</a>' : esc(m.caption || u)) +
+      (m.caption && safe ? '<div class="small muted">' + esc(u) + '</div>' : '') + (m.credit ? '<div class="small muted">' + esc(m.credit) + '</div>' : '') + '</div>';
+  }
+  function pvList(arr, f) { arr = (arr || []).filter(function (x) { return x != null && x !== ''; }); return arr.length ? '<ul class="pv-ul">' + arr.map(function (x) { return '<li>' + f(x) + '</li>'; }).join('') + '</ul>' : ''; }
+  function pvField(label, v) { return v == null || v === '' || (Array.isArray(v) && !v.length) ? '' : '<div class="pv-f"><b>' + esc(label) + '</b>' + (Array.isArray(v) ? pvList(v, function (x) { return esc(typeof x === 'string' ? x : JSON.stringify(x)); }) : pvText(v)) + '</div>'; }
+  /** Any other shape: labelled fields; pictures are shown, long text stays text. */
+  function pvAny(v, depth) {
+    depth = depth || 0;
+    if (v == null) return '';
+    if (typeof v !== 'object') return pvText(v);
+    if (Array.isArray(v)) return '<ul class="pv-ul">' + v.slice(0, 200).map(function (x) { return '<li>' + (x && typeof x === 'object' && (x.url || x.src) && /^(image|)$/.test(x.type || '') ? pvImg(x) : pvAny(x, depth + 1)) + '</li>'; }).join('') + '</ul>';
+    if (depth > 5) return pvText(JSON.stringify(v));
+    return Object.keys(v).filter(function (k) { return !/^(id|updatedAt|addedAt|hash|publishedHash)$/.test(k) && v[k] !== '' && v[k] != null && !(Array.isArray(v[k]) && !v[k].length); })
+      .map(function (k) { return '<div class="pv-f"><b>' + esc(k) + '</b>' + pvAny(v[k], depth + 1) + '</div>'; }).join('');
+  }
+  function pvPractical(d) {
+    var sp = d.specimen || {};
+    return '<h4>' + esc((d.number ? 'Practical ' + d.number + ' — ' : '') + (d.title || '')) + '</h4>' + (d.version ? '<p class="small muted">Published version ' + esc(d.version) + (d.publishedAt ? ' · ' + esc(fmtDay(d.publishedAt)) : '') + '</p>' : '') +
+      pvField('Objectives', d.objectives) +
+      pvField('Specimen', [sp.organ, sp.tissue, sp.type, sp.site, sp.condition].filter(Boolean).join(' · ') + (sp.text ? '\n' + sp.text : '')) +
+      pvField('Gross', d.gross) + pvField('Microscopic', d.microscopic) + pvField('Key features', d.keyFeatures) + pvField('Diagnosis', d.diagnosis) +
+      pvField('Differential diagnosis', d.differential) + pvField('Clinical correlation', d.clinical) + pvField('Stain', d.stain) + pvField('Magnification', d.magnification) + pvField('Teaching points', d.teachingPoints) +
+      ((d.images || []).length ? '<div class="pv-f"><b>Pictures (' + d.images.length + ')</b><div class="pv-gal">' + d.images.map(pvImg).join('') + '</div></div>' : '') +
+      ((d.diagrams || []).length ? '<div class="pv-f"><b>Diagrams</b>' + pvList(d.diagrams, function (x) { return esc(x.title || x.kind || 'Diagram') + (x.caption ? ' — ' + esc(x.caption) : '') + (x.replaceUrl ? pvImg({ url: x.replaceUrl, caption: x.title }) : ' <span class="small muted">(drawn by the module)</span>'); }) + '</div>' : '') +
+      ((d.questions || []).length ? '<div class="pv-f"><b>Questions</b>' + pvList(d.questions, function (q) { return esc(q.q || '') + (q.a ? '<div class="small muted">Answer: ' + esc(q.a) + '</div>' : ''); }) + '</div>' : '') +
+      ((d.viva || []).length ? '<div class="pv-f"><b>Viva</b>' + pvList(d.viva, function (q) { return esc(q.q || '') + (q.a ? '<div class="small muted">Answer: ' + esc(q.a) + '</div>' : ''); }) + '</div>' : '') +
+      ((d.resources || []).length ? '<div class="pv-f"><b>Resources</b>' + pvList(d.resources, function (r) { return /^https:/.test(r.url || '') ? '<a href="' + esc(r.url) + '" target="_blank" rel="noopener noreferrer">' + esc(r.title || r.url) + '</a>' : esc(r.title || r.url || ''); }) + '</div>' : '');
+  }
+  function pvBody(coll, d) {
+    if (d == null) return '<p class="small muted">—</p>';
+    if (coll === 'custommedia') { var items = d.items || []; return items.length ? '<div class="pv-gal">' + items.map(pvMedia).join('') + '</div>' : '<p class="small muted">No media (the list is empty).</p>'; }
+    if (coll === 'practicalpub' || coll === 'practical') return pvPractical(d);
+    if (coll === 'topicsections') return pvList(d.sections, function (sc) { return typeof sc === 'object' ? '<b>' + esc(sc.heading || sc.id || '') + '</b>' + (sc.body ? pvText(sc.body) : '') : esc(sc); }) || '<p class="small muted">No sections.</p>';
+    if (coll === 'hiddentopics') return '<p>This topic is hidden for the group.</p>';
+    return pvAny(d);
+  }
+  function previewItem(x, groupLabel) {
+    var sm = /^s(\d{2})(\d{2})$/.exec(x.id), where = x.collection === 'custommedia' ? ' — Learn section <code>' + esc(x.id) + '</code>' + (sm ? ' (Topic ' + Number(sm[1]) + ', section ' + Number(sm[2]) + ')' : '') : '';
+    var same = x.master && JSON.stringify(x.master) === JSON.stringify(x.data);
+    return '<div class="pv-head"><b>' + esc(PV_COLL[x.collection] || x.collection) + '</b>' + where + ' <span class="small muted">· ' + esc(groupLabel) + ' · last change ' + esc(fmtDay(x.updatedAt)) + '</span></div>' +
+      '<p class="small muted">Preview only — nothing is copied or published.</p>' +
+      (x.deleted ? '<p>This item is <b>hidden/removed for this group</b>. The master version (what the other groups see):</p>' + pvBody(x.collection, x.master)
+      : x.master && !same ? '<div class="pv-cmp"><div><p class="pv-lab">This group’s version</p>' + pvBody(x.collection, x.data) + '</div><div><p class="pv-lab">Master version (published)</p>' + pvBody(x.collection, x.master) + '</div></div>'
+      : (same ? '<p class="small">Same as the master.</p>' : '<p class="small">Not in the master — only this group has it.</p>') + pvBody(x.collection, x.data));
+  }
   /* ---------------- Results & attendance overviews (Step 10, read-only) ---------------- */
   function reportView(host, call) {
     var pct = function (v) { return v == null ? '—' : v + '%'; };
@@ -1136,8 +1199,22 @@
                 var sec = h('<div class="loc-g"><p class="small"><b>' + esc(g.label) + '</b> <code>' + esc(g.storage) + '</code> — ' + g.counts.addition + ' addition(s), ' + g.counts.hidden + ' hidden, ' + g.counts.override + ' changed master item(s)' + (g.counts.same ? ', ' + g.counts.same + ' same as master' : '') + '</p>' +
                   '<div class="tbl-wrap"><table class="dir-tbl"><thead><tr><th>Kind</th><th>Item</th><th>Last change</th><th></th></tr></thead><tbody>' +
                   g.items.map(function (it, i) { var k = KIND[it.kind] || [it.kind, '']; return '<tr><td title="' + esc(k[1]) + '">' + esc(k[0]) + '</td><td>' + esc(it.collection) + ' · <code>' + esc(it.id) + '</code></td><td>' + esc(fmtDay(it.updatedAt)) + '</td><td class="roster-btns">' +
+                    '<button class="btn" type="button" data-i="' + i + '" data-pv="1" aria-expanded="false">👁 Preview</button>' +
                     '<button class="btn" type="button" data-i="' + i + '" data-op="rm">' + (it.kind === 'hidden' ? 'Show it again' : it.kind === 'addition' ? 'Remove' : 'Use the master again') + '</button>' +
                     (it.kind === 'addition' || it.kind === 'override' ? '<button class="btn" type="button" data-i="' + i + '" data-op="pr">Copy to master draft</button>' : '') + '</td></tr>'; }).join('') + '</tbody></table></div></div>');
+                $$('button[data-pv]', sec).forEach(function (b) {
+                  b.onclick = function () {
+                    var tr = b.closest('tr'), nx = tr.nextElementSibling, it = g.items[Number(b.dataset.i)];
+                    if (nx && nx.classList.contains('pv-row')) { nx.remove(); b.setAttribute('aria-expanded', 'false'); b.textContent = '👁 Preview'; return; }
+                    var row = h('<tr class="pv-row"><td colspan="4"><div class="pv"><p class="muted small">Loading…</p></div></td></tr>');
+                    tr.parentNode.insertBefore(row, tr.nextSibling); b.setAttribute('aria-expanded', 'true'); b.textContent = '✕ Close preview';
+                    dirCall('contentLocalItem', { storage: g.storage, collection: it.collection, id: it.id }).then(function (x) {
+                      var box = $('.pv', row);
+                      if (!x.ok) { box.innerHTML = '<p class="err">' + esc(x.code === 'badaction' ? 'Update Portal.gs on the backend (version 2.4).' : x.error) + '</p>'; return; }
+                      box.innerHTML = previewItem(x, g.label);
+                    });
+                  };
+                });
                 $$('button[data-op]', sec).forEach(function (b) {
                   b.onclick = function () {
                     var it = g.items[Number(b.dataset.i)], rm = b.dataset.op === 'rm';
