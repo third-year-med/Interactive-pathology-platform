@@ -5,7 +5,7 @@ this repository on GitHub Pages. The front page starts with two modules: **Cell 
 **Inflammation & Healing** (both *Available*); more can be added later in the Teacher Dashboard.
 
 > **Updating from an earlier version?** Replace the contents of the `Portal` file in Apps Script with the new
-> [`backend/Portal.gs`](backend/Portal.gs) (version 2.1 — draft, publish, version history, group local changes), save, and deploy
+> [`backend/Portal.gs`](backend/Portal.gs) (version 2.2 — draft, publish, version history, group local changes, results & attendance overviews), save, and deploy
 > a **new version** (step 1.4). The Code.gs line from step 1.3 stays as it is.
 
 ## 1. Main backend (Cell Injury, Inflammation …)
@@ -174,6 +174,19 @@ master copy is never modified by a group. Content tab → **Group local changes*
 
 **Changes in draft** and **⬆ Publish draft** warn when an item you changed or removed is changed or hidden locally by a
 group. Removing a local item reaches the group at its next sync.
+
+### Results & attendance overviews
+- **Admin:** Platform directory → **Results & attendance** — one row per group + module (every delivery).
+- **Personal teacher:** Teacher Dashboard → **📊 Results & attendance** — only the group + module combinations assigned to
+  that teacher.
+
+Each row shows the group's students, how many have signed in (and in the last 7 days), practice quizzes, assessments,
+exams and attendance sessions. **Students →** lists every student of the group with last sign-in, quiz attempts / best /
+average, assessments and exams submitted with average, and attendance (sessions attended and %), plus an **attendance
+register** (✓ per session) and **⬇ Download (CSV)**. Students are matched to the group's student list by Student ID, then
+email, then name; anything that matches nobody (e.g. a name typed differently at attendance check-in) is listed under
+"Also found". Each group's data is counted separately. These pages only read the data and never change anything. The
+detailed tools (grading, feedback emails, editing attendance) stay inside each module's Teacher Portal.
 
 Records are never deleted (deactivate them instead). The directory uses its own sheets — Institutions, Groups, Modules,
 Deliveries, TeacherAssignments, ModuleContentRoles — created on first use; no existing sheet is changed.

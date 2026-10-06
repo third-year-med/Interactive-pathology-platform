@@ -1030,4 +1030,57 @@ test('Step 9: Group local changes — hidden / local addition listed; "Show it a
   }
 });
 
+test('Step 10: Results & attendance — Admin tab (all groups) and a personal teacher (own group only); student table, register, CSV', { skip: SKIP }, async function () {
+  groupFixture();
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const dir = main.call({ module: 'portal', action: 'dirGet', token: t });
+  const g = dir.groups.filter(function (x) { return x.linkCode === 'tr-a'; })[0];
+  const d = dir.deliveries.filter(function (x) { return x.groupId === g.groupId && x.moduleId === 'cellinjury'; })[0];
+  const X = main.ctx, ins = function (sh, o) { X.sheet_(sh); X.appendRow_(sh, o); };
+  ins('Results', { module: 'cellinjury-tr-a', id: 'rq1', name: 'Student Ahmed', email: 'ahmed@student.local', percent: 75, submittedAt: Date.now() });
+  ins('AttendanceSessions', { module: 'cellinjury-tr-a', sessionId: 'RS1', sessionTitle: 'Lecture One', status: 'closed', createdAt: Date.UTC(2026, 9, 1) });
+  ins('AttendanceRecords', { sessionId: 'RS1', recordId: 'rr1', studentName: 'Student Ahmed', studentId: 'ahmed', status: 'present' });
+  const un = 'rep.teacher', cr = main.call({ module: 'portal', action: 'teacherSave', token: t, create: true, record: { username: un, name: 'Dr. Report', password: 'rep-teacher-1' } });
+  assert.ok(cr.ok, JSON.stringify(cr));
+  assert.ok(main.call({ module: 'portal', action: 'teacherAssign', token: t, userId: cr.teacher.userId, deliveryIds: [d.deliveryId] }).ok);
+  const lg = main.call({ module: 'portal', action: 'teacherLogin', username: un, password: 'rep-teacher-1' });
+  assert.ok(main.call({ module: 'portal', action: 'teacherChangePassword', ttoken: lg.ttoken, oldPassword: 'rep-teacher-1', newPassword: 'rep-teacher-2' }).ok);
+  // Admin
+  let p = await page();
+  await p.goto(url + '#/teacher');
+  await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+  await p.waitForSelector('#t-dir details.dir'); await p.click('#t-dir summary');
+  await p.click('#t-dir .dir-tab[data-t=results]');
+  const row = '#t-dir .rep-tbl tr[data-delivery="' + d.deliveryId + '"]';
+  await p.waitForSelector(row);
+  assert.ok(await p.$$eval('#t-dir .rep-tbl tbody tr', function (r) { return r.length; }) >= 3, 'every delivery');
+  assert.match(await p.textContent(row), /Test Razi · Group A[\s\S]*1 attempt\(s\)[\s\S]*average 75%[\s\S]*1 session\(s\)/);
+  await p.click(row + ' [data-a=det]');
+  await p.waitForSelector('#t-dir .rep-stu tr[data-student="ahmed"]');
+  assert.match(await p.textContent('#t-dir .rep-stu tr[data-student="ahmed"]'), /Student Ahmed[\s\S]*1 · 75% · 75%[\s\S]*1 \(100%\)/);
+  await p.click('#t-dir .rep-reg summary');
+  assert.match(await p.textContent('#t-dir .rep-reg'), /2026-10-01[\s\S]*Lecture One[\s\S]*Student Ahmed\s*✓/);
+  if (process.env.SHOTS) await (await p.$('#t-dir')).screenshot({ path: path.join(process.env.SHOTS, 'results-admin.png') });
+  const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#t-dir .rep-detail [data-a=csv]')]);
+  const csv = fs.readFileSync(await dl.path(), 'utf8');
+  assert.strictEqual(dl.suggestedFilename(), 'results-attendance-cellinjury-tr-a.csv');
+  assert.match(csv, /Student ID,Name,Active,Last sign-in,Quiz attempts[\s\S]*2026-10-01 Lecture One\r\n[\s\S]*ahmed,Student Ahmed,yes,[^,]*,1,75,75,0,,0,,1,100,present/);
+  await p.context().close();
+  // personal teacher: only the assigned group + module
+  p = await page();
+  await p.goto(url + '#/teacher');
+  await p.fill('#t-u', un); await p.fill('#t-p', 'rep-teacher-2'); await p.click('form.card button[type=submit]');
+  await p.waitForSelector('#t-mine .my-group');
+  await p.click('.roster-tools [data-a=rep]');
+  await p.waitForSelector('#t-report .rep-tbl tbody tr');
+  assert.deepStrictEqual(await p.$$eval('#t-report .rep-tbl tbody tr', function (r) { return r.map(function (x) { return x.dataset.delivery; }); }), [d.deliveryId]);
+  assert.ok(!/Misrata/.test(await p.textContent('#t-report')));
+  await p.click('#t-report [data-a=det]');
+  await p.waitForSelector('#t-report .rep-stu tr[data-student="ahmed"]');
+  if (process.env.SHOTS) await (await p.$('#t-report')).screenshot({ path: path.join(process.env.SHOTS, 'results-teacher.png') });
+  await p.context().close();
+  main.call({ module: 'portal', action: 'teacherSetActive', token: t, userId: cr.teacher.userId, active: false });
+});
+
 test('no JavaScript errors', { skip: SKIP }, function () { assert.deepStrictEqual(errors, []); });

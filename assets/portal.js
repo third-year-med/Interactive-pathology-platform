@@ -430,8 +430,14 @@
     var t = tteach(), u = t.user || {};
     main.innerHTML = '';
     main.appendChild(h('<div class="t-head"><h1 class="page-h">Teacher Dashboard</h1><p class="muted">Signed in as <b>' + esc(u.name || u.username) + '</b> (' + esc(u.username) + '). These are the groups and modules assigned to you.</p></div>'));
-    var bar = h('<div class="roster-tools"><button class="btn" type="button">🔑 Change my password</button></div>'); main.appendChild(bar);
-    $('button', bar).onclick = function () { teacherPwForm(false); };
+    var bar = h('<div class="roster-tools"><button class="btn" type="button" data-a="pw">🔑 Change my password</button><button class="btn" type="button" data-a="rep">📊 Results &amp; attendance</button></div>'); main.appendChild(bar);
+    $('[data-a=pw]', bar).onclick = function () { teacherPwForm(false); };
+    var repBox = h('<section class="t-sec" id="t-report" hidden></section>'); main.appendChild(repBox);
+    $('[data-a=rep]', bar).onclick = function () {
+      if (!repBox.hidden) { repBox.hidden = true; return; }
+      repBox.hidden = false;
+      reportView(repBox, function (action, o) { var cur = tteach(); return post(CFG.backendUrl, Object.assign({ module: 'portal', action: action, ttoken: cur && cur.ttoken }, o || {})); });
+    };
     var box = h('<section class="t-sec" id="t-mine"><p class="muted">Loading…</p></section>'); main.appendChild(box);
     if (u.mustChange) return teacherPwForm(true);
     post(CFG.backendUrl, { module: 'portal', action: 'teacherMe', ttoken: t.ttoken }).then(function (r) {
@@ -583,6 +589,68 @@
   }
   function dirCall(action, o) { return post(CFG.backendUrl, Object.assign({ module: 'portal', action: action, token: tsess() }, o || {})); }
   function fmtDay(t) { if (!t) return ''; var d = new Date(Number(t)); return isNaN(d) ? '' : d.toISOString().slice(0, 10); }
+  /* ---------------- Results & attendance overviews (Step 10, read-only) ---------------- */
+  function reportView(host, call) {
+    var pct = function (v) { return v == null ? '—' : v + '%'; };
+    var day = function (t) { return t ? new Date(Number(t)).toISOString().slice(0, 10) : '—'; };
+    host.innerHTML = '<h2>Results &amp; attendance</h2><p class="muted">Loading…</p>';
+    call('reportOverview').then(function (r) {
+      if (!r.ok) {
+        if (r.code === 'auth') { sdel(TKEY); toast('Your session has ended — please sign in again.'); return route(); }
+        host.innerHTML = '<h2>Results &amp; attendance</h2><p class="err">' + esc(r.code === 'badaction' ? 'Update Portal.gs on the backend (version 2.2).' : r.error) + '</p>'; return;
+      }
+      host.innerHTML = '<h2>Results &amp; attendance</h2><p class="small muted">One row per group and module. Practice quizzes, assessments, exams and attendance are counted separately for each group. This page only reads the data and never changes it.</p>';
+      if (!r.deliveries.length) { host.appendChild(h('<p class="muted">No group and module yet.</p>')); return; }
+      var t = h('<div class="tbl-wrap"><table class="dir-tbl rep-tbl"><thead><tr><th>Group</th><th>Module</th><th>Students</th><th title="Students of the group who have signed in to this module at least once (in the last 7 days)">Signed in</th><th>Practice quizzes</th><th>Assessments</th><th>Exams</th><th>Attendance</th><th></th></tr></thead><tbody></tbody></table></div>');
+      r.deliveries.forEach(function (d) {
+        var tr = h('<tr' + (d.active ? '' : ' class="off"') + ' data-delivery="' + esc(d.deliveryId) + '"><td><b>' + esc(d.institution) + ' · ' + esc(d.groupName) + '</b>' + (d.academicYear ? '<div class="small muted">' + esc(d.academicYear) + '</div>' : '') + '</td><td>' + esc(d.title) + '<div><code class="small">' + esc(d.storage) + '</code></div></td>' +
+          '<td>' + d.students + '</td><td>' + d.signedIn + ' <span class="small muted">(' + d.activeWeek + ' this week)</span></td>' +
+          '<td>' + d.quiz.attempts + ' attempt(s)' + (d.quiz.attempts ? '<div class="small muted">' + d.quiz.students + ' student(s) · average ' + pct(d.quiz.avg) + '</div>' : '') + '</td>' +
+          '<td>' + d.assess.submitted + ' submitted' + (d.assess.submitted ? '<div class="small muted">average ' + pct(d.assess.avg) + '</div>' : '') + '</td>' +
+          '<td>' + d.exams.submitted + ' submitted' + (d.exams.submitted ? '<div class="small muted">average ' + pct(d.exams.avg) + '</div>' : '') + '</td>' +
+          '<td>' + d.attendance.sessions + ' session(s)' + (d.attendance.sessions ? '<div class="small muted">' + d.attendance.avgPresent + ' present on average · last ' + day(d.attendance.last) + '</div>' : '') + '</td>' +
+          '<td><button class="btn" type="button" data-a="det">Students →</button></td></tr>');
+        $('[data-a=det]', tr).onclick = function () { detail(d); };
+        $('tbody', t).appendChild(tr);
+      });
+      host.appendChild(t);
+      var out = h('<div class="rep-detail"></div>'); host.appendChild(out);
+      function detail(d) {
+        out.innerHTML = '<p class="muted">Loading…</p>';
+        call('reportDelivery', { deliveryId: d.deliveryId }).then(function (x) {
+          if (!x.ok) { out.innerHTML = '<p class="err">' + esc(x.error) + '</p>'; return; }
+          var S = x.sessions;
+          var w = h('<div class="note roster-res"><b>' + esc(d.institution + ' · ' + d.groupName + ' — ' + d.title) + '</b>' +
+            '<div class="roster-tools"><button class="btn" type="button" data-a="csv">⬇ Download (CSV)</button><button class="btn" type="button" data-a="close">Close</button></div>' +
+            '<div class="tbl-wrap"><table class="dir-tbl rep-stu"><thead><tr><th>Student ID</th><th>Name</th><th>Last sign-in</th><th>Practice quizzes<div class="small muted">attempts · best · average</div></th><th>Assessments<div class="small muted">submitted · average</div></th><th>Exams<div class="small muted">submitted · average</div></th><th>Attendance<div class="small muted">of ' + S.length + ' session(s)</div></th></tr></thead><tbody>' +
+            x.students.map(function (s) {
+              return '<tr' + (s.active ? '' : ' class="off"') + ' data-student="' + esc(s.studentId) + '"><td><code>' + esc(s.studentId) + '</code></td><td>' + esc(s.name) + (s.active ? '' : ' <span class="small muted">(inactive)</span>') + '</td><td>' + (s.lastLogin ? day(s.lastLogin) : '<span class="small muted">' + (s.hasAccount ? 'never' : 'no account') + '</span>') + '</td>' +
+                '<td>' + (s.quiz.attempts ? s.quiz.attempts + ' · ' + pct(s.quiz.best) + ' · ' + pct(s.quiz.avg) : '—') + '</td><td>' + (s.assess.submitted ? s.assess.submitted + ' · ' + pct(s.assess.avg) : '—') + '</td><td>' + (s.exams.submitted ? s.exams.submitted + ' · ' + pct(s.exams.avg) : '—') + '</td>' +
+                '<td>' + (S.length ? s.attended + ' (' + s.attendedPct + '%)' : '—') + '</td></tr>';
+            }).join('') + '</tbody></table></div>' +
+            (S.length ? '<details class="rep-reg"><summary class="small">Attendance register (' + S.length + ' session(s))</summary><div class="tbl-wrap"><table class="dir-tbl"><thead><tr><th>Student</th>' + S.map(function (z) { return '<th title="' + esc(z.title) + '">' + esc(day(z.at)) + '<div class="small muted">' + esc(z.title) + '</div></th>'; }).join('') + '</tr></thead><tbody>' +
+              x.students.map(function (s) { return '<tr><td>' + esc(s.name) + '</td>' + S.map(function (z) { return '<td>' + (s.sessions.indexOf(z.sessionId) >= 0 ? '✓' : '<span class="muted">·</span>') + '</td>'; }).join('') + '</tr>'; }).join('') +
+              '<tr><td><b>Present</b></td>' + S.map(function (z) { return '<td><b>' + z.present + '</b></td>'; }).join('') + '</tr></tbody></table></div></details>' : '') +
+            (x.assessments.length || x.exams.length ? '<p class="small">' + x.assessments.map(function (a) { return 'Assessment <b>' + esc(a.title) + '</b>: ' + a.submitted + ' submitted, average ' + pct(a.avg); }).concat(x.exams.map(function (a) { return 'Exam <b>' + esc(a.title) + '</b>: ' + a.submitted + ' submitted, average ' + pct(a.avg); })).join('<br>') + '</p>' : '') +
+            (x.others.length ? '<p class="small warn-t">Also found, not in this group’s student list (e.g. a typing difference at attendance check-in, or someone removed from the list): ' + x.others.map(function (o) { return esc(o.label) + ' (' + ['quiz', 'assess', 'exams', 'attendance'].filter(function (k) { return o[k]; }).map(function (k) { return o[k] + ' ' + { quiz: 'quiz', assess: 'assessment', exams: 'exam', attendance: 'attendance' }[k]; }).join(', ') + ')'; }).join('; ') + '</p>' : '') + '</div>');
+          $('[data-a=close]', w).onclick = function () { out.innerHTML = ''; };
+          $('[data-a=csv]', w).onclick = function () {
+            var q = function (v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+            var head = ['Student ID', 'Name', 'Active', 'Last sign-in', 'Quiz attempts', 'Quiz best %', 'Quiz average %', 'Assessments submitted', 'Assessment average %', 'Exams submitted', 'Exam average %', 'Sessions attended', 'Attendance %']
+              .concat(S.map(function (z) { return day(z.at) + ' ' + z.title; }));
+            var lines = x.students.map(function (s) {
+              return [s.studentId, s.name, s.active ? 'yes' : 'no', s.lastLogin ? day(s.lastLogin) : '', s.quiz.attempts, s.quiz.best, s.quiz.avg, s.assess.submitted, s.assess.avg, s.exams.submitted, s.exams.avg, s.attended, s.attendedPct]
+                .concat(S.map(function (z) { return s.sessions.indexOf(z.sessionId) >= 0 ? 'present' : ''; })).map(q).join(',');
+            });
+            var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['\ufeff' + head.map(q).join(',') + '\r\n' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }));
+            a.download = 'results-attendance-' + d.storage + '.csv';
+            document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+          };
+          out.innerHTML = ''; out.appendChild(w); w.scrollIntoView({ block: 'nearest' });
+        });
+      }
+    });
+  }
   function directorySection() {
     var sec = h('<section class="t-sec" id="t-dir"><details class="dir"><summary><span class="dir-h">Platform directory</span><span class="small muted">Admin · institutions, groups, modules and deliveries</span></summary><div class="dir-body"><p class="muted">Loading…</p></div></details></section>');
     var det = $('details', sec), body = $('.dir-body', sec), D = null, tab = 'institutions', scan = null;
@@ -636,7 +704,7 @@
       $('[data-a=act]', r).onclick = function () { if (!active || window.confirm('Deactivate this record? Nothing is deleted, and it can be activated again.')) setActive(kind, id, !active); };
       return r;
     }
-    var TABS = [['institutions', 'Institutions'], ['groups', 'Groups'], ['modules', 'Modules'], ['deliveries', 'Deliveries'], ['students', 'Students'], ['teachers', 'Teachers'], ['content', 'Content'], ['existing', 'Existing data']];
+    var TABS = [['institutions', 'Institutions'], ['groups', 'Groups'], ['modules', 'Modules'], ['deliveries', 'Deliveries'], ['students', 'Students'], ['teachers', 'Teachers'], ['content', 'Content'], ['results', 'Results & attendance'], ['existing', 'Existing data']];
     var teacherOut = null, openAssign = '';
     var rosterGroup = '', lastAdded = null;
     function draw() {
@@ -646,8 +714,9 @@
       TABS.forEach(function (t) { var b = h('<button type="button" role="tab" class="dir-tab' + (tab === t[0] ? ' on' : '') + '" data-t="' + t[0] + '">' + esc(t[1]) + '</button>'); b.onclick = function () { tab = t[0]; draw(); }; nav.appendChild(b); });
       body.appendChild(nav);
       var pane = h('<div class="dir-pane" data-pane="' + tab + '"></div>'); body.appendChild(pane);
-      ({ institutions: paneInst, groups: paneGroups, modules: paneModules, deliveries: paneDeliveries, students: paneStudents, teachers: paneTeachers, content: paneContent, existing: paneExisting })[tab](pane);
+      ({ institutions: paneInst, groups: paneGroups, modules: paneModules, deliveries: paneDeliveries, students: paneStudents, teachers: paneTeachers, content: paneContent, results: paneResults, existing: paneExisting })[tab](pane);
     }
+    function paneResults(pane) { reportView(pane, dirCall); }
     var INST_F = [['name', 'Name', 'text', 'e.g. Al-Razi University'], ['shortName', 'Short name', 'text', 'e.g. Al-Razi'], ['sortOrder', 'Order', 'number']];
     function paneInst(pane) {
       pane.appendChild(h('<h3>Add an institution</h3>'));

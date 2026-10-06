@@ -34,6 +34,11 @@
  *   Sheets (created on first use; no existing sheet is touched): Institutions, Groups, Modules, Deliveries,
  *   TeacherAssignments, ModuleContentRoles (the last two are prepared for later steps and stay empty for now).
  *
+ * Results & attendance overviews (2.2, Step 10 — read-only):
+ *   reportOverview    Admin (token) → every delivery; personal teacher (ttoken) → only the deliveries assigned to them.
+ *                     Per group + module: students, sign-ins, practice quizzes, assessments, exams, attendance.
+ *   reportDelivery    {deliveryId} → per student (matched to the group's roster) + attendance sessions; same access rule.
+ *
  * Group front pages (1.4, Step 2 — …/?g=<link code>):
  *   portalGroupInfo   public   the group's institution, name and its modules (from the directory: active deliveries of
  *                              an active group of an active institution). Contains no student data. An unknown or
@@ -117,7 +122,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.1';
+var PORTAL_VERSION = '2.2';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -187,6 +192,14 @@ function portalHook_(module, p) {
     case 'contentReport': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentReport_(p); }); });
     case 'portalEndModuleSessions': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return portalEndModuleSessions_(); }); });
     case 'teacherMe': return tAuthed_(p, function (u) { return teacherMe_(u); });
+    case 'reportOverview': case 'reportDelivery':
+      // Step 10 (read-only): a personal teacher sees only the deliveries assigned to them; the Admin sees every delivery
+      if (p.ttoken) return tAuthed_(p, function (u) {
+        if (isTrue_(u.mustChange)) return { ok: false, code: 'mustchange', error: 'Please choose your own password first.' };
+        var mine = teacherDeliveries_(u.userId).map(function (x) { return x.deliveryId; });
+        return p.action === 'reportOverview' ? reportOverview_(mine) : mine.indexOf(String(p.deliveryId || '')) < 0 ? { ok: false, code: 'forbidden', error: 'This group and module are not assigned to you.' } : reportDelivery_(p);
+      });
+      return authed_(PORTAL_MODULE, p, function () { if (!dirReadable_()) return dirErr_('The platform directory is empty.'); return p.action === 'reportOverview' ? reportOverview_(null) : reportDelivery_(p); });
     case 'teacherOpen': return tAuthed_(p, function (u, ses) { return teacherOpen_(u, ses, p); });
     case 'teacherLogout': return teacherLogout_(p);
     case 'teacherChangePassword': return tAuthed_(p, function (u, ses) { return teacherChangePassword_(u, ses, p); });
@@ -1520,4 +1533,106 @@ function contentLocalPromote_(p) {
   if (ex) updateRow_(SHEETS.CONTENT, ex._row, row); else appendRow_(SHEETS.CONTENT, row);
   if (p.removeLocal) { var again = cvLocalRow_(S, r.collection, r.id); if (again) deleteRow_(SHEETS.CONTENT, again._row); cvTouch_(M); }
   return { ok: true };
+}
+
+/* ======================================================================
+ * Results & attendance overviews (Step 10) — READ-ONLY. Nothing is written and no sheet is created.
+ * Sources (all kept per storage = delivery backendModule, so groups never mix): Students (sign-ins), Results (practice
+ * quizzes), AssessRecords (assessment attempts: kind "attempt"; exam attempts: kind "exattempt"), AttendanceSessions +
+ * AttendanceRecords. Students are matched to the group's roster by Student ID, then email, then (unique) name.
+ * ====================================================================== */
+function rpRows_(name) { var sh = getSS_().getSheetByName(name); return sh && sh.getLastRow() > 1 && HEADERS[name] ? readAll_(name) : []; }
+function rpNum_(v) { var n = Number(v); return isFinite(n) ? n : 0; }
+function rpAvg_(a) { return a.length ? Math.round(a.reduce(function (x, y) { return x + y; }, 0) / a.length * 10) / 10 : null; }
+/** Everything of the given storages, read once: {storage: {accounts, quiz, assess, exams, sessions, records}}. */
+function rpCollect_(storages) {
+  var want = {}, out = {};
+  storages.forEach(function (st) { want[st] = 1; out[st] = { accounts: [], quiz: [], assess: [], exams: [], sessions: [], records: [] }; });
+  rpRows_(SHEETS.STUDENTS).forEach(function (r) { if (want[r.module]) out[r.module].accounts.push(r); });
+  rpRows_(SHEETS.RESULTS).forEach(function (r) { if (want[r.module]) out[r.module].quiz.push({ name: String(r.name || ''), email: String(r.email || '').toLowerCase(), percent: rpNum_(r.percent), at: rpNum_(r.submittedAt) || rpNum_(r.receivedAt) }); });
+  rpRows_(SHEETS.ASSESS).forEach(function (r) {
+    if (!want[r.module] || r.status === '__deleted' || (r.kind !== 'attempt' && r.kind !== 'exattempt')) return;
+    var x = unpackJson_(r); if (!x || x.status !== 'submitted') return;
+    if (r.kind === 'attempt') out[r.module].assess.push({ ref: String(x.assessmentId || ''), title: String(x.assessmentTitle || x.assessmentId || ''), email: String(x.email || '').toLowerCase(), name: String(x.name || ''), percent: rpNum_(x.percent), at: rpNum_(x.submittedAt) });
+    else out[r.module].exams.push({ ref: String(x.examId || ''), title: String(x.examTitle || x.examId || ''), id: normUser_(x.username), name: String(x.studentName || ''), percent: rpNum_(x.percent), at: rpNum_(x.submittedAt) });
+  });
+  var sid = {};
+  rpRows_(SHEETS.ATT_SESSIONS).forEach(function (r) { if (want[r.module]) { sid[r.sessionId] = r.module; out[r.module].sessions.push({ sessionId: String(r.sessionId), title: String(r.sessionTitle || r.chapter || r.course || ''), at: rpNum_(r.createdAt), status: String(r.status || '') }); } });
+  rpRows_(SHEETS.ATT_RECORDS).forEach(function (r) { var st = sid[r.sessionId]; if (st) out[st].records.push({ sessionId: String(r.sessionId), id: normUser_(r.studentId), email: String(r.email || '').toLowerCase(), name: String(r.studentName || '') }); });
+  return out;
+}
+function rpDeliveryList_(ids) {
+  var gr = {}; dirAll_(DIR.GROUP).forEach(function (g) { gr[g.groupId] = g; });
+  var ins = {}; dirAll_(DIR.INST).forEach(function (i) { ins[i.institutionId] = i; });
+  var md = {}; dirAll_(DIR.MOD).forEach(function (m) { md[m.moduleId] = m; });
+  return dirAll_(DIR.DELIV).filter(function (d) { return !ids || ids.indexOf(d.deliveryId) >= 0; }).map(function (d) {
+    var g = gr[d.groupId] || {}, i = ins[g.institutionId] || {}, m = md[d.moduleId] || {};
+    return { deliveryId: d.deliveryId, storage: d.backendModule, moduleId: d.moduleId, title: m.title || d.moduleId, groupId: d.groupId, groupName: g.name || '?', academicYear: g.academicYear || '',
+      institution: i.shortName || i.name || '?', active: !!(d.active && g.active && i.active), status: d.status };
+  }).sort(function (a, b) { return (a.institution + a.groupName + a.title).localeCompare(b.institution + b.groupName + b.title); });
+}
+function rpMembers_() {
+  var sh = getSS_().getSheetByName(DIR.MEMB), by = {};
+  if (sh && sh.getLastRow() > 1) dirAll_(DIR.MEMB).forEach(function (m) { (by[m.groupId] = by[m.groupId] || []).push(m); });
+  return by;
+}
+function reportOverview_(ids) {
+  var list = rpDeliveryList_(ids), data = rpCollect_(list.map(function (d) { return d.storage; })), mem = rpMembers_(), now = Date.now(), WEEK = 7 * 864e5;
+  return { ok: true, serverTime: now, deliveries: list.map(function (d) {
+    var x = data[d.storage], ppl = {};
+    x.quiz.forEach(function (q) { ppl[q.email || q.name] = 1; });
+    var present = {}; x.records.forEach(function (r) { present[r.sessionId] = (present[r.sessionId] || 0) + 1; });
+    var act = {}; (mem[d.groupId] || []).forEach(function (m) { if (m.active) act[m.studentId] = 1; });
+    var accs = x.accounts.filter(function (a) { return act[a.username]; });   // only the group's active students
+    return Object.assign(d, {
+      students: Object.keys(act).length,
+      signedIn: accs.filter(function (a) { return rpNum_(a.lastLogin) > 0; }).length,
+      activeWeek: accs.filter(function (a) { return now - rpNum_(a.lastLogin) < WEEK; }).length,
+      quiz: { attempts: x.quiz.length, students: Object.keys(ppl).length, avg: rpAvg_(x.quiz.map(function (q) { return q.percent; })) },
+      assess: { submitted: x.assess.length, avg: rpAvg_(x.assess.map(function (q) { return q.percent; })) },
+      exams: { submitted: x.exams.length, avg: rpAvg_(x.exams.map(function (q) { return q.percent; })) },
+      attendance: { sessions: x.sessions.length, avgPresent: rpAvg_(x.sessions.map(function (s) { return present[s.sessionId] || 0; })), last: x.sessions.reduce(function (m, s) { return Math.max(m, s.at); }, 0) }
+    });
+  }) };
+}
+function reportDelivery_(p) {
+  var d = rpDeliveryList_([String(p.deliveryId || '')])[0]; if (!d) return dirErr_('Delivery not found.');
+  var x = rpCollect_([d.storage])[d.storage], members = (rpMembers_()[d.groupId] || []).slice().sort(function (a, b) { return a.studentId.localeCompare(b.studentId); });
+  var acc = {}; x.accounts.forEach(function (a) { acc[a.username] = a; });
+  var idx = {}, nameCount = {};
+  members.forEach(function (m) { var k = String(m.name || '').trim().toLowerCase(); if (k) nameCount[k] = (nameCount[k] || 0) + 1; });
+  var rows = members.map(function (m) {
+    var a = acc[m.studentId], row = { studentId: m.studentId, name: m.name, active: !!m.active, lastLogin: a ? rpNum_(a.lastLogin) : 0, hasAccount: !!a, quiz: [], assess: [], exams: [], att: {} };
+    idx['id:' + m.studentId] = row;
+    [m.email, a && a.email, String(m.studentId).replace(/[^a-z0-9._-]/g, '') + '@student.local'].forEach(function (e) { e = String(e || '').trim().toLowerCase(); if (e && !idx['em:' + e]) idx['em:' + e] = row; });
+    var nk = String(m.name || '').trim().toLowerCase(); if (nk && nameCount[nk] === 1) idx['nm:' + nk] = row;
+    return row;
+  });
+  var others = {};
+  function who(it) {
+    return (it.id && idx['id:' + it.id]) || (it.email && idx['em:' + it.email]) || (it.name && idx['nm:' + it.name.trim().toLowerCase()]) || null;
+  }
+  function other(it, kind) { var k = it.id || it.email || it.name.trim().toLowerCase() || '?'; var o = others[k] || (others[k] = { label: it.name || it.id || it.email || '?', quiz: 0, assess: 0, exams: 0, attendance: 0 }); o[kind]++; }
+  x.quiz.forEach(function (q) { var r = who(q); if (r) r.quiz.push(q.percent); else other(q, 'quiz'); });
+  x.assess.forEach(function (q) { var r = who(q); if (r) r.assess.push(q.percent); else other(q, 'assess'); });
+  x.exams.forEach(function (q) { var r = who(q); if (r) r.exams.push(q.percent); else other(q, 'exams'); });
+  x.records.forEach(function (q) { var r = who(q); if (r) r.att[q.sessionId] = 1; else other(q, 'attendance'); });
+  var sessions = x.sessions.slice().sort(function (a, b) { return a.at - b.at; });
+  var present = {}; x.records.forEach(function (r) { present[r.sessionId] = (present[r.sessionId] || 0) + 1; });
+  function byRef(list) {
+    var m = {}, order = [];
+    list.forEach(function (q) { var o = m[q.ref]; if (!o) { o = m[q.ref] = { id: q.ref, title: q.title, percents: [] }; order.push(q.ref); } o.percents.push(q.percent); });
+    return order.map(function (k) { var o = m[k]; return { id: o.id, title: o.title, submitted: o.percents.length, avg: rpAvg_(o.percents) }; });
+  }
+  return { ok: true, serverTime: Date.now(), delivery: d,
+    sessions: sessions.map(function (s) { return { sessionId: s.sessionId, title: s.title, at: s.at, status: s.status, present: present[s.sessionId] || 0 }; }),
+    assessments: byRef(x.assess), exams: byRef(x.exams),
+    students: rows.map(function (r) {
+      var att = Object.keys(r.att);
+      return { studentId: r.studentId, name: r.name, active: r.active, hasAccount: r.hasAccount, lastLogin: r.lastLogin,
+        quiz: { attempts: r.quiz.length, best: r.quiz.length ? Math.max.apply(null, r.quiz) : null, avg: rpAvg_(r.quiz) },
+        assess: { submitted: r.assess.length, avg: rpAvg_(r.assess) }, exams: { submitted: r.exams.length, avg: rpAvg_(r.exams) },
+        attended: att.length, attendedPct: sessions.length ? Math.round(att.length / sessions.length * 100) : null, sessions: att };
+    }),
+    others: Object.keys(others).map(function (k) { return others[k]; }) };
 }

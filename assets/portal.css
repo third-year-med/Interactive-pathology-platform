@@ -183,3 +183,6 @@ code.pw{font-size:14px;font-weight:700;letter-spacing:.03em}
 .content-mod .report{margin-top:8px}
 .roster-res ul{margin:6px 0 8px;padding-left:20px}
 .loc-g{margin:10px 0}
+.rep-tbl td,.rep-stu td{vertical-align:top}
+.rep-detail{margin-top:12px}
+.rep-reg{margin:10px 0}

@@ -1030,3 +1030,55 @@ test('local changes: listed by kind; draft warns about affected groups; remove â
   assert.ok(!('topicsections|T1' in ra2), 'T1 is still hidden for Al-Razi (its choice) even after the master update');
   assert.strictEqual(S.dir('contentLocalRemove', { storage: 'cellinjury@v1', collection: 'x', id: 'y' }).ok, false, 'internal storages refused');
 });
+
+/* ---------------- Step 10: results & attendance overviews ---------------- */
+test('overviews: per delivery, read-only; teachers see only their own groups; students matched by ID / email / name', function () {
+  const S = teachersSetup(), D = S.dl, X = S.b.ctx;
+  const st = 'cellinjury-razi-a-26';
+  assert.ok(S.dir('rosterAdd', { groupId: S.ra.groupId, students: [{ studentId: 'b1', name: 'Basma One', email: 'basma@uni.ly', password: 'basma-pass-1' }], mustChange: false }).ok);
+  assert.ok(login(S, st, 'ahmed', PW).ok);
+  const ins = function (sheet, o) { X.sheet_(sheet); X.appendRow_(sheet, o); };
+  // practice quizzes (the module stores the session's name + email), one from someone not in the roster
+  ins('Results', { module: st, id: 'q1', name: 'Student Ahmed', email: 'ahmed@student.local', percent: 80, submittedAt: 1 });
+  ins('Results', { module: st, id: 'q2', name: 'Student Ahmed', email: 'ahmed@student.local', percent: 60, submittedAt: 2 });
+  ins('Results', { module: st, id: 'q3', name: 'Visitor', email: 'v@x.ly', percent: 10, submittedAt: 3 });
+  ins('Results', { module: 'cellinjury-misrata-a-26', id: 'q9', name: 'Student Sara', email: 'sara@student.local', percent: 99, submittedAt: 3 });
+  // an assessment attempt (by email) and an exam attempt (by Student ID)
+  ins('AssessRecords', Object.assign({ module: st, kind: 'attempt', id: 'att1', ref: 'A1', email: 'basma@uni.ly', status: 'submitted' }, X.packJson_({ assessmentId: 'A1', assessmentTitle: 'Quiz week 1', email: 'basma@uni.ly', status: 'submitted', percent: 90, submittedAt: 5 })));
+  ins('AssessRecords', Object.assign({ module: st, kind: 'attempt', id: 'att2', ref: 'A1', email: 'ahmed@student.local', status: 'in_progress' }, X.packJson_({ assessmentId: 'A1', email: 'ahmed@student.local', status: 'in_progress' })));
+  ins('AssessRecords', Object.assign({ module: st, kind: 'exattempt', id: 'ex1', status: 'submitted' }, X.packJson_({ examId: 'E1', username: 'ahmed', studentName: 'Student Ahmed', status: 'submitted', percent: 70 })));
+  // attendance: 2 sessions; Ahmed (typed ID) at both, Basma (by name) at one
+  ins('AttendanceSessions', { module: st, sessionId: 'S1', sessionTitle: 'Lecture 1', status: 'closed', createdAt: 100 });
+  ins('AttendanceSessions', { module: st, sessionId: 'S2', sessionTitle: 'Lecture 2', status: 'closed', createdAt: 200 });
+  ins('AttendanceRecords', { sessionId: 'S1', recordId: 'r1', studentName: 'Ahmed', studentId: 'AHMED', status: 'present' });
+  ins('AttendanceRecords', { sessionId: 'S2', recordId: 'r2', studentName: 'Ahmed', studentId: 'ahmed', status: 'present' });
+  ins('AttendanceRecords', { sessionId: 'S2', recordId: 'r3', studentName: 'basma one', studentId: '', status: 'present' });
+  const before = JSON.stringify(Object.keys(S.b.sheets).sort().map(function (n) { return [n, S.b.sheets[n]._rows]; }));
+  // Admin: every delivery
+  const o = S.dir('reportOverview'); assert.ok(o.ok, JSON.stringify(o));
+  assert.strictEqual(o.deliveries.length, 4);
+  const ra = o.deliveries.filter(function (d) { return d.storage === st; })[0];
+  assert.strictEqual(ra.students, 2); assert.strictEqual(ra.signedIn, 1);
+  assert.deepStrictEqual(ra.quiz, { attempts: 3, students: 2, avg: 50 });
+  assert.deepStrictEqual(ra.assess, { submitted: 1, avg: 90 }); assert.deepStrictEqual(ra.exams, { submitted: 1, avg: 70 });
+  assert.deepStrictEqual(ra.attendance, { sessions: 2, avgPresent: 1.5, last: 200 });
+  // detail
+  const r = S.dir('reportDelivery', { deliveryId: D[st].deliveryId }); assert.ok(r.ok, JSON.stringify(r));
+  const ah = r.students.filter(function (x) { return x.studentId === 'ahmed'; })[0], bs = r.students.filter(function (x) { return x.studentId === 'b1'; })[0];
+  assert.deepStrictEqual(ah.quiz, { attempts: 2, best: 80, avg: 70 }); assert.deepStrictEqual(ah.exams, { submitted: 1, avg: 70 });
+  assert.strictEqual(ah.attended, 2); assert.strictEqual(ah.attendedPct, 100); assert.ok(ah.lastLogin > 0);
+  assert.deepStrictEqual(bs.assess, { submitted: 1, avg: 90 }); assert.deepStrictEqual(bs.sessions, ['S2']); assert.strictEqual(bs.attendedPct, 50);
+  assert.deepStrictEqual(r.others, [{ label: 'Visitor', quiz: 1, assess: 0, exams: 0, attendance: 0 }]);
+  assert.deepStrictEqual(r.sessions.map(function (s) { return s.title + ':' + s.present; }), ['Lecture 1:1', 'Lecture 2:2']);
+  assert.deepStrictEqual(r.assessments, [{ id: 'A1', title: 'Quiz week 1', submitted: 1, avg: 90 }]);
+  assert.strictEqual(JSON.stringify(r).indexOf('pwHash'), -1);
+  // teacher Ahmed: only his two deliveries; Sara's group is refused
+  const to = S.t('reportOverview', S.ahmed.tok); assert.ok(to.ok, JSON.stringify(to));
+  assert.deepStrictEqual(to.deliveries.map(function (d) { return d.storage; }).sort(), ['cellinjury-razi-a-26', 'inflhealing-razi-a-26']);
+  assert.ok(S.t('reportDelivery', S.ahmed.tok, { deliveryId: D[st].deliveryId }).ok);
+  assert.strictEqual(S.t('reportDelivery', S.ahmed.tok, { deliveryId: D['cellinjury-misrata-a-26'].deliveryId }).code, 'forbidden');
+  assert.strictEqual(S.t('reportOverview', 'nope').code, 'auth');
+  assert.strictEqual(S.call({ module: 'portal', action: 'reportOverview' }).ok, false, 'no session â†’ nothing');
+  assert.strictEqual(S.call({ module: 'portal', action: 'reportOverview', token: S.ahmed.tok }).ok, false, 'a teacher token is not an Admin token');
+  assert.strictEqual(JSON.stringify(Object.keys(S.b.sheets).sort().map(function (n) { return [n, S.b.sheets[n]._rows]; })), before, 'read-only');
+});
