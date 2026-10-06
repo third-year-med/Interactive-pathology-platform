@@ -34,6 +34,14 @@
  *   Sheets (created on first use; no existing sheet is touched): Institutions, Groups, Modules, Deliveries,
  *   TeacherAssignments, ModuleContentRoles (the last two are prepared for later steps and stay empty for now).
  *
+ * Speed (2.5):
+ *   (module) getAllContent  answered at once ("nothing new") when the storage and its master copy did not change
+ *                     since the browser's last check (markers in CacheService; anything uncertain → the normal path)
+ *   every request is logged with its module and action (Apps Script → Executions → click a row → Logs)
+ *   portalTidyReport / portalTidy  Admin: counts / removes history tombstones, archives older history snapshots
+ *                     (sheet ContentArchive) and deletes expired sessions — nothing educational is deleted
+ *   portalWarm()      for a time-driven trigger (keeps the script warm during teaching hours)
+ *
  * Group local changes (2.4): contentLocalItem — READ-ONLY preview of one group's local item (+ the master's version).
  *
  * Packaged releases (2.3 — a rebuilt module goes live without losing edits; see docs/REBUILD.md):
@@ -133,7 +141,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.4';
+var PORTAL_VERSION = '2.5';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -152,9 +160,14 @@ var PORTAL_DEFAULT = [
  * Hook called by Code.gs route_ (one added line). Returns a response for module "portal", otherwise null.
  * ---------------------------------------------------------------------- */
 function portalHook_(module, p) {
+  perfLog_(module, p);
   if (String(module) !== PORTAL_MODULE) {
     var act = String(p.action || '');
     if (String(module).indexOf('@') >= 0) return { ok: false, code: 'badmodule', error: 'Unknown module.' };   // internal storages
+    // 2.5 speed: the frequent "anything new?" check is answered from memory when nothing changed for this storage
+    if (act === 'getAllContent') { var fast = cvFastUnchanged_(String(module), p); if (fast) return fast; }
+    else if (!CV_NO_CONTENT_WRITE[act]) cvMarkWrite_(String(module));
+    if ((act === 'logout' || act === 'changePassword') && p.token) CacheService.getScriptCache().remove('tok:' + module + ':' + p.token);
     if (act === 'studentSession' && p.preview) return cvPreviewSession_(String(module), p);   // the preview file of a new build
     if (act === 'contentBuildManifest') return cvBuildManifest_(String(module), p);
     var cv = contentHook_(String(module), act, p); if (cv) return cv;   // versioned content (only for modules switched on/changed)
@@ -166,7 +179,8 @@ function portalHook_(module, p) {
   }
   var a = String(p.action || '');
   switch (a) {
-    case 'ping': case 'setup': case 'login': case 'logout': case 'changePassword': return null;   // Code.gs teacher sign-in for the portal
+    case 'logout': case 'changePassword': if (p.token) CacheService.getScriptCache().remove('tok:' + PORTAL_MODULE + ':' + p.token); return null;
+    case 'ping': case 'setup': case 'login': return null;   // Code.gs teacher sign-in for the portal
     case 'portalInfo': return portalInfo_();
     case 'portalCheck': return portalCheck_(p);
     case 'portalGroupInfo': return portalGroupInfo_(p);
@@ -203,6 +217,8 @@ function portalHook_(module, p) {
     case 'contentLocalItem': return authed_(PORTAL_MODULE, p, function () { return contentLocalItem_(p); });
     case 'contentLocalRemove': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentLocalRemove_(p); }); });
     case 'contentLocalPromote': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentLocalPromote_(p); }); });
+    case 'portalTidyReport': return authed_(PORTAL_MODULE, p, function () { return portalTidy_(false); });
+    case 'portalTidy': return authed_(PORTAL_MODULE, p, function () { return portalTidy_(true); });
     case 'contentRebuildCheck': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentRebuildCheck_(p); }); });
     case 'contentRebuildDecide': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentRebuildDecide_(p); }); });
     case 'contentGoLive': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentGoLive_(p); }); });
@@ -1819,4 +1835,87 @@ function contentGoLive_(p) {
   setSetting_('content:rebuild:' + M, '');
   cvTouch_(M);
   return { ok: true, moduleId: M, version: r.version, label: r.label, build: PV.build, removedMaster: master, changedLocal: local.length };
+}
+
+/* ======================================================================
+ * Speed (2.5)
+ * ====================================================================== */
+/** Each request names its module and action in the execution log (Apps Script → Executions → a row → Logs). */
+function perfLog_(module, p) { try { console.log('req ' + String(module) + ' ' + String(p.action || '')); } catch (e) { } }
+/* Requests that never change the educational rows a browser downloads with getAllContent (they use other sheets, Drive,
+   the cache, or private rows). Every other request — including any unknown one — counts as a possible change, so an
+   uncertain case always takes the normal (full) path; the fast path can only skip work, never hide a change. */
+var CV_NO_CONTENT_WRITE = {};
+['getAllContent', 'ping', 'login', 'logout', 'changePassword', 'setup', 'studentLogin', 'studentLogout', 'studentSession', 'studentChangePassword',
+ 'listStudents', 'saveStudent', 'bulkAddStudents', 'setStudentActive', 'resetStudentPassword', 'deleteStudent', 'unlockStudent',
+ 'listHistory', 'exportCourse', 'uploadImage', 'privList', 'aiStatus', 'setAIConfig', 'aiTest', 'practicalAI', 'practicalImage',
+ 'submitQuizResult', 'getResults', 'deleteResult', 'checkQuizPassword', 'getQuizPassword', 'setQuizPassword',
+ 'liveJoin', 'liveSync', 'liveHistory', 'liveContext', 'livePost', 'liveEdit', 'liveDelete', 'livePin', 'liveReact', 'liveSearch', 'liveMembers',
+ 'liveNotifications', 'liveMarkRead', 'liveSetPrefs', 'liveTyping', 'liveUploadInit', 'liveUploadChunk', 'liveUploadStatus', 'liveFileChunk', 'liveModuleInfo',
+ 'getLiveClassroomPassword', 'setLiveClassroomPassword', 'startAttendanceSession', 'closeAttendanceSession', 'getAttendanceTeacherState',
+ 'regenerateAttendanceCode', 'deleteAttendanceRecord', 'retrySyncAttendance', 'listAttendanceSessions', 'getAttendanceSessionReport',
+ 'deleteAttendanceSession', 'getAttendanceSettings', 'setAttendanceSettings', 'getAttendanceInfo', 'submitAttendance', 'submitAttendanceByCode',
+ 'listAssessGroups', 'saveAssessGroup', 'deleteAssessGroup', 'listAssignments', 'createAssignments', 'cancelAssignment', 'listAttempts',
+ 'getMyAssessments', 'startAttempt', 'submitAttempt', 'mailQuota', 'sendAssessmentFeedback',
+ 'studyConnect', 'studyPull', 'studyPush', 'studyDisconnect', 'studyDelete', 'studyClassStats', 'studyResetPin',
+ 'examList', 'examResults', 'examAttemptDetail', 'examBankList', 'contentBuildManifest'].forEach(function (a) { CV_NO_CONTENT_WRITE[a] = 1; });
+var CV_WRITE_GRACE_MS = 60000;    // a write still in progress (a save waits at most ~30 s for the lock) is always covered
+function cvMarkWrite_(S) { try { CacheService.getScriptCache().put('cvw:' + S, String(Date.now()), 21600); } catch (e) { } }
+/** null = take the normal path. An answer = "nothing new since your last check" (the browser keeps what it has). */
+function cvFastUnchanged_(S, p) {
+  var since = Number(p.since || 0); if (!since || since > Date.now() + 60000) return null;
+  var M = cvBaseOf_(S), st = cvState_(M);
+  if (st.changed && since <= Number(st.changed) + CV_WRITE_GRACE_MS) return null;   // a switch / publish → full refresh
+  if (p.token && S === M && st.pub && cvIsDraftToken_(M, String(p.token))) return null; // master-draft session: normal path
+  var c = CacheService.getScriptCache(), w = c.get('cvw:' + S);
+  if (w === null) { c.put('cvw:' + S, String(Date.now()), 21600); return null; }    // unknown (cache evicted): normal path now
+  if (since <= Number(w) + CV_WRITE_GRACE_MS) return null;
+  if (typeof studentAuthOn_ === 'function' && studentAuthOn_(S)) { var g = gateRequest_(S, p); if (g) return g; }   // same sign-in check as always
+  return { ok: true, items: [], serverTime: Date.now() };
+}
+/** Time-driven trigger target (Triggers → Add trigger → portalWarm → Time-driven → every 10 minutes). */
+function portalWarm() { try { getSS_(); CacheService.getScriptCache().get('cvstate:warm'); } catch (e) { } return true; }
+
+/** Tidy up (Admin). report = what would be removed; apply = do it (in portions, so it never times out). */
+function portalTidy_(apply) {
+  var now = Date.now(), KEEP = 5, LIMIT = 400, out = { ok: true, applied: !!apply };
+  var lock = apply ? LockService.getScriptLock() : null; if (lock) lock.waitLock(30000);
+  try {
+    var rows = readAll_(SHEETS.CONTENT), groups = {}, del = [], arch = [];
+    rows.forEach(function (r) {
+      if (r.collection !== 'history') return;
+      if (isTrue_(r.deleted)) { del.push(r); return; }   // a removed history snapshot: browsers never download history, so nothing needs it
+      var d = unpackJson_(r) || {}, k = r.module + '|' + (d.collection || '') + '|' + (d.itemId || '');
+      (groups[k] = groups[k] || []).push({ r: r, t: Number(d.savedAt) || Number(r.updatedAt) || 0 });
+    });
+    Object.keys(groups).forEach(function (k) { groups[k].sort(function (a, b) { return b.t - a.t; }).slice(KEEP).forEach(function (x) { arch.push(x.r); }); });
+    var ses = function (name, expCol) {
+      var sh = getSS_().getSheetByName(name); if (!sh || sh.getLastRow() < 2 || !HEADERS[name]) return [];
+      return readAll_(name).filter(function (r) { var e = Number(r[expCol]); return e && e < now; });
+    };
+    var exp = { Sessions: ses(SHEETS.SESSIONS, 'expiresAt'), StudentSessions: ses(SHEETS.STU_SESSIONS, 'expiresAt') };
+    if (tSheetsReady_()) { exp.PortalSessions = ses(DIR.PSES, 'expiresAt'); exp.PortalGrants = ses(DIR.GRANTS, 'expiresAt'); }
+    var KEY = { Sessions: 'token', StudentSessions: 'tokenHash', PortalSessions: 'tokenHash', PortalGrants: 'tokenHash' };
+    out.contentRows = rows.length; out.historyTombstones = del.length; out.historyArchived = arch.length;
+    out.expiredSessions = Object.keys(exp).reduce(function (n, k) { return n + exp[k].length; }, 0);
+    if (!apply) return out;
+    var budget = LIMIT, done = 0;
+    if (arch.length) {   // copy first, then remove: an archived snapshot is never lost
+      HEADERS.ContentArchive = HEADERS[SHEETS.CONTENT];
+      var sh = getSS_().getSheetByName('ContentArchive') || getSS_().insertSheet('ContentArchive');
+      if (sh.getLastRow() === 0) sh.appendRow(HEADERS[SHEETS.CONTENT]);
+      arch.slice(0, budget).forEach(function (r) { appendRow_('ContentArchive', r); });
+    }
+    var gone = del.concat(arch.slice(0, budget)).slice(0, budget);
+    gone.map(function (r) { return r._row; }).sort(function (a, b) { return b - a; }).forEach(function (row) { deleteRow_(SHEETS.CONTENT, row); done++; });
+    budget -= done;
+    Object.keys(exp).forEach(function (name) {   // session sheets can change without the lock: delete a row only if it is still that session
+      var sh = getSS_().getSheetByName(name), col = HEADERS[name].indexOf(KEY[name]) + 1;
+      exp[name].sort(function (a, b) { return b._row - a._row; }).slice(0, Math.max(0, budget)).forEach(function (r) {
+        if (col > 0 && String(sh.getRange(r._row, col).getValue()) === String(r[KEY[name]])) { deleteRow_(name, r._row); budget--; done++; }
+      });
+    });
+    out.removed = done; out.more = (del.length + arch.length + out.expiredSessions) > done;
+    return out;
+  } finally { if (lock) lock.releaseLock(); }
 }

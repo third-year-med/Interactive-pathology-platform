@@ -1338,4 +1338,22 @@ test('Practical: images by link (preview, caption, special characters, blocked s
   }
 });
 
+test('Tidy up (Content tab): shows what can be tidied, then removes it', { skip: SKIP }, async function () {
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const X = main.ctx;
+  X.appendRow_(X.SHEETS.SESSIONS, { module: 'cellinjury', token: 'expired-e2e', createdAt: 1, expiresAt: 2 });
+  const p = await page();
+  await p.goto(url + '#/teacher');
+  await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+  await p.waitForSelector('#t-dir details.dir'); await p.click('#t-dir summary');
+  await p.click('#t-dir .dir-tab[data-t=content]');
+  await p.click('#t-dir [data-a=tidy]');
+  await p.waitForSelector('#t-dir .tidy-out [data-a=tidygo]');
+  assert.match(await p.textContent('#t-dir .tidy-out'), /expired sessions: \d+/);
+  await p.click('#t-dir .tidy-out [data-a=tidygo]');
+  await p.waitForFunction(function () { return /Tidied: \d+ row/.test((document.querySelector('.toast') || {}).textContent || ''); });
+  assert.ok(!main.sheets.Sessions._rows.some(function (r) { return r[1] === 'expired-e2e'; }));
+  await p.context().close();
+});
+
 test('no JavaScript errors', { skip: SKIP }, function () { assert.deepStrictEqual(errors, []); });

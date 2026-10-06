@@ -1130,6 +1130,27 @@
     /* ---- Content: versioning foundation (Step 6, read-only) ---- */
     function paneContent(pane) {
       pane.appendChild(h('<p class="small muted">One <b>master copy</b> of each module\'s educational content (lectures, sections, images, questions, practicals…) will be versioned and delivered to every group, while assessments, exams, results and attendance stay with each group. For each module: review the migration report, create the master copy, switch versioned content on, then edit the master draft and publish new versions. Switching off returns every group to its previous content at once.</p>'));
+      var tidy = h('<div class="note small tidy-box"><b>🧹 Tidy up the backend</b> — keeps the class server fast: removes deleted edit-history entries, moves older edit-history snapshots (beyond the newest 5 per item) to an archive sheet, and deletes expired sign-in sessions. No educational content, student data or results are touched.' +
+        '<div class="roster-tools"><button class="btn" type="button" data-a="tidy">🧹 Check what can be tidied</button></div><div class="tidy-out"></div></div>');
+      pane.appendChild(tidy);
+      $('[data-a=tidy]', tidy).onclick = function () {
+        var b = this, out = $('.tidy-out', tidy); b.disabled = true; out.innerHTML = '<p class="muted small">Checking…</p>';
+        dirCall('portalTidyReport').then(function (x) {
+          b.disabled = false;
+          if (!x.ok) { out.innerHTML = '<p class="err">' + esc(x.code === 'badaction' ? 'Update Portal.gs on the backend (version 2.5).' : x.error) + '</p>'; return; }
+          var n = x.historyTombstones + x.historyArchived + x.expiredSessions;
+          out.innerHTML = '<p class="small">Content sheet: ' + x.contentRows + ' rows · deleted history entries: <b>' + x.historyTombstones + '</b> · older history snapshots to archive: <b>' + x.historyArchived + '</b> · expired sessions: <b>' + x.expiredSessions + '</b></p>' +
+            (n ? '<button class="btn primary" type="button" data-a="tidygo">🧹 Tidy up now</button>' : '<p class="small">Nothing to tidy — all clean.</p>');
+          var go = $('[data-a=tidygo]', out);
+          if (go) go.onclick = function () {
+            go.disabled = true; go.textContent = 'Tidying…';
+            dirCall('portalTidy').then(function (y) {
+              if (!y.ok) { go.disabled = false; go.textContent = '🧹 Tidy up now'; return toast(y.error); }
+              toast('Tidied: ' + y.removed + ' row(s) removed' + (y.more ? ' — more remain, press again.' : '.')); b.click();
+            });
+          };
+        });
+      };
       var box = h('<div class="content-st"><p class="muted">Loading…</p></div>'); pane.appendChild(box);
       dirCall('contentStatus').then(function (r) {
         if (!r.ok) { box.innerHTML = '<p class="err">' + esc(r.code === 'badaction' ? 'Update Portal.gs on the backend (version 1.8, see SETUP.md).' : r.error) + '</p>'; return; }

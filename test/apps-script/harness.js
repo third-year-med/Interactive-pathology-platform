@@ -41,6 +41,7 @@ function makeSheet(name) {
           return rng;
         },
         setValue: function (v) { return rng.setValues([[v]]); },
+        getValue: function () { return rng.getValues()[0][0]; },
         setNumberFormats: function () { return rng; },
         createTextFinder: function (text) {
           const tf = {

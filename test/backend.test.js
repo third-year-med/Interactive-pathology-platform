@@ -1159,3 +1159,72 @@ test('local changes: Preview of one local item is read-only, Admin only, and inc
   assert.strictEqual(S.call({ module: 'portal', action: 'contentLocalItem', token: S.ahmed.tok, storage: 'cellinjury-razi-a-26', collection: 'custommedia', id: 's0202' }).ok, false, 'Admin only');
   assert.strictEqual(JSON.stringify(Object.keys(S.b.sheets).sort().map(function (n) { return [n, S.b.sheets[n]._rows]; })), before, 'nothing changed');
 });
+
+/* ---------------- 2.5 speed: fast "nothing new" answer, tidy up ---------------- */
+function countReads(S) {
+  const X = S.b.ctx, orig = X.readAll_, n = {};
+  X.readAll_ = function (name) { n[name] = (n[name] || 0) + 1; return orig(name); };
+  return { n: n, reset: function () { Object.keys(n).forEach(function (k) { delete n[k]; }); }, done: function () { X.readAll_ = orig; } };
+}
+test('speed: an unchanged storage is answered without reading the Content sheet — and a change is never hidden', function () {
+  const S = contentSetup(), X = S.b.ctx;
+  X.CV_WRITE_GRACE_MS = 0;   // (120 s on the real backend)
+  S.cdir('contentMigrate', { decisions: {} }); S.cdir('contentSetMode', { mode: 'on' });
+  const st = 'cellinjury-razi-a-26', sl = login(S, st, 'ahmed', PW), stok = sl.stoken || sl.token;
+  const getS = function (since) { return S.call({ module: st, action: 'getAllContent', stoken: stok, since: since || 0 }); };
+  const full = getS(0); assert.ok(full.ok && full.items.length > 0);
+  pause(); pause();
+  const R = countReads(S);
+  let r = getS(full.serverTime); assert.ok(r.ok, JSON.stringify(r));   // first check after a cold cache: normal path (sets the marker)
+  pause(); pause(); R.reset();
+  r = getS(r.serverTime); assert.deepStrictEqual(r.items, []); assert.ok(!R.n.Content, 'no Content read: ' + JSON.stringify(R.n));
+  // a teacher of this group changes something → the next check (with the old cursor) gets it
+  const since = r.serverTime; pause();
+  S.up(st, S.tRa, 'topicsections', 'T9', { sections: ['new'] });
+  r = getS(since); assert.ok(r.items.some(function (i) { return i.id === 'T9'; }), 'the change arrives');
+  // another group's change does not slow this storage down
+  pause(); pause(); const s2 = getS(r.serverTime).serverTime; pause(); pause();
+  S.up('cellinjury-misrata-a-26', S.tMa, 'topicsections', 'TX', { sections: ['m'] });
+  R.reset(); r = getS(s2); assert.deepStrictEqual(r.items, []); assert.ok(!R.n.Content);
+  // publishing the master → full refresh for everybody
+  const dt = S.cdir('contentEditDraft').token;
+  S.up('cellinjury', dt, 'customtopics', 'C7', { title: 'Seven' }); assert.ok(S.cdir('contentPublish', { notes: 'x' }).ok);
+  r = getS(r.serverTime); assert.ok(r.items.some(function (i) { return i.id === 'C7'; }), 'the new master version arrives');
+  // the sign-in check is still made on the fast path
+  pause(); pause(); const s3 = getS(r.serverTime).serverTime; pause(); pause();
+  assert.strictEqual(S.call({ module: st, action: 'getAllContent', stoken: 'x'.repeat(40), since: s3 }).code, 'studentauth');
+  // a master-draft session never takes the fast path
+  const d0 = S.call({ module: 'cellinjury', action: 'getAllContent', token: dt, since: 0 }); assert.ok(d0.draft);
+  pause(); pause(); const d1 = S.call({ module: 'cellinjury', action: 'getAllContent', token: dt, since: d0.serverTime }); pause(); pause();
+  assert.ok(S.call({ module: 'cellinjury', action: 'getAllContent', token: dt, since: d1.serverTime }).draft === true);
+  // a module that never used versioned content: same fast path, and writes still arrive
+  const tv = S.tokens.vulva, g = function (since) { return S.call({ module: 'vulva', action: 'getAllContent', token: tv, since: since || 0 }); };
+  let v = g(0); pause(); pause(); v = g(v.serverTime); pause(); pause(); v = g(v.serverTime); pause(); pause(); R.reset();
+  const v2 = g(v.serverTime); assert.deepStrictEqual(v2.items, []); assert.ok(!R.n.Content);
+  pause(); S.up('vulva', tv, 'customtopics', 'V1', { title: 'v' });
+  assert.ok(g(v2.serverTime).items.some(function (i) { return i.id === 'V1'; }));
+  R.done();
+});
+test('speed: sign-out forgets the cached token check; tidy up removes only history tombstones, old snapshots and expired sessions', function () {
+  const S = contentSetup(), X = S.b.ctx, c = S.b.cache;
+  // sign-out of a module teacher session clears its cached check
+  X.CacheService.getScriptCache().put('tok:cellinjury:' + S.tMain, '1', 600);
+  S.call({ module: 'cellinjury', action: 'logout', token: S.tMain });
+  assert.strictEqual(X.CacheService.getScriptCache().get('tok:cellinjury:' + S.tMain), null);
+  // history: 7 snapshots of one item + 2 removed snapshots; expired sessions
+  for (let i = 0; i < 7; i++) S.up('cellinjury-razi-a-26', S.tRa, 'history', 'topicsections::T1::' + i, { collection: 'topicsections', itemId: 'T1', data: { n: i }, savedAt: 1000 + i });
+  ['h-x', 'h-y'].forEach(function (id) { S.up('cellinjury-razi-a-26', S.tRa, 'history', id, { collection: 'customtopics', itemId: 'C1', savedAt: 1 }); S.call({ module: 'cellinjury-razi-a-26', action: 'delete', token: S.tRa, collection: 'history', id: id }); });
+  X.appendRow_(X.SHEETS.SESSIONS, { module: 'cellinjury', token: 'old-token-1', createdAt: 1, expiresAt: 2 });
+  const edu = JSON.stringify(S.b.sheets.Content._rows.filter(function (r) { return r[1] !== 'history'; }));
+  const rep = S.dir('portalTidyReport'); assert.ok(rep.ok, JSON.stringify(rep));
+  assert.strictEqual(rep.historyTombstones, 2); assert.strictEqual(rep.historyArchived, 2); assert.ok(rep.expiredSessions >= 1);
+  assert.strictEqual(S.call({ module: 'portal', action: 'portalTidy', token: S.ahmed.tok }).ok, false, 'Admin only');
+  const done = S.dir('portalTidy'); assert.ok(done.ok && done.removed >= 5 && !done.more, JSON.stringify(done));
+  const hist = S.b.sheets.Content._rows.filter(function (r) { return r[1] === 'history'; }).map(function (r) { return r[2]; }).sort();
+  assert.deepStrictEqual(hist, [2, 3, 4, 5, 6].map(function (i) { return 'topicsections::T1::' + i; }), 'the newest 5 stay');
+  assert.deepStrictEqual(S.b.sheets.ContentArchive._rows.slice(1).map(function (r) { return r[2]; }).sort(), ['topicsections::T1::0', 'topicsections::T1::1'], 'older ones are archived, not lost');
+  assert.strictEqual(JSON.stringify(S.b.sheets.Content._rows.filter(function (r) { return r[1] !== 'history'; })), edu, 'educational rows untouched');
+  assert.ok(!S.b.sheets.Sessions._rows.some(function (r) { return r[1] === 'old-token-1'; }));
+  assert.strictEqual(S.dir('portalTidyReport').historyTombstones, 0);
+  assert.ok(X.portalWarm());
+});

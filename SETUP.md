@@ -5,7 +5,7 @@ this repository on GitHub Pages. The front page starts with two modules: **Cell 
 **Inflammation & Healing** (both *Available*); more can be added later in the Teacher Dashboard.
 
 > **Updating from an earlier version?** Replace the contents of the `Portal` file in Apps Script with the new
-> [`backend/Portal.gs`](backend/Portal.gs) (version 2.4 — draft, publish, version history, group local changes with preview, results & attendance overviews, new builds), save, and deploy
+> [`backend/Portal.gs`](backend/Portal.gs) (version 2.5 — draft, publish, version history, group local changes with preview, results & attendance overviews, new builds, speed), save, and deploy
 > a **new version** (step 1.4). The Code.gs line from step 1.3 stays as it is.
 
 ## 1. Main backend (Cell Injury, Inflammation …)
@@ -195,6 +195,35 @@ detailed tools (grading, feedback emails, editing attendance) stay inside each m
 
 Records are never deleted (deactivate them instead). The directory uses its own sheets — Institutions, Groups, Modules,
 Deliveries, TeacherAssignments, ModuleContentRoles — created on first use; no existing sheet is changed.
+
+## Speed (Portal.gs 2.5)
+
+- **Fast "nothing new" answers.** The frequent background update checks (every 90 s from every open module page) are
+  answered from memory when nothing changed, without reading the Content sheet. Any change (a teacher's edit, a
+  publish, a switch) still arrives at the next check; the fast answer only skips work, it never hides a change.
+- **Which request was it?** Apps Script → **Executions** → click a row → the log shows e.g. `req cellinjury getAllContent`.
+- **Keep the script warm (optional, recommended during teaching).** Apps Script → **Triggers** (alarm-clock icon, left)
+  → **+ Add Trigger** → function **portalWarm** → deployment **Head** → event source **Time-driven** → type
+  **Minutes timer** → **Every 10 minutes** → **Save** (allow the permission prompt). It makes the first request after a
+  quiet period less slow. To stop it, delete the trigger.
+- **Tidy up.** Platform directory → Content → **🧹 Check what can be tidied** → **Tidy up now**: removes deleted
+  edit-history entries, moves older edit-history snapshots (beyond the newest 5 per item) to the sheet
+  `ContentArchive`, and deletes expired sign-in sessions. No educational content, student data or results are touched.
+- **Faster teacher actions (optional, one small Code.gs addition).** In **Code.gs**, find `function authed_(module, p, fn) {`.
+  1. Directly **below** the line `if (!token) return { ok: false, error: 'Not signed in.', code: 'auth' };` add:
+     ```js
+       var tcache = CacheService.getScriptCache(), tkey = 'tok:' + module + ':' + token;   // speed: checked recently → no sheet read
+       if (tcache.get(tkey)) return fn(token);
+     ```
+  2. In the same function, directly **above** its last line `return fn(token);` add:
+     ```js
+       tcache.put(tkey, '1', Math.max(60, Math.min(1800, Math.floor((Number(found.expiresAt) - Date.now()) / 1000))));
+     ```
+  Save and deploy a new version. Teacher saves then no longer read the whole Sessions sheet. It uses the same memory key
+  as Code.gs's own Live Classroom check; sign-out, "End all module teacher sessions" and removed assignments still take
+  effect immediately (Portal.gs clears the key).
+- The module pages poll the Live Classroom less often while a student is on another page (about every 8 s instead of
+  3.5 s); inside the Live screen nothing changed.
 
 ## 5. Give students access
 

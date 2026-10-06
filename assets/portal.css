@@ -202,3 +202,4 @@ code.pw{font-size:14px;font-weight:700;letter-spacing:.03em}
 .pv-cmp{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .pv-lab{font-weight:700;margin:0 0 4px;font-size:13px;text-transform:uppercase;letter-spacing:.03em;color:#555}
 @media (max-width:700px){.pv-cmp{grid-template-columns:1fr}}
+.tidy-box{margin:10px 0 14px}

@@ -19,7 +19,7 @@ in this repository, so every new session starts from it. State as of **2026-10-0
 - **`Code.gs`**: written and maintained **by the user**. Never rewrite it; never ask to paste it into the repo. The only
   change ever made was ONE line in `route_` (see SETUP.md 1.3) that calls `portalHook_(module, p)`.
 - **`Portal.gs`**: maintained in this repo (`backend/Portal.gs`), pasted by the user into a separate Apps Script file
-  named "Portal". Currently **version 2.4** (1822 lines).
+  named "Portal". Currently **version 2.5**.
 - Data: one Google Sheet. Code.gs sheets: Content, Results, Settings, Sessions, LiveChat, LiveMembers, LiveFiles,
   AttendanceSessions, AttendanceRecords, AssessRecords, StudySync, Students, StudentSessions. Portal sheets (created on
   first use): Institutions, Groups, Modules, Deliveries, TeacherAssignments, ModuleContentRoles, StudentMemberships,
@@ -83,6 +83,13 @@ in this repository, so every new session starts from it. State as of **2026-10-0
 **Results & attendance (Step 10):** read-only overviews per delivery — Admin (Results & attendance tab: all deliveries)
 and personal teachers (📊 button: own deliveries); per-student table, attendance register, CSV. Students are matched to
 the roster by Student ID, then email, then unique name; unmatched records are listed under "Also found".
+
+**Speed (2.5):** `portalHook_` answers `getAllContent` from memory when nothing changed for that storage (markers
+`cvw:<storage>` in CacheService, set by every request that may write Content; unknown requests count as writes; a
+60-second grace covers writes in progress; `content:changed` forces full refreshes). Every request is logged as
+`req <module> <action>`. Admin tidy-up (history tombstones, archive older snapshots to `ContentArchive`, expired
+sessions). Optional Code.gs `authed_` cache (documented in SETUP.md) and the `portalWarm` time trigger. Measured on a
+450-row Content sheet: 50 update checks went from 50 full sheet reads (270,000 cells) to 0.
 
 ## 4. The module pages (how a module works)
 
@@ -153,6 +160,10 @@ The user is a pathologist, not a developer. They follow steps literally and send
   clear "Image failed to load + Open image/resource" fallback that keeps the URL; (4) never store pictures as base64
   in content when a Drive upload fails (items exceed the 270k-character limit). Drive uploads need `authorizeDriveAccess`
   run once in Apps Script.
+- **Slowness (2026-10-07)**: Apps Script requests took 1.5–4 s for one tester because every update check read the whole
+  Content sheet and every teacher request the whole Sessions sheet. Fix with caching/fast paths first; moving off
+  Google is only worth it for very large simultaneous exams (Apps Script runs ~30 requests at once). The Oct 4 burst of
+  "Failed" executions was the Code.gs paste error, not load.
 - **Dialogs**: never change the layout on `blur/change` of an input — the click on the button then misses.
 - **Tests**: millisecond timestamps need `<=` comparisons and small pauses; copy Code.gs functions verbatim into
   `Code.core.gs` when a test needs them; CSS `:nth-of-type` counts other siblings — select rows explicitly.
@@ -166,8 +177,8 @@ The user is a pathologist, not a developer. They follow steps literally and send
 
 ## 10. Current state (2026-10-06)
 
-- Portal.gs **2.4** deployed by the user (2.3/2.4 features: New build, Group local changes Preview).
+- Portal.gs **2.5** in the repo (speed); the user had **2.4** deployed before 2026-10-07.
 - Modules: Cell Injury (build "2026-09-24 11:46 UTC", master v1.1, versioned content ON) and Inflammation (build
   "initial", master v1.0, ON). Groups include `cellinjury-B`, `cellinjury-C` (not registered), `cellinjury-razi-a-26`.
 - The 10-step multi-university plan is complete; the packaged-release procedure and the Practical fixes are done.
-- Tests: 50 backend, 39 e2e (with keys).
+- Tests: 52 backend, 40 e2e (with keys).
