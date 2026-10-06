@@ -1082,3 +1082,64 @@ test('overviews: per delivery, read-only; teachers see only their own groups; st
   assert.strictEqual(S.call({ module: 'portal', action: 'reportOverview', token: S.ahmed.tok }).ok, false, 'a teacher token is not an Admin token');
   assert.strictEqual(JSON.stringify(Object.keys(S.b.sheets).sort().map(function (n) { return [n, S.b.sheets[n]._rows]; })), before, 'read-only');
 });
+
+/* ---------------- packaged releases (new build of a module) ---------------- */
+test('new build: preview key only for the Admin draft session; manifests; compatibility check; decisions; go live', function () {
+  const S = contentSetup(), crypto = require('crypto'), rel = require('../tools/module-release.js');
+  const KEY = crypto.randomBytes(32).toString('base64'); S.b.ctx.CONTENT_KEYS.cellinjury = KEY;
+  S.cdir('contentMigrate', { decisions: {} }); S.cdir('contentSetMode', { mode: 'on' });
+  // overlay: master draft edits that point into the packaged course; Al-Razi's local edits
+  const dt = S.cdir('contentEditDraft').token;
+  S.up('cellinjury', dt, 'contentedits', 'question:q002', { kind: 'question', key: 'q002', fields: { stem: 'fixed' } });
+  S.up('cellinjury', dt, 'contentedits', 'question:q003', { kind: 'question', key: 'q003', fields: { stem: 'fixed 3' } });
+  S.up('cellinjury', dt, 'custommedia', 's0102', { items: [{ type: 'image', url: 'x' }] });
+  S.up('cellinjury', dt, 'quizextra', 'extra', { ids: ['q001', 'q003'] });
+  S.up('cellinjury', dt, 'importedquestions', 'q900', { stem: 'imported' });
+  S.up('cellinjury', dt, 'contentedits', 'lmr-fact:x1', { kind: 'lmr-fact' });
+  assert.ok(S.cdir('contentPublish', { notes: 'edits' }).ok);
+  S.up('cellinjury-razi-a-26', S.tRa, 'hiddentopics', 't03', { hidden: true });
+  // preview key: the Admin's draft session gets it; a normal teacher session, a group session or a student does not
+  const pk = S.call({ module: 'cellinjury', action: 'studentSession', token: dt, preview: 1 });
+  assert.ok(pk.ok && pk.role === 'teacher' && pk.preview, JSON.stringify(pk));
+  assert.strictEqual(pk.contentKey, rel.previewKey(Buffer.from(KEY, 'base64'), 'cellinjury').toString('base64'), 'same derivation as the release tool');
+  assert.notStrictEqual(pk.contentKey, KEY);
+  assert.strictEqual(S.call({ module: 'cellinjury', action: 'studentSession', token: S.tMain, preview: 1 }).code, 'nopreview');
+  assert.strictEqual(S.call({ module: 'cellinjury-razi-a-26', action: 'studentSession', token: S.tRa, preview: 1 }).code, 'nopreview');
+  const st = login(S, 'cellinjury-razi-a-26', 'ahmed', PW);
+  assert.strictEqual(S.call({ module: 'cellinjury-razi-a-26', action: 'studentSession', stoken: st.stoken || st.token, preview: 1 }).code, 'nopreview');
+  assert.strictEqual(S.call({ module: 'cellinjury', action: 'studentSession', token: dt }).contentKey, KEY, 'the live page still gets the live key');
+  // manifests: only from a draft session
+  const live = { topics: { t01: 'a', t02: 'b', t03: 'c', T1: 'k', T2: 'k' }, sections: { s0101: 'x', s0102: 'y' }, questions: { q001: '1', q002: '2', q003: '3' }, cases: {}, images: {}, other: {} };
+  const next = { topics: { t01: 'a', t02: 'b2', T1: 'k', T2: 'k' }, sections: { s0101: 'x' }, questions: { q001: '1', q002: '2b', q900: 'n' }, cases: {}, images: {}, other: {} };
+  assert.strictEqual(S.call({ module: 'cellinjury', action: 'contentBuildManifest', token: S.tMain, build: 'b1', manifest: live }).code, 'forbidden');
+  assert.strictEqual(S.cdir('contentRebuildCheck').code, 'nopreview');
+  assert.ok(S.call({ module: 'cellinjury', action: 'contentBuildManifest', token: dt, build: 'b1', manifest: live }).ok);
+  assert.ok(S.call({ module: 'cellinjury', action: 'contentBuildManifest', token: dt, build: 'b2', preview: true, manifest: next }).ok);
+  const c = S.cdir('contentRebuildCheck'); assert.ok(c.ok, JSON.stringify(c));
+  const st_ = function (key) { const it = c.items.filter(function (x) { return x.key === key; })[0]; return it ? it.status + (it.missing.length ? ':' + it.missing.join(',') : '') : 'ok'; };
+  assert.strictEqual(st_('master|contentedits|question:q002'), 'changed');
+  assert.strictEqual(st_('master|contentedits|question:q003'), 'missing:q003');
+  assert.strictEqual(st_('master|custommedia|s0102'), 'missing:s0102');
+  assert.strictEqual(st_('master|quizextra|extra'), 'partial:q003');
+  assert.strictEqual(st_('master|importedquestions|q900'), 'duplicate');
+  assert.strictEqual(st_('master|contentedits|lmr-fact:x1'), 'unchecked');
+  assert.strictEqual(st_('cellinjury-razi-a-26|hiddentopics|t03'), 'missing:t03');
+  assert.strictEqual(st_('master|customtopics|C1'), 'ok', 'overlay-only items are carried forward');
+  assert.deepStrictEqual(c.diff.topics, { removed: ['t03'], added: 0, changed: 1 });
+  assert.strictEqual(c.undecided, 6);
+  assert.strictEqual(S.cdir('contentGoLive', { build: 'b2' }).ok, false, 'blocked until every item is decided');
+  assert.ok(S.cdir('contentRebuildDecide', { decisions: { 'master|contentedits|question:q002': 'remove', 'master|contentedits|question:q003': 'remove', 'master|custommedia|s0102': 'keep',
+    'master|quizextra|extra': 'clean', 'master|importedquestions|q900': 'remove', 'cellinjury-razi-a-26|hiddentopics|t03': 'remove' } }).ok);
+  assert.strictEqual(S.cdir('contentRebuildCheck').undecided, 0);
+  assert.strictEqual(S.cdir('contentGoLive', { build: 'b1' }).ok, false, 'must name the checked build');
+  const before = S.get('cellinjury-razi-a-26', S.tRa).serverTime;
+  const g = S.cdir('contentGoLive', { build: 'b2', notes: 'Build 2' }); assert.ok(g.ok, JSON.stringify(g));
+  assert.strictEqual(g.build, 'b2'); assert.strictEqual(g.removedMaster, 4); assert.strictEqual(g.changedLocal, 1);
+  const v = S.get('cellinjury-misrata-a-26', S.tMa), view = S.view(v);
+  assert.ok(!('contentedits|question:q002' in view) && !('importedquestions|q900' in view));
+  assert.deepStrictEqual(view['quizextra|extra'], { ids: ['q001'] }); assert.ok('custommedia|s0102' in view, 'kept');
+  assert.ok(!('hiddentopics|t03' in S.view({ items: S.get('cellinjury-razi-a-26', S.tRa, before).items })), 'the group decision applied');
+  const stat = S.cdir('contentStatus').modules.filter(function (m) { return m.moduleId === 'cellinjury'; })[0];
+  assert.strictEqual(stat.builds.live.build, 'b2'); assert.strictEqual(stat.builds.preview, null); assert.strictEqual(stat.versionList[0].build, 'b2');
+  assert.strictEqual(S.cdir('contentRebuildCheck').code, 'nopreview', 'the preview is consumed');
+});

@@ -717,6 +717,85 @@
       ({ institutions: paneInst, groups: paneGroups, modules: paneModules, deliveries: paneDeliveries, students: paneStudents, teachers: paneTeachers, content: paneContent, results: paneResults, existing: paneExisting })[tab](pane);
     }
     function paneResults(pane) { reportView(pane, dirCall); }
+    /** Opens the module (or its preview of a new build: sub = 'preview/') in a master-draft session. */
+    function openDraft(m, sub, btn) {
+      if (btn) btn.disabled = true;
+      dirCall('contentEditDraft', { moduleId: m.moduleId }).then(function (x) {
+        if (btn) btn.disabled = false; if (!x.ok) return toast(x.error);
+        if (!x.url || !x.storagePrefix) return toast('This module has no link or storage prefix (Modules tab).');
+        lsSet(x.storagePrefix + 'backend_token_v1', { token: x.token, expiresAt: x.expiresAt });
+        sdel(x.storagePrefix + 'stu_session_v1');
+        try { sessionStorage.setItem('pf_draft:' + m.moduleId, '1'); } catch (e) { }   // the module shows the "master draft" banner
+        var t = tget(); if (t) { t.mods = t.mods || {}; t.mods[m.moduleId] = { token: x.token, expiresAt: x.expiresAt, prefix: x.storagePrefix, draft: true }; sset(TKEY, t, false); }
+        location.href = moduleBase(x.url) + (sub || '');
+      });
+    }
+    function moduleBase(u) { u = String(u || '').replace(/[?#].*$/, ''); return /\/$/.test(u) ? u : u.replace(/\/[^\/]*\.html?$/, '/') .replace(/([^\/])$/, '$1/'); }
+    /** The build label written in a module page on GitHub (readable without signing in), or null if there is no page. */
+    function pageBuild(url) {
+      return fetch(url, { cache: 'no-store' }).then(function (r) { return r.ok ? r.text() : ''; }).then(function (t) {
+        var mm = /window\.NEO_CONFIG\s*=\s*(\{[\s\S]*?\});\s*<\/script>/.exec(t || ''); if (!mm) return null;
+        try { var c = JSON.parse(mm[1]); return { build: String(c.build || ''), preview: c.preview === true }; } catch (e) { return null; }
+      }).catch(function () { return null; });
+    }
+    /* ---- a new packaged build of a module (see docs/REBUILD.md) ---- */
+    function buildPanel(m, card) {
+      var out = $('.report', card), mod = byId('modules', 'moduleId', m.moduleId) || {}, base = moduleBase(mod.url);
+      if (!mod.url) { out.innerHTML = '<p class="err">This module has no link (Modules tab).</p>'; return; }
+      out.innerHTML = '<p class="muted small">Looking at the module pages on GitHub…</p>';
+      Promise.all([pageBuild(base), pageBuild(base + 'preview/'), dirCall('contentStatus')]).then(function (a) {
+        var livePg = a[0], prevPg = a[1], st = ((a[2] && a[2].modules) || []).filter(function (x) { return x.moduleId === m.moduleId; })[0] || m, B = st.builds || {};
+        var w = h('<div class="note roster-res rb"><b>New build of ' + esc(m.title) + '</b>' +
+          '<p class="small">A rebuilt module goes live in four steps, and the master edits and the groups’ local changes are kept: <b>1.</b> the new build is put at the preview address with the release tool (docs/REBUILD.md); ' +
+          '<b>2.</b> <b>Open preview</b> — only you can open it; it shows the new build with the master draft; <b>3.</b> <b>Check compatibility</b> and decide for every listed item; <b>4.</b> the new file is put live on GitHub, then <b>🚀 Go live</b> publishes a new version for the new build.</p>' +
+          '<div class="tbl-wrap"><table class="dir-tbl"><tbody>' +
+          '<tr><td>Live page on GitHub</td><td>' + (livePg ? (livePg.build ? 'build <b>' + esc(livePg.build) + '</b>' : 'build not marked') : '<span class="err">not reachable</span>') + (B.live ? ' <span class="small muted">(recorded: ' + esc(B.live.build) + ')</span>' : '') + '</td></tr>' +
+          '<tr><td>Preview page (…/preview/)</td><td>' + (prevPg ? 'build <b>' + esc(prevPg.build) + '</b>' : '<span class="muted">none uploaded</span>') + '</td></tr>' +
+          '<tr><td>Preview checked in</td><td>' + (B.preview ? 'build <b>' + esc(B.preview.build) + '</b> · ' + B.preview.counts.topics + ' topics, ' + B.preview.counts.questions + ' questions · ' + esc(fmtDay(B.preview.reportedAt)) : '<span class="muted">not yet — open the preview once</span>') + '</td></tr>' +
+          '</tbody></table></div><div class="roster-tools">' +
+          (prevPg ? '<button class="btn primary" type="button" data-b="open">🔍 Open preview</button>' : '') +
+          (B.preview ? '<button class="btn" type="button" data-b="check">Check compatibility</button>' : '') + '</div><div class="rb-out"></div></div>');
+        var bo = $('[data-b=open]', w); if (bo) bo.onclick = function () { openDraft(m, 'preview/', bo); };
+        var bc = $('[data-b=check]', w); if (bc) bc.onclick = function () { check(); };
+        out.innerHTML = ''; out.appendChild(w);
+        var WHAT = { missing: 'its target is not in the new build', partial: 'refers to IDs that are not in the new build', changed: 'changes an item that the new build also changed — keeping it hides the new version',
+          duplicate: 'the new build itself now has this ID', unchecked: 'cannot be checked automatically — look at it in the preview' };
+        var CH = { remove: 'Remove (use the new build)', keep: 'Keep', clean: 'Remove only the missing IDs' };
+        function check() {
+          var ro = $('.rb-out', w); ro.innerHTML = '<p class="muted small">Checking…</p>';
+          dirCall('contentRebuildCheck', { moduleId: m.moduleId }).then(function (x) {
+            if (!x.ok) { ro.innerHTML = '<p class="err">' + esc(x.code === 'badaction' ? 'Update Portal.gs on the backend (version 2.3).' : x.error) + '</p>'; return; }
+            var c = x.counts || {}, diff = Object.keys(x.diff || {}).filter(function (k) { var d = x.diff[k]; return d.removed.length || d.added || d.changed; })
+              .map(function (k) { var d = x.diff[k]; return esc(k) + ': ' + d.added + ' added, ' + d.changed + ' changed, ' + d.removed.length + ' removed' + (d.removed.length ? ' (' + esc(d.removed.slice(0, 12).join(', ')) + (d.removed.length > 12 ? ' …' : '') + ')' : ''); });
+            var r = h('<div><p class="small"><b>New build ' + esc(x.preview.build) + '</b> compared with ' + (x.live ? 'live build ' + esc(x.live.build) : 'the live build (not reported yet — open the module once with Edit master draft to compare changes)') + ':<br>' + (diff.length ? diff.join('<br>') : 'no packaged IDs added, changed or removed') + '</p>' +
+              '<p class="small">' + (c.attached || 0) + ' edit(s) still fit the new build · ' + (c.carried || 0) + ' item(s) live only in the master/group content and are carried forward' + (x.items.length ? ' · <b>' + x.items.length + ' to look at</b>' : '') + '</p>' +
+              (x.items.length ? '<div class="tbl-wrap"><table class="dir-tbl"><thead><tr><th>Where</th><th>Item</th><th>Why</th><th>Decision</th></tr></thead><tbody>' + x.items.map(function (it, i) {
+                return '<tr data-key="' + esc(it.key) + '"><td>' + esc(it.layer) + '</td><td>' + esc(it.collection) + ' · <code>' + esc(it.id) + '</code></td><td class="small">' + esc(WHAT[it.status] || it.status) + (it.missing.length ? ': <code>' + esc(it.missing.join(', ')) + '</code>' : '') + '</td><td>' +
+                  (it.choices.length ? '<select data-i="' + i + '"><option value="">— decide —</option>' + it.choices.map(function (o) { return '<option value="' + o + '"' + (it.decision === o ? ' selected' : '') + '>' + esc(it.status === 'duplicate' ? 'Remove (now part of the new build)' : CH[o]) + '</option>'; }).join('') + '</select>' : '<span class="small muted">—</span>') + '</td></tr>';
+              }).join('') + '</tbody></table></div>' : '') +
+              '<div class="roster-tools">' + (x.items.some(function (it) { return it.choices.length; }) ? '<button class="btn" type="button" data-b="save">Save decisions</button>' : '') + '<button class="btn primary" type="button" data-b="live">🚀 Go live</button></div>' +
+              '<p class="small muted">Removing affects only the master draft and the groups’ local copies, together with the new version. Removed items are not lost: earlier versions stay in the version history.</p></div>');
+            function decisions() { var d = {}; $$('select[data-i]', r).forEach(function (sel) { var it = x.items[Number(sel.dataset.i)]; if (sel.value) d[it.key] = sel.value; }); return d; }
+            function save() { return dirCall('contentRebuildDecide', { moduleId: m.moduleId, decisions: decisions() }); }
+            var bs = $('[data-b=save]', r); if (bs) bs.onclick = function () { bs.disabled = true; save().then(function (y) { bs.disabled = false; toast(y.ok ? 'Decisions saved.' : y.error); }); };
+            $('[data-b=live]', r).onclick = function () {
+              var bl = this, und = x.items.filter(function (it) { return it.choices.length; }).length - Object.keys(decisions()).length;
+              if (und > 0) return toast(und + ' item(s) still need a decision.');
+              bl.disabled = true;
+              Promise.all([save(), pageBuild(base)]).then(function (y) {
+                bl.disabled = false;
+                if (!y[0].ok) return toast(y[0].error);
+                if (!y[1] || y[1].build !== x.preview.build) return toast('The live page on GitHub shows build ' + ((y[1] && y[1].build) || '?') + ', not ' + x.preview.build + '. Put the new file live on GitHub first (release tool: golive), wait a minute, then press Go live.');
+                var notes = window.prompt('Go live with build ' + x.preview.build + ' of ' + m.title + '? Your decisions are applied and a new version is published for every group.\nWhat changed? (optional)', 'New build ' + x.preview.build); if (notes == null) return;
+                bl.disabled = true;
+                dirCall('contentGoLive', { moduleId: m.moduleId, build: x.preview.build, notes: notes }).then(function (z) { bl.disabled = false; if (!z.ok) return toast(z.error); toast('Build ' + z.build + ' is live — version ' + z.label + ' published.'); draw(); });
+              });
+            };
+            ro.innerHTML = ''; ro.appendChild(r);
+          });
+        }
+      });
+    }
     var INST_F = [['name', 'Name', 'text', 'e.g. Al-Razi University'], ['shortName', 'Short name', 'text', 'e.g. Al-Razi'], ['sortOrder', 'Order', 'number']];
     function paneInst(pane) {
       pane.appendChild(h('<h3>Add an institution</h3>'));
@@ -995,7 +1074,7 @@
         r.modules.forEach(function (m) {
           var card = h('<div class="dir-row content-mod" data-module="' + esc(m.moduleId) + '"><div class="dir-main"><b>' + esc(m.title) + '</b> <code>' + esc(m.moduleId) + '</code> ' +
             (m.mode === 'on' ? '<span class="pill available">Versioned content: on</span>' : '<span class="pill soon">Versioned content: off</span>') +
-            '<div class="small muted">Master copy: ' + (m.publishedVersion ? 'v' + esc(m.publishedVersion) + ' published' : 'not created yet') + (m.migrated ? ' · draft: ' + (m.draftChanges || 0) + ' unpublished change(s)' + (m.frozen ? ' · <b>publishing frozen</b>' : '') : '') + ' · ' + m.versions + ' version(s) · content stored in ' + m.storages.filter(function (x) { return x.storage.indexOf('@') < 0; }).length + ' place(s)</div>' +
+            '<div class="small muted">Master copy: ' + (m.publishedVersion ? 'v' + esc(m.publishedVersion) + ' published' : 'not created yet') + (m.migrated ? ' · draft: ' + (m.draftChanges || 0) + ' unpublished change(s)' + (m.frozen ? ' · <b>publishing frozen</b>' : '') : '') + (m.builds && m.builds.live ? ' · build ' + esc(m.builds.live.build) : '') + (m.builds && m.builds.preview ? ' · <b>new build ' + esc(m.builds.preview.build) + ' in preview</b>' : '') + ' · ' + m.versions + ' version(s) · content stored in ' + m.storages.filter(function (x) { return x.storage.indexOf('@') < 0; }).length + ' place(s)</div>' +
             (m.mode === 'on' ? '<p class="small">Every group of this module receives the published master copy plus its own kept items. <b>✏️ Edit master draft</b> opens the module to change the master copy: your changes go into a draft that only you see, until you press <b>⬆ Publish draft</b>.</p>' : m.migrated ? '<p class="small">The master copy exists but is <b>not used yet</b>. Press “Switch versioned content ON” to use it — or “Undo migration” to redo your decisions.</p>' : '') +
             (m.storages.length ? '<div class="tbl-wrap"><table class="dir-tbl"><thead><tr><th>Storage</th><th>Educational rows</th><th>Group activity rows</th><th>Other</th></tr></thead><tbody>' +
               m.storages.filter(function (x) { return x.storage.indexOf('@') < 0; }).map(function (x) { return '<tr><td><code>' + esc(x.storage) + '</code>' + (x.storage === m.moduleId ? ' <span class="small muted">(main / normal link)</span>' : x.registered ? '' : ' <span class="small muted">(not registered)</span>') + '</td><td>' + x.master + '</td><td>' + x.group + '</td><td>' + x.other + '</td></tr>'; }).join('') + '</tbody></table></div>'
@@ -1007,6 +1086,7 @@
               '<button class="btn" type="button" data-a="disc"' + (m.draftChanges ? '' : ' disabled') + '>Discard draft</button>' +
               '<button class="btn" type="button" data-a="hist">Version history</button>' +
               '<button class="btn" type="button" data-a="loc">Group local changes</button>' +
+              '<button class="btn" type="button" data-a="build">🔁 New build</button>' +
               '<button class="btn" type="button" data-a="frz">' + (m.frozen ? '🔓 Unfreeze publishing' : '🔒 Freeze publishing') + '</button>' +
               (m.mode === 'on' ? '<button class="btn danger" type="button" data-a="off">Switch OFF (back to before)</button>'
               : '<button class="btn primary" type="button" data-a="on">Switch versioned content ON</button>' + ((m.versionList || []).length <= 1 ? '<button class="btn" type="button" data-a="undo">Undo migration</button>' : ''))
@@ -1075,29 +1155,22 @@
           if (bHist) bHist.onclick = function () {
             var out = $('.report', card);
             out.innerHTML = '<div class="note roster-res"><b>Version history</b><div class="tbl-wrap"><table class="dir-tbl"><thead><tr><th>Version</th><th>Published</th><th>Items</th><th>Notes</th><th></th></tr></thead><tbody>' +
-              (m.versionList || []).map(function (v) { return '<tr><td><b>' + esc(v.label) + '</b>' + (v.version === m.currentVersion ? ' <span class="pill available">current</span>' : '') + '</td><td>' + esc(fmtDay(v.publishedAt)) + '</td><td>' + v.itemCount + '</td><td class="small">' + esc(v.notes || '') + '</td><td>' + (v.version === m.currentVersion ? '' : '<button class="btn" type="button" data-v="' + v.version + '" data-l="' + esc(v.label) + '">Restore</button>') + '</td></tr>'; }).join('') +
+              (m.versionList || []).map(function (v) { return '<tr><td><b>' + esc(v.label) + '</b>' + (v.version === m.currentVersion ? ' <span class="pill available">current</span>' : '') + (v.build ? '<div class="small muted">build ' + esc(v.build) + '</div>' : '') + '</td><td>' + esc(fmtDay(v.publishedAt)) + '</td><td>' + v.itemCount + '</td><td class="small">' + esc(v.notes || '') + '</td><td>' + (v.version === m.currentVersion ? '' : '<button class="btn" type="button" data-v="' + v.version + '" data-l="' + esc(v.label) + '">Restore</button>') + '</td></tr>'; }).join('') +
               '</tbody></table></div><p class="small muted">Restore publishes a copy of that version as a new version — nothing in the history is deleted.</p></div>';
             $$('button[data-v]', out).forEach(function (b) {
               b.onclick = function () {
-                if (!window.confirm('Restore version ' + b.dataset.l + ' of ' + m.title + '? It is published again as a new version and every group receives it at its next sync. The current draft is replaced by it.')) return;
+                var vv = (m.versionList || []).filter(function (v) { return String(v.version) === b.dataset.v; })[0] || {}, lb = m.builds && m.builds.live ? m.builds.live.build : '';
+                var other = vv.build && lb && vv.build !== lb ? '\n\nNote: this version was made for build ' + vv.build + ', but build ' + lb + ' is live. Its edits may not fit the live build — to go back completely, the module file on GitHub must first be returned to build ' + vv.build + ' (docs/REBUILD.md).' : '';
+                if (!window.confirm('Restore version ' + b.dataset.l + ' of ' + m.title + '? It is published again as a new version and every group receives it at its next sync. The current draft is replaced by it.' + other)) return;
                 b.disabled = true;
                 dirCall('contentRestore', { moduleId: m.moduleId, version: Number(b.dataset.v) }).then(function (x) { b.disabled = false; if (!x.ok) return toast(x.error); toast('Version ' + b.dataset.l + ' restored as version ' + x.label + '.'); draw(); });
               };
             });
           };
           var bEdit = $('[data-a=edit]', card);
-          if (bEdit) bEdit.onclick = function () {
-            bEdit.disabled = true;
-            dirCall('contentEditDraft', { moduleId: m.moduleId }).then(function (x) {
-              bEdit.disabled = false; if (!x.ok) return toast(x.error);
-              if (!x.url || !x.storagePrefix) return toast('This module has no link or storage prefix (Modules tab).');
-              lsSet(x.storagePrefix + 'backend_token_v1', { token: x.token, expiresAt: x.expiresAt });
-              sdel(x.storagePrefix + 'stu_session_v1');
-              try { sessionStorage.setItem('pf_draft:' + m.moduleId, '1'); } catch (e) { }   // the module shows the "master draft" banner
-              var t = tget(); if (t) { t.mods = t.mods || {}; t.mods[m.moduleId] = { token: x.token, expiresAt: x.expiresAt, prefix: x.storagePrefix, draft: true }; sset(TKEY, t, false); }
-              location.href = x.url.replace(/[?#].*$/, '');
-            });
-          };
+          if (bEdit) bEdit.onclick = function () { openDraft(m, '', bEdit); };
+          var bBuild = $('[data-a=build]', card);
+          if (bBuild) bBuild.onclick = function () { buildPanel(m, card); };
           if ($('[data-a=rep]', card)) $('[data-a=rep]', card).onclick = function () {
             var b = this, out = $('.report', card); b.disabled = true; out.innerHTML = '<p class="muted small">Building the report…</p>';
             dirCall('contentReport', { moduleId: m.moduleId }).then(function (x) {

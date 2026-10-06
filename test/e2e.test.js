@@ -670,6 +670,7 @@ test('an Available card works before sign-in: "Sign in to open" → sign in → 
 const REAL = [['cellinjury', 'cell-injury-teaching-platform', process.env.CI_MODULE_HTML || '/home/user/cell-injury-teaching-platform/index.html', process.env.CI_CONTENT_KEY],
  ['inflhealing', 'inflammation-healing', process.env.IH_MODULE_HTML || '/home/user/inflammation-healing/index.html', process.env.IH_CONTENT_KEY]];
 const HOME = 'https://third-year-med.github.io/Interactive-pathology-platform/';
+const SERVE = {};   // packaged-release test: '<repo>/preview/' or '<repo>/' → another file
 async function realPage(M, calls) {
   if (M[3]) main.ctx.CONTENT_KEYS[M[0]] = M[3];
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
@@ -684,7 +685,11 @@ async function realPage(M, calls) {
   await p.route('https://third-year-med.github.io/**', function (route) {
     const u = new URL(route.request().url());
     const own = REAL.filter(function (R) { return u.pathname.indexOf('/' + R[1] + '/') === 0; })[0];
-    if (own) return route.fulfill({ status: 200, contentType: 'text/html', body: fs.readFileSync(own[2]) });
+    if (own) {
+      const sub = /\/preview\/(index\.html)?$/.test(u.pathname) ? own[1] + '/preview/' : own[1] + '/';
+      if (SERVE[sub] === null || (sub !== own[1] + '/' && !SERVE[sub])) return route.fulfill({ status: 404, body: '' });
+      return route.fulfill({ status: 200, contentType: 'text/html', body: fs.readFileSync(SERVE[sub] || own[2]) });
+    }
     const rel = u.pathname.replace(/^\/Interactive-pathology-platform\/?/, '') || 'index.html';
     if (rel === 'config.js') return route.fulfill({ status: 200, contentType: 'text/javascript', body: 'window.PORTAL_CONFIG = ' + JSON.stringify({ backendUrl: MAIN }) + ';' });
     const f = path.join(ROOT, rel);
@@ -1081,6 +1086,87 @@ test('Step 10: Results & attendance — Admin tab (all groups) and a personal te
   if (process.env.SHOTS) await (await p.$('#t-report')).screenshot({ path: path.join(process.env.SHOTS, 'results-teacher.png') });
   await p.context().close();
   main.call({ module: 'portal', action: 'teacherSetActive', token: t, userId: cr.teacher.userId, active: false });
+});
+
+test('new build: release tool → preview (Admin only, banner) → compatibility check → decision → go live after the new file is live', { skip: SKIP || ((!fs.existsSync(REAL[0][2]) || !REAL[0][3]) && 'module page or key not available') }, async function () {
+  const M = REAL[0], rel = require('../tools/module-release.js'), crypto = require('crypto'), cp = require('child_process'), os = require('os');
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  main.ctx.CONTENT_KEYS[M[0]] = M[3];
+  const st0 = main.call({ module: 'portal', action: 'contentStatus', token: t }).modules.filter(function (m) { return m.moduleId === M[0]; })[0];
+  if (!st0.migrated) assert.ok(main.call({ module: 'portal', action: 'contentMigrate', token: t, moduleId: M[0], decisions: {} }).ok);
+  assert.ok(main.call({ module: 'portal', action: 'contentSetMode', token: t, moduleId: M[0], mode: 'on' }).ok);
+  // the master draft corrects question q203 — the new build will drop q203
+  const dt = main.call({ module: 'portal', action: 'contentEditDraft', token: t, moduleId: M[0] }).token;
+  assert.ok(main.call({ module: M[0], action: 'upsert', token: dt, collection: 'contentedits', id: 'question:q203', data: { kind: 'question', key: 'q203', fields: { stem: 'corrected' } } }).ok);
+  // build 2 = the live course without q203, made into a preview file by the release tool
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rel-')), repo = path.join(tmp, M[1]), key = Buffer.from(M[3], 'base64');
+  fs.mkdirSync(repo); fs.copyFileSync(M[2], path.join(repo, 'index.html'));
+  const html = fs.readFileSync(M[2], 'utf8'), data = JSON.parse(rel.decrypt(html, key).toString('utf8'));
+  data.questions = data.questions.filter(function (q) { return q.id !== 'q203'; });
+  const nb = path.join(tmp, 'new-build.html');
+  fs.writeFileSync(nb, html.replace(/(<script id="neo-enc"[^>]*>)[\s\S]*?(<\/script>)/, function (m0, a1, a2) { return a1 + rel.encrypt(Buffer.from(JSON.stringify(data)), key) + a2; }));
+  const env = Object.assign({}, process.env, { CONTENT_KEY: M[3] }), tool = path.join(__dirname, '..', 'tools', 'module-release.js');
+  const outp = cp.execFileSync('node', [tool, 'preview', nb, repo, '--build', 'e2e-build-2'], { env: env }).toString();
+  assert.match(outp, /questions: 0 added, 0 changed, 1 removed → removed: q203/);
+  SERVE[M[1] + '/preview/'] = path.join(repo, 'preview', 'index.html');
+  try {
+    const calls = [], p = await realPage(M, calls);
+    const dash = async function () {
+      await p.goto(HOME + '#/teacher');
+      if (await p.$('#t-p')) { await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]'); }
+      await p.waitForSelector('#t-dir details.dir'); await p.click('#t-dir summary');
+      await p.click('#t-dir .dir-tab[data-t=content]');
+      await p.waitForSelector('#t-dir .content-mod[data-module="' + M[0] + '"] [data-a=build]');
+      await p.click('#t-dir .content-mod[data-module="' + M[0] + '"] [data-a=build]');
+      await p.waitForSelector('#t-dir .rb');
+    };
+    // without the Admin's draft session the preview does not open (only the sign-in screen + a notice)
+    await p.goto('https://third-year-med.github.io/' + M[1] + '/preview/');
+    await p.waitForSelector('#neo-boot .pf-prev');
+    assert.strictEqual(await p.evaluate(function () { return document.body.classList.contains('neo-locked'); }), true);
+    await dash();
+    const card = '#t-dir .content-mod[data-module="' + M[0] + '"]';
+    assert.match(await p.textContent(card + ' .rb'), /Live page on GitHub\s*build 2026-09-24 11:46 UTC[\s\S]*Preview page \(…\/preview\/\)\s*build e2e-build-2[\s\S]*not yet/);
+    await p.click(card + ' [data-b=open]');
+    await p.waitForURL(/\/preview\/$/);
+    await p.waitForSelector('#pf-draft', { timeout: 15000 });
+    assert.match(await p.textContent('#pf-draft'), /PREVIEW of the new build \(e2e-build-2\)/);
+    assert.strictEqual(await p.evaluate(function () { return window.NEO_BOOT.role; }), 'teacher');
+    if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'module-preview-banner.png'), clip: { x: 0, y: 0, width: 1280, height: 120 } });
+    await p.waitForFunction(function () { return true; }); await p.waitForTimeout(1500);
+    assert.ok(calls.some(function (c) { return c.action === 'contentBuildManifest' && c.preview === true && c.build === 'e2e-build-2'; }), 'the preview reported its build');
+    assert.ok(calls.some(function (c) { return c.action === 'studentSession' && c.preview === 1; }));
+    // back on the dashboard: check, decide, go live
+    await dash();
+    assert.match(await p.textContent(card + ' .rb'), /Preview checked in\s*build e2e-build-2/);
+    await p.click(card + ' [data-b=check]');
+    await p.waitForSelector(card + ' tr[data-key="master|contentedits|question:q203"] select');
+    assert.match(await p.textContent(card + ' tr[data-key="master|contentedits|question:q203"]'), /its target is not in the new build: q203/);
+    if (process.env.SHOTS) await (await p.$(card)).screenshot({ path: path.join(process.env.SHOTS, 'content-newbuild.png') });
+    await p.selectOption(card + ' tr[data-key="master|contentedits|question:q203"] select', 'remove');
+    for (const sel of await p.$$(card + ' tr[data-key]:not([data-key="master|contentedits|question:q203"]) select')) await sel.selectOption('keep');   // left over from earlier tests
+    // the new file is not live yet → refused
+    await p.click(card + ' [data-b=live]');
+    await p.waitForFunction(function () { return /Put the new file live on GitHub first/.test((document.querySelector('.toast') || {}).textContent || ''); });
+    // the release tool turns the preview into the live file (one commit on GitHub)
+    cp.execFileSync('node', [tool, 'golive', repo], { env: env });
+    assert.ok(!fs.existsSync(path.join(repo, 'preview')));
+    SERVE[M[1] + '/'] = path.join(repo, 'index.html'); SERVE[M[1] + '/preview/'] = null;
+    await p.click(card + ' [data-b=live]');
+    await p.waitForFunction(function () { return /Build e2e-build-2 is live — version/.test((document.querySelector('.toast') || {}).textContent || ''); });
+    const v = main.call({ module: 'portal', action: 'contentStatus', token: t }).modules.filter(function (m) { return m.moduleId === M[0]; })[0];
+    assert.strictEqual(v.builds.live.build, 'e2e-build-2'); assert.strictEqual(v.versionList[0].build, 'e2e-build-2');
+    const gr = main.call({ module: M[0], action: 'getAllContent', token: main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: [M[0]] }).modules[M[0]].token, since: 0 });
+    assert.ok(!gr.items.some(function (i) { return i.id === 'question:q203' && !i.deleted; }), 'the decision was applied');
+    // the live file made by the tool opens normally with the live key
+    await p.goto('https://third-year-med.github.io/' + M[1] + '/');
+    await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 15000 });
+    await p.context().close();
+  } finally {
+    delete SERVE[M[1] + '/']; delete SERVE[M[1] + '/preview/'];
+    main.call({ module: 'portal', action: 'contentSetMode', token: t, moduleId: M[0], mode: 'off' });
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 });
 
 test('no JavaScript errors', { skip: SKIP }, function () { assert.deepStrictEqual(errors, []); });

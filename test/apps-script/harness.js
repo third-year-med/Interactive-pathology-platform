@@ -99,7 +99,11 @@ function createBackend(opts) {
       getUuid: function () { return crypto.randomUUID(); },
       base64Encode: function (v) { return (typeof v === 'string' ? Buffer.from(v, 'utf8') : unsigned(v)).toString('base64'); },
       base64Decode: function (s) { return signed(Buffer.from(String(s), 'base64')); },
-      newBlob: function (bytes) { return { getBytes: function () { return bytes; } }; },
+      newBlob: function (bytes) { return { getBytes: function () { return typeof bytes === 'string' ? signed(Buffer.from(bytes, 'utf8')) : bytes; } }; },
+      computeHmacSha256Signature: function (value, key) {
+        const buf = function (v) { return typeof v === 'string' ? Buffer.from(v, 'utf8') : unsigned(v); };
+        return signed(crypto.createHmac('sha256', buf(key)).update(buf(value)).digest());
+      },
       sleep: function () {},
       formatDate: function (d) { return new Date(d).toISOString().slice(11, 16); }
     },

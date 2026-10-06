@@ -5,7 +5,7 @@ this repository on GitHub Pages. The front page starts with two modules: **Cell 
 **Inflammation & Healing** (both *Available*); more can be added later in the Teacher Dashboard.
 
 > **Updating from an earlier version?** Replace the contents of the `Portal` file in Apps Script with the new
-> [`backend/Portal.gs`](backend/Portal.gs) (version 2.2 — draft, publish, version history, group local changes, results & attendance overviews), save, and deploy
+> [`backend/Portal.gs`](backend/Portal.gs) (version 2.3 — draft, publish, version history, group local changes, results & attendance overviews, new builds), save, and deploy
 > a **new version** (step 1.4). The Code.gs line from step 1.3 stays as it is.
 
 ## 1. Main backend (Cell Injury, Inflammation …)
@@ -159,7 +159,9 @@ Platform directory → **Content**, per module (do Cell Injury first, then Infla
   every group receives it at its next sync (their kept items stay on top). Assessments, results and attendance are untouched.
 - **Version history** lists every version; **Restore** publishes a copy of an older version as a new version (nothing is
   deleted). **🔒 Freeze publishing** blocks publishing and restoring until unfrozen.
-- A rebuild of a module's packaged course on GitHub is not covered here (see the plan: separate procedure).
+- **🔁 New build** — a rebuilt module (a new packaged `index.html`) goes live without losing the master edits or the
+  groups' local changes: preview address (Admin only), compatibility check with a decision per item, then Go live.
+  The full procedure and the ID rules are in [docs/REBUILD.md](docs/REBUILD.md).
 
 **Group local changes (additions and hiding per group)** — while versioned content is on, a group's teacher who edits
 the module from that group's link changes **only that group**: new topics/questions are local additions, deleting or

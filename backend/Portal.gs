@@ -34,6 +34,15 @@
  *   Sheets (created on first use; no existing sheet is touched): Institutions, Groups, Modules, Deliveries,
  *   TeacherAssignments, ModuleContentRoles (the last two are prepared for later steps and stay empty for now).
  *
+ * Packaged releases (2.3 — a rebuilt module goes live without losing edits; see docs/REBUILD.md):
+ *   (module) studentSession {preview:1}  the preview file (…/preview/) asks for its key: given ONLY to the Admin's
+ *                     master-draft session (derived from the module's content key; students never receive it)
+ *   (module) contentBuildManifest  the module page, in a master-draft session, reports the IDs of its packaged course
+ *   contentRebuildCheck   compatibility of every master-draft item and every group's local item with the new build
+ *   contentRebuildDecide  keep / remove (/ clean a list) for each item that needs a decision
+ *   contentGoLive         after the new file is live on GitHub: applies the decisions and publishes a new version
+ *                         recorded with the new build
+ *
  * Results & attendance overviews (2.2, Step 10 — read-only):
  *   reportOverview    Admin (token) → every delivery; personal teacher (ttoken) → only the deliveries assigned to them.
  *                     Per group + module: students, sign-ins, practice quizzes, assessments, exams, attendance.
@@ -122,7 +131,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.2';
+var PORTAL_VERSION = '2.3';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -144,6 +153,8 @@ function portalHook_(module, p) {
   if (String(module) !== PORTAL_MODULE) {
     var act = String(p.action || '');
     if (String(module).indexOf('@') >= 0) return { ok: false, code: 'badmodule', error: 'Unknown module.' };   // internal storages
+    if (act === 'studentSession' && p.preview) return cvPreviewSession_(String(module), p);   // the preview file of a new build
+    if (act === 'contentBuildManifest') return cvBuildManifest_(String(module), p);
     var cv = contentHook_(String(module), act, p); if (cv) return cv;   // versioned content (only for modules switched on/changed)
     // Step 5: no module-level teacher password any more (teachers → Teacher Sign-In; Admin → dashboard)
     if ((act === 'login' || act === 'setup') && !portalModuleLoginAllowed_()) return PORTAL_MODULE_LOGIN_CLOSED;
@@ -189,6 +200,9 @@ function portalHook_(module, p) {
     case 'contentLocal': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentLocal_(p); }); });
     case 'contentLocalRemove': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentLocalRemove_(p); }); });
     case 'contentLocalPromote': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentLocalPromote_(p); }); });
+    case 'contentRebuildCheck': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentRebuildCheck_(p); }); });
+    case 'contentRebuildDecide': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentRebuildDecide_(p); }); });
+    case 'contentGoLive': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentGoLive_(p); }); });
     case 'contentReport': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentReport_(p); }); });
     case 'portalEndModuleSessions': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return portalEndModuleSessions_(); }); });
     case 'teacherMe': return tAuthed_(p, function (u) { return teacherMe_(u); });
@@ -1185,12 +1199,13 @@ function contentStatus_() {
       return { storage: k, registered: !!bm[k] || k === m.moduleId, master: c.master, group: c.group, other: c.other };
     });
     var vlist = versions.filter(function (v) { return v.moduleId === m.moduleId; }).sort(function (a, b) { return Number(b.version) - Number(a.version); })
-      .map(function (v) { return { version: Number(v.version), label: v.label, publishedAt: Number(v.publishedAt) || 0, publishedBy: v.publishedBy, notes: v.notes, itemCount: Number(v.itemCount) || 0, fingerprint: v.fingerprint }; });
+      .map(function (v) { return { version: Number(v.version), label: v.label, build: v.build || '', publishedAt: Number(v.publishedAt) || 0, publishedBy: v.publishedBy, notes: v.notes, itemCount: Number(v.itemCount) || 0, fingerprint: v.fingerprint }; });
     var migrated = !!getSetting_('content:pub:' + m.moduleId);
     return { moduleId: m.moduleId, title: m.title, mode: contentMode_(m.moduleId), publishedVersion: m.publishedVersion || '', migrated: migrated,
       currentVersion: Number(getSetting_('content:pub:' + m.moduleId) || 0), versionList: vlist, frozen: getSetting_('content:freeze:' + m.moduleId) === '1',
       draftChanges: migrated ? cvDiff_(m.moduleId).count : 0,
-      versions: versions.filter(function (v) { return v.moduleId === m.moduleId; }).length, storages: st };
+      versions: versions.filter(function (v) { return v.moduleId === m.moduleId; }).length, storages: st,
+      builds: { live: cvBuildInfo_(cvBuild_(m.moduleId, 'live')), preview: cvBuildInfo_(cvBuild_(m.moduleId, 'preview')) } };
   }) };
 }
 /** Read-only migration report for one module. The main storage (plain module name, what the normal link shows) is the
@@ -1425,7 +1440,7 @@ function contentDraft_(p) {
   return { ok: true, moduleId: M, added: d.added, changed: d.changed, removed: d.removed, count: d.count, affectedGroups: affected };
 }
 /** Writes version N from a map of rows, verifies it, then makes it current. Nothing changes for anyone if verification fails. */
-function cvPublishMap_(M, map, notes, label) {
+function cvPublishMap_(M, map, notes, label, build) {
   var mod = dirFind_(DIR.MOD, 'moduleId', M), now = Date.now();
   var N = 1 + dirAll_(DIR.CVER).filter(function (v) { return v.moduleId === M; }).reduce(function (mx, v) { return Math.max(mx, Number(v.version) || 0); }, 0);
   var V = M + '@v' + N, fp = cvFingerprint_(map), keys = Object.keys(map).sort();
@@ -1436,7 +1451,7 @@ function cvPublishMap_(M, map, notes, label) {
     return dirErr_('Publishing could not be verified — nothing was changed. Please try again.');
   }
   label = String(label || '').trim().slice(0, 20) || ('1.' + (N - 1));
-  appendRow_(DIR.CVER, { moduleId: M, version: N, label: label, build: '', publishedAt: now, publishedBy: 'admin', notes: String(notes || '').slice(0, 1000), fingerprint: fp, itemCount: keys.length, status: 'published' });
+  appendRow_(DIR.CVER, { moduleId: M, version: N, label: label, build: String(build || cvBuildLabel_(M) || ''), publishedAt: now, publishedBy: 'admin', notes: String(notes || '').slice(0, 1000), fingerprint: fp, itemCount: keys.length, status: 'published' });
   setSetting_('content:pub:' + M, String(N));
   var mr = dirPublic_(mod); mr.publishedVersion = label; mr.updatedAt = now; updateRow_(DIR.MOD, mod._row, mr);
   cvTouch_(M);   // every browser gets the new version at its next sync
@@ -1635,4 +1650,160 @@ function reportDelivery_(p) {
         attended: att.length, attendedPct: sessions.length ? Math.round(att.length / sessions.length * 100) : null, sessions: att };
     }),
     others: Object.keys(others).map(function (k) { return others[k]; }) };
+}
+
+/* ======================================================================
+ * Packaged releases (2.3). A rebuilt module (a new index.html on GitHub) goes live without losing the edits:
+ *  1. tools/module-release.js puts the new build at …/<module>/preview/, encrypted with the PREVIEW key;
+ *  2. the Admin opens it from Content → New build (a master-draft session — the only session that gets the key);
+ *     the page reports the IDs of its packaged course, the live page does the same;
+ *  3. the compatibility check lists every master-draft item and every group's local item whose target is gone
+ *     (or changed, or whose ID the new build now uses itself) — each needs a decision;
+ *  4. the new file goes live on GitHub (one commit), then Go live applies the decisions and publishes a new
+ *     version recorded with the new build.
+ * ====================================================================== */
+var CV_NOPREVIEW = { ok: false, code: 'nopreview', error: 'This preview of a new build opens only for the platform administrator (Platform Home → Content → New build → Open preview).' };
+var CV_MF_KINDS = ['topics', 'sections', 'questions', 'cases', 'images', 'other'];
+/** The preview key: HMAC-SHA256(content key, "neo-preview:<module>") — the same derivation as tools/module-release.js. */
+function previewKey_(M) {
+  var live = typeof contentKey_ === 'function' ? String(contentKey_(M) || '') : '';
+  if (!live || /^__/.test(live)) return '';
+  return Utilities.base64Encode(Utilities.computeHmacSha256Signature(Utilities.newBlob('neo-preview:' + M).getBytes(), Utilities.base64Decode(live)));
+}
+function cvPreviewSession_(module, p) {
+  var M = cvBaseOf_(module);
+  if (module !== M || p.stoken || !p.token) return CV_NOPREVIEW;
+  return authed_(M, p, function () {
+    if (!getSetting_('content:pub:' + M) || !cvIsDraftToken_(M, String(p.token))) return CV_NOPREVIEW;
+    var k = previewKey_(M); if (!k) return { ok: false, code: 'nokey', error: 'This module has no content key on the backend.' };
+    return { ok: true, role: 'teacher', contentKey: k, preview: true };
+  });
+}
+function cvBuildManifest_(module, p) {
+  var M = cvBaseOf_(module);
+  if (module !== M) return { ok: false, code: 'badmodule', error: 'Unknown module.' };
+  return authed_(M, p, function () {
+    if (!cvIsDraftToken_(M, String(p.token))) return { ok: false, code: 'forbidden', error: 'Only the master-draft session reports its build.' };
+    var src = p.manifest && typeof p.manifest === 'object' ? p.manifest : {}, m = {};
+    CV_MF_KINDS.forEach(function (k) {
+      var o = src[k] && typeof src[k] === 'object' ? src[k] : {}, t = {};
+      Object.keys(o).slice(0, 6000).forEach(function (id) { if (/^[A-Za-z0-9_.:\-]{1,80}$/.test(id)) t[id] = String(o[id]).slice(0, 16); });
+      m[k] = t;
+    });
+    var rec = { build: String(p.build || p.buildTime || '').slice(0, 40), buildTime: String(p.buildTime || '').slice(0, 40), reportedAt: Date.now(), m: m };
+    var json = JSON.stringify(rec); if (json.length > 48000) return dirErr_('This build has too many items to record.');
+    setSetting_('content:build:' + M + ':' + (p.preview ? 'preview' : 'live'), json);
+    return { ok: true };
+  });
+}
+function cvBuild_(M, which) { var s = getSetting_('content:build:' + M + ':' + which); if (!s) return null; try { return JSON.parse(s); } catch (e) { return null; } }
+function cvBuildInfo_(b) { return b ? { build: b.build, buildTime: b.buildTime, reportedAt: b.reportedAt, counts: CV_MF_KINDS.reduce(function (o, k) { o[k] = Object.keys(b.m[k] || {}).length; return o; }, {}) } : null; }
+function cvBuildLabel_(M) { var b = cvBuild_(M, 'live'); return b ? b.build : ''; }
+/** What an educational item points at in the packaged course. */
+function cvRefs_(coll, id, data) {
+  var list = function (arr, t) { return (Array.isArray(arr) ? arr : []).map(function (x) { return { t: t, id: String(x) }; }); };
+  switch (coll) {
+    case 'topicsections': return { refs: [{ t: 'topics', id: id, ov: true }] };   // replaces the topic's sections
+    case 'custommedia': return { refs: [{ t: 'sections', id: id }] };
+    case 'hiddentopics': return { refs: [{ t: 'topics', id: id }] };
+    case 'courseorder': return { refs: list(data && data.order, 'topics'), list: 'order' };
+    case 'revexclude': case 'quizextra': return { refs: list(data && data.ids, 'questions'), list: 'ids' };
+    case 'contentedits':
+      var i = id.indexOf(':'), T = { question: 'questions', 'case': 'cases', atlas: 'images' }[id.slice(0, i)];
+      return T ? { refs: [{ t: T, id: id.slice(i + 1), ov: T !== 'images' }] } : { unchecked: true };
+    case 'importedquestions': return { own: 'questions' };
+    case 'customtopics': return { own: 'topics' };
+    default: return { carried: true };   // practicals, presentation, media, … live only in the overlay
+  }
+}
+/** IDs the overlay itself provides (custom topics + their sections, imported questions). */
+function cvCustomIds_(maps) {
+  var c = { topics: {}, sections: {}, questions: {} };
+  maps.forEach(function (map) {
+    Object.keys(map).forEach(function (k) {
+      var r = map[k], d = unpackJson_(r) || {};
+      if (r.collection === 'customtopics') { c.topics[String(r.id)] = 1; (d.sections || []).forEach(function (s) { if (s && s.id) c.sections[String(s.id)] = 1; }); }
+      if (r.collection === 'importedquestions') c.questions[String(r.id)] = 1;
+    });
+  });
+  Object.keys(maps[maps.length - 1]).forEach(function (k) { var r = maps[maps.length - 1][k]; if (r.collection === 'topicsections' && c.topics[r.id]) ((unpackJson_(r) || {}).sections || []).forEach(function (s) { if (s && s.id) c.sections[String(s.id)] = 1; }); });
+  return c;
+}
+function cvCheckItem_(r, P, L, custom) {
+  var data = unpackJson_(r), x = cvRefs_(r.collection, String(r.id), data);
+  if (x.carried) return { status: 'carried' };
+  if (x.unchecked) return { status: 'unchecked' };
+  if (x.own) return P[x.own][r.id] !== undefined ? { status: 'duplicate' } : { status: 'carried' };
+  var missing = [], changed = false;
+  x.refs.forEach(function (ref) {
+    if (custom[ref.t] && custom[ref.t][ref.id]) return;
+    if (P[ref.t][ref.id] === undefined) { missing.push(ref.id); return; }
+    if (ref.ov && L && L[ref.t] && L[ref.t][ref.id] !== undefined && L[ref.t][ref.id] !== P[ref.t][ref.id]) changed = true;
+  });
+  if (missing.length) return { status: x.list && missing.length < x.refs.length ? 'partial' : 'missing', missing: missing, list: x.list || '' };
+  return { status: changed ? 'changed' : 'attached' };
+}
+var CV_CHOICES = { missing: ['remove', 'keep'], partial: ['clean', 'keep'], changed: ['keep', 'remove'], duplicate: ['remove'] };
+function contentRebuildCheck_(p) {
+  var M = String(p.moduleId || ''); if (!getSetting_('content:pub:' + M)) return dirErr_('No master copy yet.');
+  var PV = cvBuild_(M, 'preview'); if (!PV) return { ok: false, code: 'nopreview', error: 'No preview build has reported yet. Open the preview first (New build → Open preview).' };
+  var LV = cvBuild_(M, 'live'), P = PV.m, L = LV ? LV.m : null;
+  var saved = {}; try { var sd = JSON.parse(getSetting_('content:rebuild:' + M) || 'null'); if (sd && sd.build === PV.build) saved = sd.d || {}; } catch (e) { }
+  var rows = readAll_(SHEETS.CONTENT), draft = cvLive_(rows, M + '@draft'), items = [], counts = {};
+  var labels = {}; dirAll_(DIR.DELIV).forEach(function (d) { labels[d.backendModule] = d; });
+  var layers = [{ storage: '', label: 'Master draft', map: draft, custom: cvCustomIds_([draft]) }];
+  var locs = {}; rows.forEach(function (r) { var m = String(r.module || ''); if (/@local$/.test(m) && cvBaseOf_(m.replace(/@local$/, '')) === M && cvKey_(r.collection) && !isTrue_(r.deleted)) (locs[m] = locs[m] || {})[r.collection + '|' + r.id] = r; });
+  Object.keys(locs).sort().forEach(function (m) { var S = m.replace(/@local$/, ''); layers.push({ storage: S, label: 'Group ' + S, map: locs[m], custom: cvCustomIds_([draft, locs[m]]) }); });
+  layers.forEach(function (ly) {
+    Object.keys(ly.map).sort().forEach(function (k) {
+      var r = ly.map[k], c = cvCheckItem_(r, P, L, ly.custom), key = (ly.storage || 'master') + '|' + k;
+      counts[c.status] = (counts[c.status] || 0) + 1;
+      if (c.status === 'carried' || c.status === 'attached') return;
+      var dec = saved[key] && CV_CHOICES[c.status] && CV_CHOICES[c.status].indexOf(saved[key]) >= 0 ? saved[key] : '';
+      items.push({ key: key, storage: ly.storage, layer: ly.label, collection: r.collection, id: String(r.id), status: c.status, missing: c.missing || [], choices: CV_CHOICES[c.status] || [], decision: dec });
+    });
+  });
+  var diff = {}; if (L) CV_MF_KINDS.forEach(function (k) {
+    var o = L[k] || {}, n = P[k] || {};
+    diff[k] = { removed: Object.keys(o).filter(function (id) { return !(id in n); }), added: Object.keys(n).filter(function (id) { return !(id in o); }).length,
+      changed: Object.keys(n).filter(function (id) { return id in o && o[id] !== n[id]; }).length };
+  });
+  return { ok: true, moduleId: M, live: cvBuildInfo_(LV), preview: cvBuildInfo_(PV), diff: diff, counts: counts, items: items,
+    undecided: items.filter(function (it) { return it.choices.length && !it.decision; }).length };
+}
+function contentRebuildDecide_(p) {
+  var M = String(p.moduleId || ''), PV = cvBuild_(M, 'preview'); if (!PV) return dirErr_('No preview build.');
+  var d = {}, src = p.decisions && typeof p.decisions === 'object' ? p.decisions : {};
+  Object.keys(src).slice(0, 5000).forEach(function (k) { var v = String(src[k]); if (/^(keep|remove|clean)$/.test(v)) d[String(k).slice(0, 300)] = v; });
+  setSetting_('content:rebuild:' + M, JSON.stringify({ build: PV.build, d: d }));
+  return { ok: true, saved: Object.keys(d).length };
+}
+function contentGoLive_(p) {
+  var M = String(p.moduleId || '');
+  if (getSetting_('content:freeze:' + M) === '1') return dirErr_('Publishing is frozen for this module. Unfreeze it first.');
+  var rep = contentRebuildCheck_(p); if (!rep.ok) return rep;
+  if (String(p.build || '') !== rep.preview.build) return dirErr_('The preview build has changed since you checked — check again.');
+  if (rep.undecided) return dirErr_(rep.undecided + ' item(s) still need a decision.');
+  var D = M + '@draft', master = 0, local = [];
+  rep.items.forEach(function (it) {
+    if (it.decision !== 'remove' && it.decision !== 'clean') return;
+    if (!it.storage) {
+      if (it.decision === 'remove') actionDelete_(D, { collection: it.collection, id: it.id });
+      else { var r0 = findContentRow_(D, it.collection, it.id), d0 = r0 && unpackJson_(r0); if (d0) { var lk = cvRefs_(it.collection, it.id, d0).list; d0[lk] = (d0[lk] || []).filter(function (x) { return it.missing.indexOf(String(x)) < 0; }); actionUpsert_(D, { collection: it.collection, id: it.id, data: d0 }); } }
+      master++;
+    } else local.push(it);
+  });
+  var PV = cvBuild_(M, 'preview');
+  var r = cvPublishMap_(M, cvLive_(readAll_(SHEETS.CONTENT), D), String(p.notes || '').trim() || ('New build ' + PV.build), p.label, PV.build);
+  if (!r.ok) return r;
+  local.forEach(function (it) {   // the groups' decisions take effect together with the new version
+    var row = cvLocalRow_(it.storage, it.collection, it.id); if (!row) return;
+    if (it.decision === 'remove') deleteRow_(SHEETS.CONTENT, row._row);
+    else { var d1 = unpackJson_(row); if (d1) { var lk1 = cvRefs_(it.collection, it.id, d1).list; d1[lk1] = (d1[lk1] || []).filter(function (x) { return it.missing.indexOf(String(x)) < 0; }); actionUpsert_(it.storage + '@local', { collection: it.collection, id: it.id, data: d1 }); } }
+  });
+  setSetting_('content:build:' + M + ':live', JSON.stringify(PV));
+  setSetting_('content:build:' + M + ':preview', '');
+  setSetting_('content:rebuild:' + M, '');
+  cvTouch_(M);
+  return { ok: true, moduleId: M, version: r.version, label: r.label, build: PV.build, removedMaster: master, changedLocal: local.length };
 }
