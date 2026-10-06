@@ -1190,4 +1190,152 @@ test('new build: release tool → preview (Admin only, banner) → compatibility
   }
 });
 
+test('Practical: images by link (preview, caption, special characters, blocked sites), resource links, save/reload, edit, delete, student view, older records', { skip: SKIP || ((!fs.existsSync(REAL[0][2]) || !REAL[0][3]) && 'module page or key not available') }, async function () {
+  const M = REAL[0];
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  main.ctx.CONTENT_KEYS[M[0]] = M[3];
+  const st0 = main.call({ module: 'portal', action: 'contentStatus', token: t }).modules.filter(function (m) { return m.moduleId === M[0]; })[0];
+  if (!st0.migrated) assert.ok(main.call({ module: 'portal', action: 'contentMigrate', token: t, moduleId: M[0], decisions: {} }).ok);
+  assert.ok(main.call({ module: 'portal', action: 'contentSetMode', token: t, moduleId: M[0], mode: 'on' }).ok);   // as on the real backend
+  const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: [M[0]] }).modules[M[0]];
+  const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const IMG = 'https://img.example.org/path/lvh%20gross.png?size=large&crop=1&x=50%25#view';
+  const BLOCKED = 'https://blocked.example.org/slides/fatty-liver.jpg?token=a&b=c';
+  const PAGE = 'https://webpath.med.utah.edu/CINJHTML/CINJ014.html?q=1&r=2#top';
+  const RES1 = 'https://www.pathologyoutlines.com/topic/cellinjurynecrosis.html?a=1&b=%2F#coag';
+  const routes = async function (p) {
+    await p.route('https://img.example.org/**', function (r) { return r.fulfill({ status: 200, contentType: 'image/png', body: PNG }); });
+    await p.route('https://blocked.example.org/**', function (r) { return r.fulfill({ status: 403, contentType: 'text/plain', body: 'hotlinking not allowed' }); });
+    await p.route('https://webpath.med.utah.edu/**', function (r) { return r.fulfill({ status: 200, contentType: 'text/html', body: '<html>page</html>' }); });
+  };
+  const stored = function (id) { const rows = main.sheets.Content._rows.filter(function (r) { return r[1] === 'priv:pracdrafts' && r[2] === id; }); return rows.length ? JSON.parse(rows[rows.length - 1].slice(6).join('')) : null; };
+  const teacherPage = async function () {
+    const p = await realPage(M, []); await routes(p);
+    await p.addInitScript(function (v) { localStorage.setItem('ci_backend_token_v1', v); }, JSON.stringify({ token: tt.token, expiresAt: tt.expiresAt }));
+    return p;
+  };
+  const openEditor = async function (p, id) {
+    await p.evaluate(function () { Object.keys(localStorage).filter(function (k) { return /prac_drafts/.test(k); }).forEach(function (k) { localStorage.removeItem(k); }); });   // reload from the backend, not this browser
+    await p.goto('https://third-year-med.github.io/' + M[1] + '/#/practical/edit/' + id);
+    await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+    await p.waitForSelector('#pe-images', { timeout: 15000 }); await p.waitForTimeout(600);
+  };
+  const addByLink = async function (p, url, caption, button) {
+    await p.click('#pe-images .prac-slot:first-child button:has-text("Add by link")');
+    await p.fill('.modal input[aria-label="Image address"]', url);
+    await p.waitForTimeout(900);
+    const msg = await p.textContent('.modal .stack > div:nth-child(3)');
+    if (caption) await p.fill('.modal input[aria-label="Caption"]', caption);
+    await p.click('.modal-foot button:has-text("' + (button || 'Add image') + '")');
+    await p.waitForSelector('.modal', { state: 'detached' });
+    return msg;
+  };
+  const save = async function (p) { await p.waitForTimeout(2600); assert.match(await p.textContent('.prac-edit-top'), /saved ✓/); };
+  try {
+    // ---- TEST 1 + 3: new practical → image by link (preview) + caption + several links ----
+    let p = await teacherPage();
+    await p.goto('https://third-year-med.github.io/' + M[1] + '/#/practical');
+    await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+    await p.click('text=+ Blank practical'); await p.waitForSelector('#pe-images');
+    const id = decodeURIComponent(p.url().split('/edit/')[1]);
+    assert.match(await addByLink(p, 'not a url', null, 'Add image').catch(function () { return 'kept open'; }), /Invalid URL|kept open/);
+    if (await p.$('.modal')) { assert.match(await p.textContent('.modal'), /Invalid URL — please enter a valid HTTPS address/); await p.fill('.modal input[aria-label="Image address"]', IMG); await p.waitForTimeout(900);
+      assert.match(await p.textContent('.modal'), /✓ Picture found/); await p.fill('.modal input[aria-label="Caption"]', 'LVH — gross'); await p.click('.modal-foot button:has-text("Add image")'); }
+    assert.match(await addByLink(p, BLOCKED, 'Fatty liver'), /could not be shown/);
+    assert.match(await addByLink(p, PAGE, 'WebPath — coagulative necrosis', 'Add as resource link'), /is a web page, not a picture/);
+    await p.waitForSelector('#pe-images .prac-img-missing');
+    assert.match(await p.textContent('#pe-images .prac-img-missing'), /Image failed to load[\s\S]*address is saved/);
+    assert.strictEqual(await p.getAttribute('#pe-images .prac-img-missing a', 'href'), BLOCKED);
+    await p.click('#pe-resources button:has-text("+ Add resource")');
+    const rows = await p.$$('#pe-resources .prac-res-row'), last = rows[rows.length - 1];
+    await (await last.$('input.ttl')).fill('Pathology Outlines — necrosis');
+    await (await last.$('input.url')).fill(RES1.replace('https://', ''));   // typed without https:// ("www.…")
+    await (await last.$('input.ttl')).click();                               // leaving the field adds https://
+    assert.strictEqual(await (await last.$('input.url')).inputValue(), RES1);
+    await p.fill('#pe-keyFeatures textarea', 'Preserved outlines\nLoss of nuclei'); await p.fill('#pe-microscopic textarea', 'Ghost cells.');
+    await p.fill('#pe-diagnosis input:not([type=checkbox])', 'Coagulative necrosis'); await p.check('#pe-diagnosis input[type=checkbox]');
+    await save(p);
+    let d = stored(id);
+    assert.deepStrictEqual(d.images.map(function (i) { return [i.url, i.caption]; }), [[IMG, 'LVH — gross'], [BLOCKED, 'Fatty liver']]);
+    assert.deepStrictEqual(d.resources.map(function (r) { return [r.title, r.url]; }), [['WebPath — coagulative necrosis', PAGE], ['Pathology Outlines — necrosis', RES1]]);
+    // ---- reload: everything is still there ----
+    await openEditor(p, id);
+    assert.deepStrictEqual(await p.$$eval('#pe-images .prac-img-card img', function (x) { return x.map(function (i) { return i.getAttribute('src'); }); }), [IMG]);
+    assert.strictEqual(await p.$$eval('#pe-images .prac-img-missing', function (x) { return x.length; }), 1, 'the blocked picture is shown as a message + link, not lost');
+    assert.deepStrictEqual(await p.$$eval('#pe-resources .prac-res-row', function (x) { return x.map(function (r) { return r.querySelector('input.url').value; }); }), [PAGE, RES1]);
+    if (process.env.SHOTS) await (await p.$('#pe-images')).screenshot({ path: path.join(process.env.SHOTS, 'prac-editor-images.png') });
+    // approve + publish
+    await p.click('.prac-edit-actions button:has-text("Approve")'); await p.waitForTimeout(800);
+    await p.click('.prac-edit-actions button:has-text("Publish")'); await p.click('.modal-foot button.btn-primary'); await p.waitForTimeout(1500);
+    assert.ok(main.sheets.Content._rows.some(function (r) { return r[1] === 'practicalpub' && r[2] === id; }), 'published');
+    // ---- race: a background sync while typing a link on the published practical must not lose the typing ----
+    await p.click('#pe-resources button:has-text("+ Add resource")');
+    const r3 = (await p.$$('#pe-resources .prac-res-row')).pop();
+    await (await r3.$('input.ttl')).fill('Library');
+    await (await r3.$('input.url')).click(); await p.keyboard.type('https://library.med.utah.edu/', { delay: 15 });
+    await p.waitForTimeout(900); await p.evaluate(function () { return Backend.syncFromBackend(); }); await p.waitForTimeout(500);
+    await p.keyboard.type('WebPath/webpath.html', { delay: 15 });
+    await p.waitForTimeout(1500);
+    assert.strictEqual(stored(id).resources[2].url, 'https://library.med.utah.edu/WebPath/webpath.html', 'nothing typed was lost');
+    // ---- TEST 4: edit an existing item (caption + link) ----
+    await openEditor(p, id);
+    await p.fill('#pe-images .prac-img-card input[placeholder="e.g. Lipoma — cut surface"]', 'LVH — gross, edited');
+    const first = (await p.$$('#pe-resources .prac-res-row'))[1];
+    await (await first.$('input.url')).fill(RES1 + '&edited=1');
+    await save(p);
+    await openEditor(p, id);
+    assert.strictEqual(await p.inputValue('#pe-images .prac-img-card input[placeholder="e.g. Lipoma — cut surface"]'), 'LVH — gross, edited');
+    assert.strictEqual(await (await (await p.$$('#pe-resources .prac-res-row'))[1].$('input.url')).inputValue(), RES1 + '&edited=1');
+    // ---- TEST 5: delete an image and a link ----
+    await (await (await p.$$('#pe-resources .prac-res-row'))[2].$('button[title="Delete resource"]')).click();   // the "Library" link
+    await p.click('.modal-foot button.btn-danger'); await p.waitForTimeout(400);
+    const cards = await p.$$('#pe-images .prac-img-card'); await (await cards[1].$('button:has-text("Remove")')).click(); await p.click('.modal-foot button.btn-danger');
+    await save(p);
+    await openEditor(p, id);
+    assert.strictEqual((await p.$$('#pe-resources .prac-res-row')).length, 2);
+    assert.strictEqual((await p.$$('#pe-images .prac-img-card')).length, 1);
+    d = stored(id); assert.deepStrictEqual(d.images.map(function (i) { return i.url; }), [IMG]); assert.deepStrictEqual(d.resources.map(function (r) { return r.title; }), ['WebPath — coagulative necrosis', 'Pathology Outlines — necrosis']);
+    // publish the edits for students
+    await p.click('.prac-edit-actions button:has-text("Approve")'); await p.waitForTimeout(800);
+    await p.click('.prac-edit-actions button:has-text("Publish update")'); await p.click('.modal-foot button.btn-primary'); await p.waitForTimeout(1500);
+    await p.context().close();
+    // ---- TEST 7: an older published record (image under "src", link under "link"/"name") ----
+    const D = 'prac_legacy1';
+    assert.ok(main.call({ module: M[0], action: 'upsert', token: tt.token, collection: 'practicalpub', id: D, data: { id: D, number: 90, title: 'Older practical', version: 1, objectives: [], specimen: {}, gross: 'Old text', microscopic: '', keyFeatures: ['k'], diagnosis: 'Old dx', differential: '', clinical: '', stain: '', magnification: '', teachingPoints: [],
+      images: [{ id: 'o1', slot: 'gross', src: IMG, caption: 'Old picture' }], diagrams: [], questions: [], viva: [], resources: [{ id: 'r1', type: 'resource', name: 'Old link', link: RES1 }], settings: {} } }).ok);
+    // ---- TEST 6 + 8: student view ----
+    main.addStudents(M[0], [{ username: 'pracstudent', name: 'Prac Student', password: 'prac-pass-123', mustChange: false }]);
+    const sl = main.call({ module: M[0], action: 'studentLogin', username: 'pracstudent', password: 'prac-pass-123' }); assert.ok(sl.ok, JSON.stringify(sl));
+    p = await realPage(M, []); await routes(p);
+    await p.addInitScript(function (v) { localStorage.setItem('ci_stu_session_v1', v); }, JSON.stringify({ token: sl.stoken || sl.token, expiresAt: Date.now() + 3600000 }));
+    for (const pid of [id, D]) {
+      await p.goto('https://third-year-med.github.io/' + M[1] + '/#/practical/p/' + pid);
+      await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'student'; }, null, { timeout: 20000 });
+      await p.waitForSelector('.prac-figs img', { timeout: 15000 });
+      await p.waitForTimeout(500);
+      assert.strictEqual(await p.getAttribute('.prac-figs img', 'src'), IMG, 'the address with ? & = % # is intact');
+      assert.ok(await p.$eval('.prac-figs img', function (i) { return i.complete && i.naturalWidth > 0; }), 'the picture is shown');
+      const links = await p.$$eval('.prac-res a', function (x) { return x.map(function (a) { return [a.closest('.prac-res-item').querySelector('.t').textContent, a.getAttribute('href'), a.target, a.rel]; }); });
+      if (pid === id) {
+        assert.match(await p.textContent('.prac-figs'), /LVH — gross, edited/);
+        assert.deepStrictEqual(links.slice().sort(), [['Pathology Outlines — necrosis', RES1 + '&edited=1', '_blank', 'noopener noreferrer'], ['WebPath — coagulative necrosis', PAGE, '_blank', 'noopener noreferrer']]);   // grouped by type for students
+        if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'prac-student.png'), fullPage: true });
+      } else {
+        assert.match(await p.textContent('.prac-figs'), /Old picture/);
+        assert.deepStrictEqual(links, [['Old link', RES1, '_blank', 'noopener noreferrer']]);
+      }
+    }
+    // a picture the website refuses → message + the original address as a link (students)
+    assert.ok(main.call({ module: M[0], action: 'upsert', token: tt.token, collection: 'practicalpub', id: 'prac_blk', data: { id: 'prac_blk', number: 91, title: 'Blocked picture', version: 1, objectives: [], specimen: {}, gross: '', microscopic: 'm', keyFeatures: ['k'], diagnosis: 'd', differential: '', clinical: '', stain: '', magnification: '', teachingPoints: [], images: [{ id: 'b1', slot: 'micro', url: BLOCKED, caption: 'Blocked' }], diagrams: [], questions: [], viva: [], resources: [], settings: {} } }).ok);
+    await p.goto('https://third-year-med.github.io/' + M[1] + '/#/practical/p/prac_blk'); await p.waitForTimeout(400); await p.reload();
+    await p.waitForSelector('.prac-figs .prac-img-missing', { timeout: 15000 });
+    assert.match(await p.textContent('.prac-figs'), /Image failed to load[\s\S]*does not allow/);
+    assert.strictEqual(await p.getAttribute('.prac-figs .prac-img-missing a', 'href'), BLOCKED);
+    assert.ok(!/TypeError|undefined|null/.test(await p.textContent('.prac-figs')), 'no raw errors for students');
+    await p.context().close();
+  } finally {
+    main.call({ module: 'portal', action: 'contentSetMode', token: t, moduleId: M[0], mode: 'off' });
+  }
+});
+
 test('no JavaScript errors', { skip: SKIP }, function () { assert.deepStrictEqual(errors, []); });

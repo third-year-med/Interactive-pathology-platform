@@ -112,6 +112,7 @@ function route_(p) {
     case 'upsert': return authed_(module, p, function () { return actionUpsert_(module, p); });
     case 'delete': return authed_(module, p, function () { return actionDelete_(module, p); });
     case 'getAllContent': return actionGetAllContent_(module, p);
+    case 'privList': return authed_(module, p, function () { return actionPrivList_(module, p); });
     case 'exportCourse': return authed_(module, p, function () { return actionExportCourse_(module); });
     case 'importCourse': return authed_(module, p, function () { return actionImportCourse_(module, p); });
     default: return { ok: false, error: 'Unknown action: ' + action, code: 'badaction' };
@@ -641,4 +642,11 @@ function actionExportCourse_(module) {
   var rows = readAll_(SHEETS.CONTENT).filter(function (r) { return r.module === module && !r.deleted && r.collection !== 'history'; });
   var items = rows.map(function (r) { return { collection: r.collection, id: r.id, data: unpackJson_(r) }; });
   return { ok: true, items: items, exportedAt: new Date().toISOString() };
+}
+
+/* copied verbatim from Code.gs (teacher-only private collections, e.g. practical drafts) */
+function actionPrivList_(module, p) {
+  var coll = 'priv:' + String(p.collection || '');
+  var rows = readAll_(SHEETS.CONTENT).filter(function (r) { return r.module === module && r.collection === coll; });
+  return { ok: true, items: rows.map(function (r) { return { id: String(r.id), updatedAt: Number(r.updatedAt), deleted: !!r.deleted, data: r.deleted ? null : unpackJson_(r) }; }) };
 }
