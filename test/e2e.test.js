@@ -1504,4 +1504,47 @@ test('Official Exams: Admin adds the module → combined exam bank from two modu
   main.call({ module: 'exams-tr-a', action: 'examUpsert', token: tt.token, exam: Object.assign({}, exm.exam, { status: 'closed' }) });
 });
 
+test('Official Exams: a group\'s empty exam bank is filled from the normal link\'s exam bank, topic by topic; picture filter', { skip: SKIP || (!fs.existsSync(EXAM_HTML) && 'exam app not available') }, async function () {
+  groupFixture();
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const om = main.call({ module: 'portal', action: 'examOpen', token: t, storage: 'cellinjury' });
+  const sv = main.call({ module: 'cellinjury', action: 'examBankSave', token: om.token, questions: [
+    { type: 'tf', stem: 'Necrosis A', answer: true, topic: '03 · Necrosis' }, { type: 'tf', stem: 'Necrosis B', answer: false, topic: '03 · Necrosis' },
+    { type: 'tf', stem: 'Apoptosis A', answer: true, topic: '04 · Apoptosis' },
+    { type: 'fillblank', stem: 'What is the diagnosis?', answers: [['fatty change']], topic: 'Practical', image: 'https://drive.google.com/thumbnail?id=p9&sz=w2000' }] });
+  assert.strictEqual(sv.saved.length, 4);
+  const p = await realPage(REAL[0], []);
+  await p.goto(HOME + '#/teacher');
+  await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+  await p.waitForSelector('#t-exams .ex-row[data-storage="cellinjury-tr-a"] [data-a=man]');
+  await p.click('#t-exams .ex-row[data-storage="cellinjury-tr-a"] [data-a=man]');
+  await p.waitForSelector('.tbar');
+  await p.click('.tbar .tab:has-text("Exam question bank")');
+  await p.waitForSelector('td:has-text("This exam bank is empty")');
+  await p.click('button:has-text("Copy from another exam bank")');
+  await p.waitForSelector('.modal .qlist .qitem input');
+  assert.strictEqual(await p.$eval('.modal label.f select', function (s) { return s.value; }), 'cellinjury', 'the normal link\'s bank first');
+  await p.selectOption('.modal .row select >> nth=0', '03 · Necrosis');
+  assert.strictEqual((await p.$$('.modal .qlist .qitem input')).length, 2);
+  await p.click('.modal button:has-text("Select all shown")');
+  await p.click('.modal button:has-text("Copy into this exam bank")');
+  await p.waitForSelector('td:has-text("Necrosis A")');
+  const tt = JSON.parse(await p.evaluate(function () { return sessionStorage.getItem('xm_cellinjury-tr-a_tt'); }));
+  const bank = main.call({ module: 'cellinjury-tr-a', action: 'examBankList', token: tt.token }).questions;
+  assert.deepStrictEqual(bank.map(function (q) { return q.stem; }).sort(), ['Necrosis A', 'Necrosis B']);
+  assert.ok(bank.every(function (q) { return q.topic === '03 · Necrosis' && q.source.kind === 'exambank' && q.source.course === 'cellinjury'; }));
+  // the practical (picture) questions only
+  await p.click('button:has-text("Copy from another exam bank")');
+  await p.waitForSelector('.modal .qlist .qitem input');
+  await p.selectOption('.modal .row select >> nth=1', '_pic');
+  assert.strictEqual((await p.$$('.modal .qlist .qitem input')).length, 1);
+  await p.click('.modal button:has-text("Select all shown")');
+  await p.click('.modal button:has-text("Copy into this exam bank")');
+  await p.waitForSelector('td img.qthumb');
+  await p.selectOption('.twrap .card select >> nth=1', '_pic');
+  assert.strictEqual((await p.$$('.twrap table.t tbody tr:has(button:has-text("Edit"))')).length, 1, 'bank tab: picture filter');
+  await p.context().close();
+});
+
 test('no JavaScript errors', { skip: SKIP }, function () { assert.deepStrictEqual(errors, []); });
