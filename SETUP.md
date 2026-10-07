@@ -251,6 +251,10 @@ exam accounts with their usual password automatically (storage `exams-<link code
 - **📤 To a teaching bank** — tick questions in the exam bank → choose module, group and a topic per question → *Copy*
   (tick *Move* to remove them from the exam bank). Students can then practise them.
 
+**Giving an exam of the normal link to a group:** students of a group sign in to exams in their group's own place.
+On the exam card press **⧉ Copy to a group** → choose the group (e.g. Cell Injury — Razi · Group A) → tick *Publish it
+there at once* → **Copy exam**. The exam and its questions are copied there (no duplicates); results are kept per group.
+
 **During a combined exam** (*Close ALL teaching modules of this group for candidates*, on by default) its candidates
 cannot open any teaching module of the group, from 15 minutes before opening until closing; other students are not
 affected. **Results** of a combined exam show each student's marks **per module** (screen and Excel/CSV).

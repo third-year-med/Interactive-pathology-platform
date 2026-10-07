@@ -1412,3 +1412,24 @@ test('exams: results of a combined exam per module (each question counts in the 
   assert.deepStrictEqual([r.other.marks, r.other.max], [1, 1], 'picture question, typed answer accepted case-insensitively');
   assert.strictEqual(S.call({ module: X, action: 'examModuleScores', token: 'bad', examId: ex.exam.id }).code, 'auth');
 });
+test('exams: copy an exam from the normal link to a group (questions copied once, for the group\'s own students)', function () {
+  const S = examsSetup(), now = Date.now();
+  const om = S.dir('examOpen', { storage: 'cellinjury' });
+  const bk = S.call({ module: 'cellinjury', action: 'examBankSave', token: om.token, questions: [{ type: 'tf', stem: 'a', answer: true, topic: 'T1' }, { type: 'tf', stem: 'b', answer: false, topic: 'T2' }] });
+  const ex = S.call({ module: 'cellinjury', action: 'examUpsert', token: om.token, exam: { title: 'Q1', code: '7T8CRR', opensAt: now - 1000, closesAt: now + 3600000, durationMin: 60, questionIds: bk.saved, status: 'published', lockTeaching: true } });
+  const G = 'cellinjury-razi-a-26';
+  const c1 = S.call({ module: 'cellinjury', action: 'examCopyExam', token: om.token, examId: ex.exam.id, to: G, publish: true }); assert.ok(c1.ok, JSON.stringify(c1));
+  assert.deepStrictEqual([c1.status, c1.copied, c1.reused], ['published', 2, 0]);
+  const c2 = S.call({ module: 'cellinjury', action: 'examCopyExam', token: om.token, examId: ex.exam.id, to: G }); assert.deepStrictEqual([c2.status, c2.copied, c2.reused], ['draft', 0, 2], 'no duplicate questions; a second copy stays a draft');
+  const og = S.dir('examOpen', { storage: G });
+  assert.strictEqual(S.call({ module: G, action: 'examBankList', token: og.token }).questions.length, 2);
+  const list = S.call({ module: G, action: 'examList', token: og.token }).exams;
+  assert.strictEqual(list.length, 2); assert.ok(list.every(function (e) { return e.title === 'Q1' && e.lockTeaching && e.candidates === 'all'; }));
+  // a Razi A student signs in with the group password
+  assert.ok(S.dir('rosterAdd', { groupId: S.ra.groupId, students: [{ studentId: 'r1', name: 'Razi One', password: 'razi-pass-11' }], mustChange: false }).ok);
+  assert.ok(S.call({ module: G, action: 'examLogin', code: '7t8crr', username: 'r1', password: 'razi-pass-11' }).ok);
+  assert.strictEqual(S.call({ module: 'portal', action: 'portalExamList', g: 'razi-a-26' }).exams.filter(function (e) { return e.title === 'Q1'; }).length, 1);
+  // a personal teacher cannot copy into a group that is not theirs
+  const ot = S.t('examOpen', S.ahmed.tok, { storage: G });
+  assert.strictEqual(S.call({ module: G, action: 'examCopyExam', token: ot.token, examId: list[0].id, to: 'cellinjury-misrata-a-26' }).code, 'forbidden');
+});

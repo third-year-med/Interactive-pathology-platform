@@ -1544,7 +1544,44 @@ test('Official Exams: a group\'s empty exam bank is filled from the normal link\
   await p.waitForSelector('td img.qthumb');
   await p.selectOption('.twrap .card select >> nth=1', '_pic');
   assert.strictEqual((await p.$$('.twrap table.t tbody tr:has(button:has-text("Edit"))')).length, 1, 'bank tab: picture filter');
+  await p.selectOption('.twrap .card select >> nth=1', '');
+  await p.click('button:has-text("Select all shown")');
+  assert.match(await p.textContent('button:has-text("To a teaching bank")'), /\(3\)/, 'Select all shown in the bank tab');
+  assert.ok(await p.$eval('.twrap table.t thead input[type=checkbox]', function (c) { return c.checked; }), 'header tick-box');
+  await p.click('button:has-text("Clear selection")');
+  assert.match(await p.textContent('button:has-text("Delete selected")'), /\(0\)/);
   await p.context().close();
+});
+
+test('Official Exams: "Copy to a group" gives a normal-link exam to Razi Group A (same times and code); its students see it', { skip: SKIP || (!fs.existsSync(EXAM_HTML) && 'exam app not available') }, async function () {
+  groupFixture();
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token, now = Date.now();
+  const om = main.call({ module: 'portal', action: 'examOpen', token: t, storage: 'cellinjury' });
+  const bk = main.call({ module: 'cellinjury', action: 'examBankSave', token: om.token, questions: [{ type: 'tf', stem: 'Copy me 1', answer: true }, { type: 'tf', stem: 'Copy me 2', answer: false }] });
+  assert.ok(main.call({ module: 'cellinjury', action: 'examUpsert', token: om.token, exam: { title: 'Q1 copy test', code: 'CPY77', opensAt: now - 60000, closesAt: now + 3600000, durationMin: 60, questionIds: bk.saved, status: 'published' } }).ok);
+  const p = await realPage(REAL[0], []);
+  await p.goto(HOME + '#/teacher');
+  await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+  await p.waitForSelector('#t-exams .ex-row[data-storage="cellinjury"] [data-a=man]');
+  await p.click('#t-exams .ex-row[data-storage="cellinjury"] [data-a=man]');
+  await p.waitForSelector('.card:has-text("Q1 copy test") button:has-text("Copy to a group")');
+  await p.click('.card:has-text("Q1 copy test") button:has-text("Copy to a group")');
+  await p.waitForSelector('.modal label.f select');
+  await p.selectOption('.modal label.f select', 'cellinjury-tr-a');
+  await p.click('.modal button:has-text("Copy exam")');
+  await p.waitForSelector('.modal .msg.ok');
+  assert.match(await p.textContent('.modal'), /copied to[\s\S]*Group A[\s\S]*published with the same times and access code[\s\S]*2 question/);
+  await p.click('.modal button:has-text("OK")');
+  const og = main.call({ module: 'portal', action: 'examOpen', token: t, storage: 'cellinjury-tr-a' });
+  const e = main.call({ module: 'cellinjury-tr-a', action: 'examList', token: og.token }).exams.filter(function (x) { return x.title === 'Q1 copy test'; })[0];
+  assert.ok(e && e.status === 'published' && e.code === 'CPY77' && e.questionIds.length === 2);
+  assert.ok(main.call({ module: 'cellinjury-tr-a', action: 'examLogin', code: 'CPY77', username: 'ahmed', password: PW }).ok, 'a Razi A student signs in with the usual password');
+  await p.goto('https://third-year-med.github.io/pathology-exams/?g=tr-a');
+  await p.waitForSelector('.front-ex[data-storage="cellinjury-tr-a"]');
+  assert.match(await p.textContent('.front-ex[data-storage="cellinjury-tr-a"]'), /Q1 copy test[\s\S]*Open now/);
+  await p.context().close();
+  main.call({ module: 'cellinjury-tr-a', action: 'examUpsert', token: og.token, exam: Object.assign({}, e, { status: 'closed' }) });
 });
 
 test('no JavaScript errors', { skip: SKIP }, function () { assert.deepStrictEqual(errors, []); });

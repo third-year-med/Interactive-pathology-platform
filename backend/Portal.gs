@@ -48,6 +48,8 @@
  *   examTeachWrite {to, add, hide, unhide, remove}  exam → teaching bank (versioned ON: Admin → master draft,
  *                     teacher → the group's local layer; OFF → the storage itself) + Revision hide/show + removals
  *   examModuleScores {examId}  per student and module: marks / max / % (each question counts in source.course)
+ *   examCopyExam {examId, to, publish?}  copy an exam + its questions to another place (e.g. a group); questions
+ *                     already copied there are reused; draft unless publish (same times and code) is asked for
  *   Combined-exam teaching lock: a published exam in exams-<code> with lockTeaching closes every teaching module
  *                     <module>-<code> of that group for its candidates (sign-in, group page and every request)
  *
@@ -181,6 +183,7 @@ function portalHook_(module, p) {
   if (String(module) !== PORTAL_MODULE) {
     var act = String(p.action || '');
     if (String(module).indexOf('@') >= 0) return { ok: false, code: 'badmodule', error: 'Unknown module.' };   // internal storages
+    if (act === 'examUpsert' || act === 'examRemove' || act === 'examCopyExam') { examListForget_(String(module)); if (p.to) examListForget_(String(p.to)); }   // the exam front page shows changes at once
     if (EXAM_BANK_ACTIONS[act]) return examBankHook_(String(module), p);   // 2.6: copy questions between exam banks and teaching banks
     var gl = examGroupLockHook_(String(module), act, p); if (gl) return gl;   // 2.6: a combined exam of the group closes all its modules for candidates
     // 2.5 speed: the frequent "anything new?" check is answered from memory when nothing changed for this storage
@@ -2022,7 +2025,7 @@ function portalExamList_(p) {
 }
 
 /* ---- Exam banks ↔ teaching banks (2.6): copy questions between modules, groups and the official exam banks ---- */
-var EXAM_BANK_ACTIONS = { examCopySources: 1, examCourseExtras: 1, examCopyFrom: 1, examTeachWrite: 1, examModuleScores: 1 };
+var EXAM_BANK_ACTIONS = { examCopySources: 1, examCourseExtras: 1, examCopyFrom: 1, examTeachWrite: 1, examModuleScores: 1, examCopyExam: 1 };
 var EXAM_TEACH_TYPES = { mcq: 1, vignette: 1, tf: 1, selectall: 1, fillblank: 1, matching: 1, short: 1 };
 /** Who holds this module token: a personal teacher (their grant) or the Admin (any other token of the storage). */
 function examCaller_(token) {
@@ -2116,6 +2119,7 @@ function examBankHook_(S, p) {
       var qs = []; readAll_(SHEETS.CONTENT).forEach(function (r) { if (r.module === b.storage && r.collection === 'priv:exambank' && !isTrue_(r.deleted)) { var q = unpackJson_(r); if (q) qs.push(q); } });
       return { ok: true, questions: qs.sort(function (x, y) { return (x.addedAt || 0) - (y.addedAt || 0); }) };
     }
+    if (a === 'examCopyExam') return examCopyExam_(S, src, p);
     if (a === 'examTeachWrite') {   // add questions to a teaching bank; hide ids from Revision; remove imported questions
       var to = course(p.to); if (!to) return { ok: false, code: 'forbidden', error: 'You cannot change this teaching bank.' };
       var tg = examTeachTarget_(to.storage), now = Date.now(), added = [], bad = 0, w = [];
@@ -2178,3 +2182,37 @@ function examModuleScores_(S, examId) {
   var list = Object.keys(mods).sort().map(function (m) { return { id: m, title: titles[m] || (m === 'other' ? 'Exam-only questions' : m) }; });
   return { ok: true, examId: examId, modules: list, results: rows };
 }
+
+/* ---- Copy an exam to another place (2.6): e.g. the module's normal-link exam → a group (Razi A) ---- */
+/** The exam and its questions are copied into the target place (questions already copied there are reused, never
+ *  duplicated). The copy is for that place's own students; it starts as a draft unless publish is asked for. */
+function examCopyExam_(S, src, p) {
+  if (typeof exPrivGet_ !== 'function' || typeof exBankBulkPut_ !== 'function') return { ok: false, error: 'Update Code.gs to 1.7 first.' };
+  var to = src.banks.filter(function (b) { return b.storage === String(p.to || '') && b.storage !== S; })[0];
+  if (!to) return { ok: false, code: 'forbidden', error: 'You cannot add exams to this place.' };
+  var exam = exPrivGet_(S, 'exams', String(p.examId || '')); if (!exam) return { ok: false, error: 'Exam not found.' };
+  var T = to.storage, now = Date.now(), base = cvBaseOf_(S), bank = {}, have = {}, items = [], ids = [], reused = 0;
+  exPrivAll_(S, 'exambank').forEach(function (q) { bank[q.id] = q; });
+  exPrivAll_(T, 'exambank').forEach(function (q) { if (q.source && q.source.kind === 'exambank' && q.source.origId) have[q.source.origId] = q.id; });
+  (exam.questionIds || []).forEach(function (id, i) {
+    var q = bank[id]; if (!q) return;
+    if (have[id]) { ids.push(have[id]); reused++; return; }
+    var o = JSON.parse(JSON.stringify(q)), nid = 'xq_' + now.toString(36) + i.toString(36) + Math.floor(Math.random() * 1e6).toString(36);
+    o.id = nid; o.addedAt = now + i; o.updatedAt = now;
+    o.source = { kind: 'exambank', origId: id, course: (q.source && q.source.course) || (base !== EXAM_MODULE ? base : '') };
+    items.push(o); ids.push(nid); have[id] = nid;
+  });
+  if (!ids.length) return { ok: false, error: 'This exam has no questions to copy.' };
+  exBankBulkPut_(T, items);
+  var e = JSON.parse(JSON.stringify(exam)); delete e.stats; delete e.state;
+  e.id = 'ex_' + now.toString(36) + Math.floor(Math.random() * 1e6).toString(36); e.questionIds = ids; e.candidates = 'all';
+  e.createdAt = now; e.updatedAt = now; e.copiedFrom = { storage: S, examId: exam.id };
+  var pub = !!p.publish && exam.status === 'published';
+  if (pub && exPrivAll_(T, 'exams').some(function (x) { return x.status !== 'draft' && String(x.code).toUpperCase() === String(e.code).toUpperCase(); })) pub = false;
+  e.status = pub ? 'published' : 'draft';
+  exPrivPut_(T, 'exams', e.id, e); if (typeof exClearLocks_ === 'function') exClearLocks_(T, e.id);
+  return { ok: true, storage: T, label: to.title + ' — ' + to.label, examId: e.id, status: e.status, copied: items.length, reused: reused };
+}
+
+/** Forget the cached public exam list of the place's group (or of the main page). */
+function examListForget_(S) { var M = cvBaseOf_(S); CacheService.getScriptCache().remove('exlist:' + (S === M ? '_main' : S.slice(M.length + 1))); }
