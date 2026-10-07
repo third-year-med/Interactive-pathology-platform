@@ -73,6 +73,7 @@ function createBackend(opts) {
     deleteSheet: function (sh) { delete sheets[sh.getName()]; }
   };
   const cache = new Map();
+  const drive = [];
   const props = new Map(Object.entries(opts.properties || {}));
   const fetchHandler = opts.fetch || function () { throw new Error('UrlFetchApp: no handler configured'); };
   const g = {
@@ -100,7 +101,7 @@ function createBackend(opts) {
       getUuid: function () { return crypto.randomUUID(); },
       base64Encode: function (v) { return (typeof v === 'string' ? Buffer.from(v, 'utf8') : unsigned(v)).toString('base64'); },
       base64Decode: function (s) { return signed(Buffer.from(String(s), 'base64')); },
-      newBlob: function (bytes) { return { getBytes: function () { return typeof bytes === 'string' ? signed(Buffer.from(bytes, 'utf8')) : bytes; } }; },
+      newBlob: function (bytes, mime, name) { return { getName: function () { return name || ''; }, getBytes: function () { return typeof bytes === 'string' ? signed(Buffer.from(bytes, 'utf8')) : bytes; } }; },
       computeHmacSha256Signature: function (value, key) {
         const buf = function (v) { return typeof v === 'string' ? Buffer.from(v, 'utf8') : unsigned(v); };
         return signed(crypto.createHmac('sha256', buf(key)).update(buf(value)).digest());
@@ -128,13 +129,21 @@ function createBackend(opts) {
         };
       }
     },
-    ScriptApp: { getOAuthToken: function () { return 'oauth-test'; } }
+    ScriptApp: { getOAuthToken: function () { return 'oauth-test'; } },
+    DriveApp: (function () {   // uploads are kept in drive[] (id, name, bytes) for the tests
+      const folder = { createFile: function (blob) { const id = 'drv' + (drive.length + 1) + crypto.randomBytes(4).toString('hex'); drive.push({ id: id, name: blob.getName ? blob.getName() : '', bytes: blob.getBytes() });
+        return { getId: function () { return id; }, setSharing: function () {} }; } };
+      let made = false;
+      return { Access: { ANYONE_WITH_LINK: 'anyone' }, Permission: { VIEW: 'view' },
+        getFoldersByName: function () { let n = made; return { hasNext: function () { return n; }, next: function () { n = false; return folder; } }; },
+        createFolder: function () { made = true; return folder; } };
+    })()
   };
   const ctx = vm.createContext(g);
   (opts.files || []).forEach(function (f) { vm.runInContext(fs.readFileSync(f, 'utf8'), ctx, { filename: path.basename(f) }); });
   if (opts.after) vm.runInContext(opts.after, ctx);
   return {
-    ctx: ctx, sheets: sheets, cache: cache, props: props,
+    ctx: ctx, sheets: sheets, cache: cache, props: props, drive: drive,
     doPost: function (payload) { return JSON.parse(ctx.doPost({ postData: { contents: JSON.stringify(payload) } }).getContent()); },
     eval: function (code) { return vm.runInContext(code, ctx); }
   };

@@ -93,7 +93,11 @@
   function card(m, s) {
     var st = STATUS[m.status] || STATUS.soon, acc = s && s.modules ? s.modules[m.moduleKey] : null;
     var state = 'locked', pill = '<span class="pill ' + st.cls + '">' + st.icon + ' ' + esc(st.label) + '</span>', msg = '', cta = '', alt = '';
-    if (m.status === 'available') {
+    if (m.moduleKey === 'exams' && m.url) {   // Official Exams: the group's exam page (exam times + the exam sign-in with the access code)
+      state = 'open'; pill = '<span class="pill available">📝 Official exams</span>';
+      msg = 'Exam times and the exam sign-in. In the exam room you need the access code from the invigilator.';
+      cta = '<a class="btn primary" href="' + esc(mUrl(m)) + '">Open the exam page →</a>';
+    } else if (m.status === 'available') {
       if (!s) {
         state = 'open';
         msg = m.moduleKey ? 'Sign in with your Student ID to open this module.' : 'Open the module and sign in there.';
@@ -364,6 +368,7 @@
     MODULES.forEach(function (m) { grid.appendChild(teacherCard(m)); });
     if (!MODULES.length) grid.appendChild(h('<p class="muted">No modules yet — add one under Teacher Management.</p>'));
     main.appendChild(tm);
+    main.appendChild(examsSection(function (action, o) { return post(CFG.backendUrl, Object.assign({ module: 'portal', action: action, token: tok }, o || {})); }, true));
     var mg = h('<section class="t-sec" id="t-manage"><div class="sec-head"><h2>Teacher Management</h2><span class="small muted">Front-page modules, statuses and links</span></div><div class="t-box"><p class="muted">Loading…</p></div></section>');
     main.appendChild(mg);
     var box = $('.t-box', mg);
@@ -457,6 +462,7 @@
         ds.forEach(function (d) { $('.t-grid', sec).appendChild(myCard(d)); });
         box.appendChild(sec);
       });
+      box.appendChild(examsSection(function (action, o) { var cur = tteach(); return post(CFG.backendUrl, Object.assign({ module: 'portal', action: action, ttoken: cur && cur.ttoken }, o || {})); }, false));
     });
   }
   function myCard(d) {
@@ -589,6 +595,60 @@
   }
   function dirCall(action, o) { return post(CFG.backendUrl, Object.assign({ module: 'portal', action: action, token: tsess() }, o || {})); }
   function fmtDay(t) { if (!t) return ''; var d = new Date(Number(t)); return isNaN(d) ? '' : d.toISOString().slice(0, 10); }
+  /* ---------------- Official Exams (exam app): places, examiner hand-off ---------------- */
+  var EXAM_APP = 'https://third-year-med.github.io/pathology-exams/';
+  /** Opens the exam app as examiner for one storage: the backend creates a teacher session of that storage, which is
+   *  handed over in this tab (sessionStorage — the exam app's own slot), so no module password is needed. */
+  function openExamManager(call, storage, btn) {
+    if (btn) { btn.disabled = true; btn.dataset.l = btn.textContent; btn.textContent = 'Opening…'; }
+    call('examOpen', { storage: storage }).then(function (r) {
+      if (btn) { btn.disabled = false; btn.textContent = btn.dataset.l; }
+      if (!r.ok) { if (r.code === 'auth') { sdel(TKEY); toast('Your session has ended — please sign in again.'); return route(); } return toast(r.code === 'badaction' ? 'Update Portal.gs on the backend (version 2.6).' : r.error); }
+      var base = storage.split('-')[0];
+      try { sessionStorage.setItem('xm_' + storage + '_tt', JSON.stringify({ token: r.token, ck: (r.keys || {})[base] || '', keys: r.keys || {}, from: 'platform', home: location.href.replace(/#.*$/, '') + '#/teacher', exp: r.expiresAt })); } catch (e) { }
+      location.href = (r.examUrl || EXAM_APP) + '?m=' + encodeURIComponent(storage);
+    });
+  }
+  function examsSection(call, admin) {
+    var sec = h('<section class="t-sec" id="t-exams"><div class="sec-head"><h2>📝 Official Exams</h2><span class="small muted">' + (admin ? 'Every module and group' : 'Your groups') + ' · exam manager without a second password</span></div><div class="ex-body"><p class="muted small">Loading…</p></div></section>');
+    var body = $('.ex-body', sec);
+    var paint = function () {
+      call('examPlaces').then(function (r) {
+        if (!r.ok) { body.innerHTML = '<p class="small ' + (r.code === 'badaction' ? 'muted' : 'err') + '">' + esc(r.code === 'badaction' ? 'Update Portal.gs on the backend (version 2.6) to manage official exams from here.' : r.error) + '</p>'; return; }
+        var url = r.examUrl || EXAM_APP, places = r.places || [], hasCombined = places.some(function (x) { return x.kind === 'combined'; });
+        body.innerHTML = '<p class="small">Each place has its own exam bank, exams and results. <b>Combined exams</b> (questions from several modules) live in a group\'s <i>Official Exams</i> delivery. Students open the exam page of their group and need the <b>access code</b> you give out in the exam room.</p>';
+        if (admin && !hasCombined) {
+          var setup = h('<div class="note small">To give a group <b>combined exams</b>: add the <b>Official Exams</b> module once, then deliver it to the group (Platform directory → Deliveries). The group\'s students get exam accounts with their usual password automatically.<div class="roster-tools"><button class="btn" type="button">➕ Add the Official Exams module</button></div></div>');
+          $('button', setup).onclick = function () {
+            var b = this; b.disabled = true;
+            call('dirSave', { kind: 'module', create: true, record: { moduleId: 'exams', title: 'Official Exams', subtitle: 'Combined exams of several modules', url: url, storagePrefix: 'xm_', icon: '📝', color: '#7a1f2b' } }).then(function (x) {
+              b.disabled = false;
+              if (!x.ok && !/exists|already/i.test(x.error || '')) return toast(x.error);
+              toast('The Official Exams module is ready — now deliver it to your groups (Platform directory → Deliveries).'); paint();
+            });
+          };
+          body.appendChild(setup);
+        }
+        if (!places.length) { body.appendChild(h('<p class="muted small">No exam places yet.</p>')); return; }
+        var groups = {}, order = [];
+        places.forEach(function (x) { var k = x.groupLabel; if (!groups[k]) { groups[k] = []; order.push(k); } groups[k].push(x); });
+        order.forEach(function (k) {
+          var list = groups[k].sort(function (a, b) { return (a.kind === 'combined' ? 0 : 1) - (b.kind === 'combined' ? 0 : 1) || a.title.localeCompare(b.title); });
+          var stuLink = list[0].linkCode ? url + '?g=' + encodeURIComponent(list[0].linkCode) : '';
+          var g = h('<div class="ex-group"><div class="ex-gh"><b>' + esc(k) + '</b>' + (stuLink ? ' <a class="small" href="' + esc(stuLink) + '" target="_blank" rel="noopener">Student exam page ↗</a>' : '') + '</div><div class="ex-rows"></div></div>');
+          list.forEach(function (x) {
+            var row = h('<div class="ex-row' + (x.active === false ? ' off' : '') + '" data-storage="' + esc(x.storage) + '"><span>' + (x.kind === 'combined' ? '🧩 ' : '📘 ') + esc(x.title) + ' <code class="small">' + esc(x.storage) + '</code></span>' +
+              '<span class="roster-btns"><button class="btn" type="button" data-a="man">📝 Manage exams</button>' + (!x.linkCode ? '<a class="btn" href="' + esc(url + '?m=' + encodeURIComponent(x.storage)) + '" target="_blank" rel="noopener">Student page ↗</a>' : '') + '</span></div>');
+            $('[data-a=man]', row).onclick = function () { openExamManager(call, x.storage, this); };
+            $('.ex-rows', g).appendChild(row);
+          });
+          body.appendChild(g);
+        });
+      });
+    };
+    paint();
+    return sec;
+  }
   /* ---------------- Group local changes: read-only preview of one item ---------------- */
   var PV_COLL = { custommedia: 'Media added to a Learn section', practicalpub: 'Published practical (what students see)', practical: 'Practical (teacher’s working copy)',
     customtopics: 'Topic', topicsections: 'Sections of a topic', contentedits: 'Correction of a course item', importedquestions: 'Imported question',

@@ -110,9 +110,14 @@ function route_(p) {
     case 'deleteStudent': return authed_(module, p, function () { return actionDeleteStudent_(module, p); });
     case 'unlockStudent': return authed_(module, p, function () { return actionUnlockStudent_(module, p); });
     case 'upsert': return authed_(module, p, function () { return actionUpsert_(module, p); });
+    case 'uploadImage': return authed_(module, p, function () { return actionUploadImage_(p); });
     case 'delete': return authed_(module, p, function () { return actionDelete_(module, p); });
     case 'getAllContent': return actionGetAllContent_(module, p);
     case 'privList': return authed_(module, p, function () { return actionPrivList_(module, p); });
+    case 'examBankList': case 'examBankSave': case 'examBankDelete': case 'examList': case 'examUpsert': case 'examRemove':
+    case 'examResults': case 'examAttemptDetail': case 'examResetAttempt': case 'examReleaseSession':
+      if (typeof exTeacher_ !== 'function') return { ok: false, error: 'Unknown action: ' + action, code: 'badaction' };
+      return authed_(module, p, function () { return exTeacher_(module, p); });
     case 'exportCourse': return authed_(module, p, function () { return actionExportCourse_(module); });
     case 'importCourse': return authed_(module, p, function () { return actionImportCourse_(module, p); });
     default: return { ok: false, error: 'Unknown action: ' + action, code: 'badaction' };
@@ -546,6 +551,37 @@ function actionDeleteStudent_(module, p) {
     deleteRow_(SHEETS.STUDENTS, s._row);
     return { ok: true };
   } finally { lock.releaseLock(); }
+}
+
+/* ---- image upload (verbatim from Code.gs) ---- */
+function getImageFolder_() {
+  var it = DriveApp.getFoldersByName(DRIVE_FOLDER_NAME);
+  if (it.hasNext()) return it.next();
+  return DriveApp.createFolder(DRIVE_FOLDER_NAME);
+}
+
+function actionUploadImage_(p) {
+  try {
+    var dataUrl = String(p.dataUrl || '');
+    var m = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
+    if (!m) return { ok: false, error: 'Not a valid image data URL.' };
+    var mime = m[1];
+    var bytes = Utilities.base64Decode(m[2]);
+    var blob = Utilities.newBlob(bytes, mime, p.filename || ('image-' + Date.now() + '.jpg'));
+    var folder = getImageFolder_();
+    var file = folder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    var isImage = /^image\//.test(mime);
+    var url = isImage ? ('https://drive.google.com/thumbnail?id=' + file.getId() + '&sz=w2000') : ('https://drive.google.com/thumbnail?id=' + file.getId() + '&sz=w400');
+    var viewUrl = 'https://drive.google.com/file/d/' + file.getId() + '/view';
+    return { ok: true, url: url, viewUrl: viewUrl, fileId: file.getId(), mime: mime, filename: blob.getName(), isImage: isImage };
+  } catch (err) {
+    var msg = String(err && err.message || err);
+    if (/Access denied|DriveApp|permission/i.test(msg)) {
+      return { ok: false, error: 'Access denied: DriveApp. Open this project in the Apps Script editor, select "authorizeDriveAccess" in the function dropdown and press ▶ once to grant Drive permission, then try again.' };
+    }
+    return { ok: false, error: 'Upload failed: ' + msg };
+  }
 }
 
 function findContentRow_(module, collection, id) {

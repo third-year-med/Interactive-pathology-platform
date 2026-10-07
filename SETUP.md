@@ -225,6 +225,42 @@ Deliveries, TeacherAssignments, ModuleContentRoles — created on first use; no 
 - The module pages poll the Live Classroom less often while a student is on another page (about every 8 s instead of
   3.5 s); inside the Live screen nothing changed.
 
+## Official Exams (Portal.gs 2.6)
+
+The exam app is **https://third-year-med.github.io/pathology-exams/** (repository `pathology-exams`). It uses the same
+backend. Students need the **exam access code** at the start of every exam.
+
+**Once:** Teacher Dashboard → **📝 Official Exams** → **➕ Add the Official Exams module**. Then deliver it to a group:
+Platform directory → **Deliveries** → group → module **Official Exams** → status *Available*. The group's students get
+exam accounts with their usual password automatically (storage `exams-<link code>`).
+
+**Managing exams (no second password):** Teacher Dashboard → 📝 Official Exams → **📝 Manage exams** next to a place:
+- 📘 a module's own exams (the Admin: the module's main storage or any group; a personal teacher: their groups);
+- 🧩 **Combined exams** of a group (questions from several modules) — the Admin and the teachers assigned to that
+  group's *Official Exams* delivery.
+
+**In the exam manager → Exam question bank:**
+- **+ Add from a module's teaching question bank** — choose the module and group at the top; tick questions; *Add*.
+  Optionally hide them from students' Revision and remove imported ones from the students' bank (Admin on the master
+  copy with versioned content ON: this goes into the master draft and reaches students when you publish it).
+- **⇆ Copy from another exam bank** — another module, group or combined bank you may use. The copies are independent.
+- **🖼 Picture questions (practical)** — choose your own pictures (several at once). Each becomes one question:
+  *Short answer* (type the accepted answers separated by `;`) or *Options* (one per line, the first line correct).
+  Pictures are made smaller (longest side 2000 px) and stored in the platform's Google Drive folder, never in the sheet.
+  A single question can also get a picture: *Edit* → **⬆ Upload picture**.
+- **📤 To a teaching bank** — tick questions in the exam bank → choose module, group and a topic per question → *Copy*
+  (tick *Move* to remove them from the exam bank). Students can then practise them.
+
+**During a combined exam** (*Close ALL teaching modules of this group for candidates*, on by default) its candidates
+cannot open any teaching module of the group, from 15 minutes before opening until closing; other students are not
+affected. **Results** of a combined exam show each student's marks **per module** (screen and Excel/CSV).
+
+**Students:** the group page shows an **📝 Official exams** card → *Open the exam page* → the exam (times and state are
+shown; never the code) → sign in with the access code, student ID and password.
+
+Drive permission: the first picture upload needs Drive access. If you see "Access denied: DriveApp", open the Apps
+Script editor, choose **authorizeDriveAccess** in the function list and press ▶ once.
+
 ## 5. Give students access
 
 Status never opens a module by itself. A student can enter a module when their account exists there:

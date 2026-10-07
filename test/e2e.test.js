@@ -30,7 +30,7 @@ try { chromium = require('playwright-core').chromium; } catch (e) { chromium = n
 const EXE = process.env.PW_CHROMIUM || '/opt/pw-browsers/chromium';
 const SKIP = !chromium || !fs.existsSync(EXE) ? 'Playwright/Chromium not available' : false;
 const ROOT = path.join(__dirname, '..');
-const FILES = [path.join(__dirname, 'apps-script', 'Code.core.gs'), path.join(ROOT, 'backend', 'Portal.gs')];
+const FILES = [path.join(__dirname, 'apps-script', 'Code.core.gs'), path.join(__dirname, 'apps-script', 'Code.exam.gs'), path.join(ROOT, 'backend', 'Portal.gs')];
 const MAIN = 'https://script.google.com/macros/s/MAINTEST/exec', GYN = 'https://script.google.com/macros/s/GYNTEST/exec';
 const PW = 'student-pass-1', TPW = 'portal-teacher-1';
 
@@ -670,13 +670,16 @@ test('an Available card works before sign-in: "Sign in to open" → sign in → 
 const REAL = [['cellinjury', 'cell-injury-teaching-platform', process.env.CI_MODULE_HTML || '/home/user/cell-injury-teaching-platform/index.html', process.env.CI_CONTENT_KEY],
  ['inflhealing', 'inflammation-healing', process.env.IH_MODULE_HTML || '/home/user/inflammation-healing/index.html', process.env.IH_CONTENT_KEY]];
 const HOME = 'https://third-year-med.github.io/Interactive-pathology-platform/';
-const SERVE = {};   // packaged-release test: '<repo>/preview/' or '<repo>/' → another file
+const SERVE = {};
+const PNG1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+const EXAM_HTML = process.env.EXAM_HTML || '/home/user/pathology-exams/index.html';   // the real Official Exams app   // packaged-release test: '<repo>/preview/' or '<repo>/' → another file
 async function realPage(M, calls) {
   if (M[3]) main.ctx.CONTENT_KEYS[M[0]] = M[3];
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const p = await ctx.newPage();
   p.on('pageerror', function (e) { if (!/content key|decrypt/i.test(e.message)) errors.push(M[1] + ': ' + e.message); });
   p.on('dialog', function (d) { d.accept(); });
+  await p.route('https://drive.google.com/**', function (route) { return route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from(PNG1, 'base64') }); });
   await p.route('https://script.google.com/**', async function (route) {
     const body = route.request().postData() || '';
     calls.push(JSON.parse(body));
@@ -684,6 +687,7 @@ async function realPage(M, calls) {
   });
   await p.route('https://third-year-med.github.io/**', function (route) {
     const u = new URL(route.request().url());
+    if (u.pathname.indexOf('/pathology-exams/') === 0) return route.fulfill({ status: 200, contentType: 'text/html', body: fs.readFileSync(EXAM_HTML) });
     const own = REAL.filter(function (R) { return u.pathname.indexOf('/' + R[1] + '/') === 0; })[0];
     if (own) {
       const sub = /\/preview\/(index\.html)?$/.test(u.pathname) ? own[1] + '/preview/' : own[1] + '/';
@@ -1354,6 +1358,150 @@ test('Tidy up (Content tab): shows what can be tidied, then removes it', { skip:
   await p.waitForFunction(function () { return /Tidied: \d+ row/.test((document.querySelector('.toast') || {}).textContent || ''); });
   assert.ok(!main.sheets.Sessions._rows.some(function (r) { return r[1] === 'expired-e2e'; }));
   await p.context().close();
+});
+
+test('Official Exams: Admin adds the module → combined exam bank from two modules + a picture question → copy to a teaching bank → student front page → exam → lock → results per module', { skip: SKIP || (!fs.existsSync(EXAM_HTML) && 'exam app not available') }, async function () {
+  groupFixture();
+  const KEYS = !!(REAL[0][3] && REAL[1][3] && fs.existsSync(REAL[0][2]) && fs.existsSync(REAL[1][2]));
+  if (REAL[1][3]) main.ctx.CONTENT_KEYS[REAL[1][0]] = REAL[1][3];
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const calls = [];
+  let p = await realPage(REAL[0], calls);
+  p.on('pageerror', function (e) { errors.push('exams: ' + e.message); });
+  // 1. Admin: Teacher Dashboard → Official Exams → "Add the Official Exams module"
+  await p.goto(HOME + '#/teacher');
+  await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+  await p.waitForSelector('#t-exams .ex-row');
+  await p.click('#t-exams button:has-text("Add the Official Exams module")');
+  await p.waitForTimeout(500);
+  let dir = main.call({ module: 'portal', action: 'dirGet', token: t });
+  assert.ok(dir.modules.some(function (m) { return m.moduleId === 'exams'; }), 'the module was created');
+  const g = dir.groups.filter(function (x) { return x.linkCode === 'tr-a'; })[0];
+  const dv = main.call({ module: 'portal', action: 'dirSave', token: t, kind: 'delivery', record: { groupId: g.groupId, moduleId: 'exams', status: 'available' } });
+  assert.ok(dv.ok, JSON.stringify(dv));
+  assert.ok(main.call({ module: 'portal', action: 'rosterSync', token: t, groupId: g.groupId }).ok);
+  // 2. Manage exams of the group's combined exams → the real exam app opens as examiner (no password)
+  await p.reload();
+  await p.waitForSelector('#t-exams .ex-row[data-storage="exams-tr-a"] [data-a=man]');
+  await p.click('#t-exams .ex-row[data-storage="exams-tr-a"] [data-a=man]');
+  await p.waitForURL(/pathology-exams\/\?m=exams-tr-a/);
+  await p.waitForSelector('.tbar');
+  assert.match(await p.textContent('.tbar'), /Teacher Dashboard[\s\S]*Official Exams · Combined exams · tr-a/);
+  const tt = JSON.parse(await p.evaluate(function () { return sessionStorage.getItem('xm_exams-tr-a_tt'); }));
+  await p.click('.tbar .tab:has-text("Exam question bank")');
+  await p.waitForSelector('button:has-text("Copy from another exam bank")');
+  // 3. from two modules' teaching banks (needs the real content keys)
+  const pickFrom = async function (storage, n) {
+    await p.click('button:has-text("+ Add from a module’s teaching question bank")');
+    await p.waitForSelector('.modal select');
+    await p.selectOption('.modal label.f select', storage);
+    await p.waitForSelector('.modal .qlist .qitem input[type=checkbox]:not([disabled])', { timeout: 20000 });
+    const boxes = await p.$$('.modal .qlist .qitem input[type=checkbox]:not([disabled])');
+    for (let i = 0; i < n; i++) await boxes[i].check();
+    await p.click('.modal button:has-text("Add to exam bank")');
+    await p.waitForSelector('.modal h2:has-text("Added to the exam bank")');
+    await p.click('.modal button[aria-label=Close]');
+  };
+  if (KEYS) { await pickFrom('cellinjury-tr-a', 2); await pickFrom('inflhealing-tr-a', 1); }
+  // 4. picture questions (practical): my own picture → uploaded (smaller, Drive) → one question
+  await p.click('button:has-text("Picture questions (practical)")');
+  await p.setInputFiles('.modal input[type=file][multiple]', { name: 'slide1.png', mimeType: 'image/png', buffer: Buffer.from(PNG1, 'base64') });
+  await p.waitForSelector('.modal .picrow textarea');
+  await p.fill('.modal .picrow textarea', 'granuloma; granulomatous inflammation');
+  await p.fill('.modal input[placeholder^="e.g. Practical"]', 'Practical — slides');
+  await p.click('.modal button:has-text("Upload and add to exam bank")');
+  await p.waitForFunction(function () { return !document.querySelector('.modal-bg'); }, null, { timeout: 15000 });
+  assert.strictEqual(main.drive.length, 1, 'stored in Drive, not in the sheet');
+  let bank = main.call({ module: 'exams-tr-a', action: 'examBankList', token: tt.token }).questions;
+  const pic = bank.filter(function (q) { return q.image; })[0];
+  assert.ok(pic && /^https:\/\/drive\.google\.com\/thumbnail\?id=drv1/.test(pic.image), JSON.stringify(bank));
+  assert.deepStrictEqual([pic.type, pic.answers, pic.topic], ['fillblank', [['granuloma', 'granulomatous inflammation']], 'Practical — slides']);
+  if (KEYS) {
+    assert.strictEqual(bank.length, 4);
+    assert.deepStrictEqual(bank.map(function (q) { return q.source.course || ''; }).sort(), ['', 'cellinjury', 'cellinjury', 'inflhealing']);
+    assert.ok(bank.filter(function (q) { return q.source.course === 'cellinjury'; }).every(function (q) { return /^Cell Injury/.test(q.topic); }), 'module name in the topic');
+    const ex = main.call({ module: 'cellinjury-tr-a', action: 'getAllContent', token: main.call({ module: 'portal', action: 'examOpen', token: t, storage: 'cellinjury-tr-a' }).token, since: 0 });
+    const excl = ex.items.filter(function (i) { return i.collection === 'revexclude'; })[0];
+    assert.strictEqual(excl.data.ids.length, 2, 'hidden from Revision in that group');
+    await p.waitForSelector('tr td img.qthumb');
+    // 5. the picture question → the group's Cell Injury teaching bank
+    await p.check('tr:has(img.qthumb) input[type=checkbox]');
+    await p.click('button:has-text("To a teaching bank (1)")');
+    await p.waitForSelector('.modal label.f select');
+    await p.selectOption('.modal label.f select', 'cellinjury-tr-a');
+    await p.waitForSelector('.modal .qlist select');
+    const opt = await p.$$eval('.modal .qlist select option', function (o) { return o.map(function (x) { return x.value; }).filter(Boolean)[0]; });
+    await p.selectOption('.modal .qlist select', opt);
+    await p.click('.modal button:has-text("Copy")');
+    await p.waitForSelector('.modal h2:has-text("Copied to the teaching bank")');
+    const rows = main.sheets.Content._rows.filter(function (r) { return r[0] === 'cellinjury-tr-a' && r[1] === 'importedquestions'; });
+    assert.strictEqual(rows.length, 1);
+    const tq = main.call({ module: 'exams-tr-a', action: 'examCourseExtras', token: tt.token, from: 'cellinjury-tr-a' }).questions[0];
+    assert.deepStrictEqual([tq.type, tq.topic, tq.images[0].url, / ___$/.test(tq.stem)], ['fillblank', opt, pic.image, true]);
+    await p.click('.modal button[aria-label=Close]');
+  }
+  // 6. a combined exam (published), teaching lock on by default
+  const now = Date.now();
+  bank = main.call({ module: 'exams-tr-a', action: 'examBankList', token: tt.token }).questions;
+  const exm = main.call({ module: 'exams-tr-a', action: 'examUpsert', token: tt.token, exam: { title: 'Combined final', code: 'FIN26', opensAt: now - 60000, closesAt: now + 3600000, durationMin: 30,
+    questionIds: bank.map(function (q) { return q.id; }), status: 'published', lockTeaching: true, shuffleQuestions: false, shuffleOptions: false, candidates: 'all' } });
+  assert.ok(exm.ok, JSON.stringify(exm));
+  await p.context().close();
+  // 7. student: group page → Official exams card → the group's exam page → sign in with the code → picture → submit
+  p = await realPage(REAL[0], calls);
+  p.on('pageerror', function (e) { errors.push('exams-student: ' + e.message); });
+  await p.goto(HOME + '?g=tr-a');
+  await p.waitForSelector('.mod[data-id="exams"]');
+  assert.match(await p.textContent('.mod[data-id="exams"]'), /Official exams/);
+  await signIn(p, 'ahmed', PW);
+  await p.waitForSelector('.mod[data-id="cellinjury"] .pill.locked');
+  assert.match(await p.textContent('.mod[data-id="cellinjury"]'), /Closed during an exam[\s\S]*Combined final/);
+  assert.match(await p.textContent('.mod[data-id="inflhealing"]'), /Closed during an exam/);
+  await p.click('.mod[data-id="exams"] a.btn');
+  await p.waitForURL(/pathology-exams\/\?g=tr-a/);
+  await p.waitForSelector('.front-ex[data-storage="exams-tr-a"] a.btn', { timeout: 15000 });
+  const front = await p.textContent('body');
+  assert.match(front, /Combined final/);
+  assert.ok(!/FIN26/.test(front), 'never the access code');
+  assert.match(await p.textContent('.front-ex[data-storage="exams-tr-a"]'), /Combined exam[\s\S]*Combined final[\s\S]*Open now/);
+  await p.click('.front-ex[data-storage="exams-tr-a"] a.btn');
+  await p.waitForURL(/m=exams-tr-a/);
+  await p.fill('#x-code', 'fin26'); await p.fill('#x-user', 'ahmed'); await p.fill('#x-pw', PW);
+  await p.click('form button[type=submit]');
+  await p.click('button:has-text("Start the exam")');
+  const conf = await p.$('.modal button.btn-primary'); if (conf) await conf.click();
+  const n = bank.length;
+  for (let i = 0; i < n; i++) {
+    await p.waitForSelector('.stem, .qimg');
+    if (await p.$('img.qimg')) {
+      assert.strictEqual(await p.getAttribute('img.qimg', 'referrerpolicy'), 'no-referrer');
+      await p.fill('input.blank', 'Granuloma');
+    }
+    if (i < n - 1) await p.click('button:has-text("Next →")');
+  }
+  await p.click('button:has-text("Review & submit")');
+  await p.click('button:has-text("Submit my exam")');
+  await p.waitForSelector('button:has-text("Finish")', { timeout: 15000 });
+  await p.context().close();
+  // 8. results per module in the exam manager
+  p = await realPage(REAL[0], calls);
+  await p.goto(HOME + '#/teacher');
+  await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+  await p.waitForSelector('#t-exams .ex-row[data-storage="exams-tr-a"] [data-a=man]');
+  await p.click('#t-exams .ex-row[data-storage="exams-tr-a"] [data-a=man]');
+  await p.waitForSelector('.tbar');
+  await p.click('.tbar .tab:has-text("Results")');
+  await p.waitForSelector('td:has-text("ahmed")');
+  if (KEYS) {
+    await p.waitForSelector('h2:has-text("Results per module")');
+    const txt = await p.textContent('.twrap');
+    assert.match(txt, /Results per module[\s\S]*Cell Injury[\s\S]*Inflammation[\s\S]*Exam-only questions/);
+    assert.match(txt, /Exam-only questions1100%/, 'the picture question: typed answer accepted');
+  }
+  if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'exam-results.png'), fullPage: true });
+  await p.context().close();
+  main.call({ module: 'exams-tr-a', action: 'examUpsert', token: tt.token, exam: Object.assign({}, exm.exam, { status: 'closed' }) });
 });
 
 test('no JavaScript errors', { skip: SKIP }, function () { assert.deepStrictEqual(errors, []); });

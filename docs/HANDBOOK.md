@@ -167,6 +167,7 @@ The user is a pathologist, not a developer. They follow steps literally and send
 - **Dialogs**: never change the layout on `blur/change` of an input — the click on the button then misses.
 - **Tests**: millisecond timestamps need `<=` comparisons and small pauses; copy Code.gs functions verbatim into
   `Code.core.gs` when a test needs them; CSS `:nth-of-type` counts other siblings — select rows explicitly.
+- **Playwright**: `page.goto()` to the same URL with only a different `#hash` does not reload the page → `page.reload()`.
 
 ## 9. How to work with the user
 
@@ -175,10 +176,20 @@ The user is a pathologist, not a developer. They follow steps literally and send
 - Preserve existing features and data; no redesigns or rewrites unless asked; smallest reliable fix.
 - After each step give: what changed, how it was tested, and the exact deployment steps.
 
-## 10. Current state (2026-10-06)
+## 10. Current state (2026-10-07)
 
-- Portal.gs **2.5** in the repo (speed); the user had **2.4** deployed before 2026-10-07.
+- Portal.gs **2.6** in the repo (Official Exams: places/hand-off, public exam list, combined exams, bank transfers,
+  picture questions, combined-exam teaching lock, per-module results); the user had **2.5** deployed before this.
+- Exam app `third-year-med/pathology-exams` (single `index.html`): `?m=<storage>` manager/student, `?g=<code>` front
+  page. Examiner sessions come from the Teacher Dashboard (`examOpen`) in `sessionStorage['xm_<storage>_tt']`
+  `{token, ck, keys, home}`; `keys` = content keys of the modules the user may copy from.
+- Official Exams = directory module `exams`; delivered → storage `exams-<code>`, exam accounts via `rosterStorages_`.
+  Each bank question keeps `source {kind, origId, course}`; `course` decides the per-module sub-score.
+- Teaching ↔ exam transfers go through Portal (`examCopySources`, `examCourseExtras`, `examCopyFrom`, `examTeachWrite`);
+  the caller is a personal teacher when its module token has a PortalGrants row, otherwise the Admin.
 - Modules: Cell Injury (build "2026-09-24 11:46 UTC", master v1.1, versioned content ON) and Inflammation (build
   "initial", master v1.0, ON). Groups include `cellinjury-B`, `cellinjury-C` (not registered), `cellinjury-razi-a-26`.
-- The 10-step multi-university plan is complete; the packaged-release procedure and the Practical fixes are done.
-- Tests: 52 backend, 40 e2e (with keys).
+- The 10-step multi-university plan is complete; the packaged-release procedure, the Practical fixes and the 7 exam
+  steps are done.
+- Tests: 58 backend, 41 e2e (with keys). The e2e exam test drives the real exam app; the harness fakes DriveApp
+  (uploads in `backend.drive`). `test/apps-script/Code.exam.gs` is a verbatim copy of Code.gs's exam engine (no keys).

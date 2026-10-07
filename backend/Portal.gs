@@ -34,6 +34,23 @@
  *   Sheets (created on first use; no existing sheet is touched): Institutions, Groups, Modules, Deliveries,
  *   TeacherAssignments, ModuleContentRoles (the last two are prepared for later steps and stay empty for now).
  *
+ * Official Exams (2.6) — the exam app (third-year-med/pathology-exams) on the same backend:
+ *   portalExamList {g?} PUBLIC: the exam front page — titles, times, duration, number of questions and state of the
+ *                     published exams of a group (or of every module's main storage). Never codes, candidates or questions.
+ *   examPlaces        where the signed-in Admin / personal teacher may manage exams (module storages, group deliveries,
+ *                     the group's combined-exam storage exams-<linkCode>) + the exam app address
+ *   examOpen {storage} a teacher session of that storage for the exam app (no module password) + the content keys of
+ *                     the modules this user may copy course questions from
+ *   (exam storage, exam-app token; Admin = any token without a personal-teacher grant)
+ *   examCopySources   the teaching banks and exam banks this examiner may copy from/to (teacher: own groups only)
+ *   examCourseExtras {from}  a teaching bank as its students see it: imported questions + Revision exclusions
+ *   examCopyFrom {from}      the questions of another exam bank (copies are independent)
+ *   examTeachWrite {to, add, hide, unhide, remove}  exam → teaching bank (versioned ON: Admin → master draft,
+ *                     teacher → the group's local layer; OFF → the storage itself) + Revision hide/show + removals
+ *   examModuleScores {examId}  per student and module: marks / max / % (each question counts in source.course)
+ *   Combined-exam teaching lock: a published exam in exams-<code> with lockTeaching closes every teaching module
+ *                     <module>-<code> of that group for its candidates (sign-in, group page and every request)
+ *
  * Speed (2.5):
  *   (module) getAllContent  answered at once ("nothing new") when the storage and its master copy did not change
  *                     since the browser's last check (markers in CacheService; anything uncertain → the normal path)
@@ -141,7 +158,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.5';
+var PORTAL_VERSION = '2.6';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -164,6 +181,8 @@ function portalHook_(module, p) {
   if (String(module) !== PORTAL_MODULE) {
     var act = String(p.action || '');
     if (String(module).indexOf('@') >= 0) return { ok: false, code: 'badmodule', error: 'Unknown module.' };   // internal storages
+    if (EXAM_BANK_ACTIONS[act]) return examBankHook_(String(module), p);   // 2.6: copy questions between exam banks and teaching banks
+    var gl = examGroupLockHook_(String(module), act, p); if (gl) return gl;   // 2.6: a combined exam of the group closes all its modules for candidates
     // 2.5 speed: the frequent "anything new?" check is answered from memory when nothing changed for this storage
     if (act === 'getAllContent') { var fast = cvFastUnchanged_(String(module), p); if (fast) return fast; }
     else if (!CV_NO_CONTENT_WRITE[act]) cvMarkWrite_(String(module));
@@ -184,6 +203,7 @@ function portalHook_(module, p) {
     case 'portalInfo': return portalInfo_();
     case 'portalCheck': return portalCheck_(p);
     case 'portalGroupInfo': return portalGroupInfo_(p);
+    case 'portalExamList': return portalExamList_(p);
     case 'portalGroupCheck': return portalGroupCheck_(p);
     case 'portalAdminGet': return authed_(PORTAL_MODULE, p, function () { return portalAdminGet_(); });
     case 'portalAdminSave': return authed_(PORTAL_MODULE, p, function () { return portalAdminSave_(p); });
@@ -225,6 +245,12 @@ function portalHook_(module, p) {
     case 'contentReport': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentReport_(p); }); });
     case 'portalEndModuleSessions': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return portalEndModuleSessions_(); }); });
     case 'teacherMe': return tAuthed_(p, function (u) { return teacherMe_(u); });
+    case 'examPlaces': case 'examOpen':   // Official Exams (2.6): Admin → every place; personal teacher → only assigned deliveries
+      if (p.ttoken) return tAuthed_(p, function (u, ses) {
+        if (isTrue_(u.mustChange)) return { ok: false, code: 'mustchange', error: 'Please choose your own password first.' };
+        return p.action === 'examPlaces' ? examPlaces_(u) : examOpenTeacher_(u, ses, p);
+      });
+      return authed_(PORTAL_MODULE, p, function (tok) { if (!dirReadable_()) dirInit_(); return p.action === 'examPlaces' ? examPlaces_(null) : examOpenAdmin_(p, tok); });
     case 'reportOverview': case 'reportDelivery':
       // Step 10 (read-only): a personal teacher sees only the deliveries assigned to them; the Admin sees every delivery
       if (p.ttoken) return tAuthed_(p, function (u) {
@@ -329,7 +355,7 @@ function portalAccountCheck_(p, targets) {
       // the Student ID + password are right for this storage from here on
       any = true; student = student || studentPublic_(s);
       if (!isTrue_(s.active)) { out[key] = { access: false, reason: 'inactive' }; return; }
-      var xl = typeof exTeachingLock_ === 'function' ? exTeachingLock_(mod, s.username) : null;
+      var xl = examLockFor_(mod, s.username);
       if (xl) { out[key] = { access: false, reason: 'examlock', message: xl.error }; return; }
       var token = randomHex_(32);
       appendRow_(SHEETS.STU_SESSIONS, { module: mod, tokenHash: stuTokenHash_(token), username: s.username, createdAt: now, expiresAt: exp, remember: remember });
@@ -697,7 +723,7 @@ function portalGroupCheck_(p) {
   var G = portalGroup_(p.g);
   if (!G) return PORTAL_NOGROUP;
   // only this group's open deliveries, each checked in its OWN storage
-  var targets = G.modules.filter(function (m) { return m.status === 'available'; }).map(function (m) { return { key: m.moduleKey, module: m._storage }; });
+  var targets = G.modules.filter(function (m) { return m.status === 'available' && m.moduleKey !== EXAM_MODULE; }).map(function (m) { return { key: m.moduleKey, module: m._storage }; });   // exams: own sign-in with the access code
   if (!targets.length) return { ok: false, code: 'noopen', error: 'No module is open for this group yet.' };
   // only an active MEMBER of this group is checked at all (otherwise: the same generic refusal as a wrong password)
   if (!rosterMember_(G.group.groupId, normUser_(p.username), true)) targets = [];
@@ -720,7 +746,7 @@ function rosterMember_(groupId, studentId, activeOnly) {
 }
 /** The storages (backendModule) of a group's deliveries that use student accounts. */
 function rosterStorages_(groupId) {
-  return dirAll_(DIR.DELIV).filter(function (d) { return d.groupId === groupId && studentAuthOn_(d.backendModule); })
+  return dirAll_(DIR.DELIV).filter(function (d) { return d.groupId === groupId && (studentAuthOn_(d.backendModule) || d.moduleId === EXAM_MODULE); })   // Official Exams: exam accounts too
     .map(function (d) { return { storage: d.backendModule, moduleId: d.moduleId, active: d.active }; });
 }
 /** Index of the Students sheet: "<storage>|<username>" → row. */
@@ -972,12 +998,12 @@ function portalGroupRefresh_(p) {
   var remember = !!p.remember, exp = Math.min(Number(st.exp) || now + STU_TTL_MS, now + (remember ? STU_REMEMBER_TTL_MS : STU_TTL_MS)), out = {};
   var lock = LockService.getScriptLock(); lock.waitLock(20000);
   try {
-    G.modules.filter(function (m) { return m.status === 'available' && !have[m.moduleKey]; }).forEach(function (m) {
+    G.modules.filter(function (m) { return m.status === 'available' && !have[m.moduleKey] && m.moduleKey !== EXAM_MODULE; }).forEach(function (m) {
       var s = findStudent_(m._storage, st.username);
       if (!s) { out[m.moduleKey] = { access: false, reason: 'notregistered' }; return; }
       if (!isTrue_(s.active)) { out[m.moduleKey] = { access: false, reason: 'inactive' }; return; }
       if (Number(s.lockedUntil) > now) { out[m.moduleKey] = { access: false, reason: 'locked' }; return; }
-      var xl = typeof exTeachingLock_ === 'function' ? exTeachingLock_(m._storage, s.username) : null;
+      var xl = examLockFor_(m._storage, s.username);
       if (xl) { out[m.moduleKey] = { access: false, reason: 'examlock', message: xl.error }; return; }
       var token = randomHex_(32);
       appendRow_(SHEETS.STU_SESSIONS, { module: m._storage, tokenHash: stuTokenHash_(token), username: s.username, createdAt: now, expiresAt: exp, remember: remember });
@@ -1211,7 +1237,7 @@ function contentStoragesOf_(moduleId, by) {
 function contentStatus_() {
   var by = contentRowsByStorage_(), versions = dirAll_(DIR.CVER), bm = {};
   dirAll_(DIR.DELIV).forEach(function (d) { bm[d.backendModule] = d.deliveryId; });
-  return { ok: true, modules: dirAll_(DIR.MOD).map(function (m) {
+  return { ok: true, modules: dirAll_(DIR.MOD).filter(function (m) { return m.moduleId !== EXAM_MODULE; }).map(function (m) {
     var st = contentStoragesOf_(m.moduleId, by).map(function (k) {
       var rows = by[k].filter(function (r) { return !isTrue_(r.deleted); }), c = { master: 0, group: 0, other: 0 };
       rows.forEach(function (r) { c[contentKind_(r.collection)]++; });
@@ -1918,4 +1944,237 @@ function portalTidy_(apply) {
     out.removed = done; out.more = (del.length + arch.length + out.expiredSessions) > done;
     return out;
   } finally { if (lock) lock.releaseLock(); }
+}
+
+/* ======================================================================
+ * Official Exams (2.6)
+ * ====================================================================== */
+var EXAM_APP_URL = 'https://third-year-med.github.io/pathology-exams/';
+var EXAM_MODULE = 'exams';   // the "Official Exams" module of the directory: delivered to a group → storage exams-<linkCode>
+function examAppUrl_() { var m = dirReadable_() ? dirFind_(DIR.MOD, 'moduleId', EXAM_MODULE) : null; return (m && /^https:\/\//.test(m.url || '')) ? m.url : EXAM_APP_URL; }
+function examKey_(moduleId) { var k = typeof contentKey_ === 'function' ? String(contentKey_(moduleId) || '') : ''; return k && !/^__/.test(k) ? k : ''; }
+function examKeys_(ids) { var o = {}; ids.forEach(function (m) { var k = examKey_(m); if (k) o[m] = k; }); return o; }
+/** Every place where exams can be managed, with labels. user = null → Admin (all); otherwise that teacher's deliveries. */
+function examPlaces_(u) {
+  var md = {}; dirAll_(DIR.MOD).forEach(function (m) { md[m.moduleId] = m; });
+  var gr = {}; dirAll_(DIR.GROUP).forEach(function (g) { gr[g.groupId] = g; });
+  var ins = {}; dirAll_(DIR.INST).forEach(function (i) { ins[i.institutionId] = i; });
+  var mine = null; if (u) { mine = {}; teacherDeliveries_(u.userId).forEach(function (d) { mine[d.deliveryId] = 1; }); }
+  var places = [];
+  if (!u) dirAll_(DIR.MOD).forEach(function (m) {   // each module's own exams (main storage — the module's own student accounts)
+    if (m.moduleId === EXAM_MODULE || !m.active) return;
+    places.push({ storage: m.moduleId, moduleId: m.moduleId, kind: 'module', title: m.title, group: '', groupLabel: 'All students of the module (normal link)', linkCode: '' });
+  });
+  dirAll_(DIR.DELIV).forEach(function (d) {
+    if (mine && !mine[d.deliveryId]) return;
+    var g = gr[d.groupId] || {}, i = ins[g.institutionId] || {}, m = md[d.moduleId] || {};
+    places.push({ storage: d.backendModule, moduleId: d.moduleId, kind: d.moduleId === EXAM_MODULE ? 'combined' : 'module', deliveryId: d.deliveryId,
+      title: d.moduleId === EXAM_MODULE ? 'Combined exams (several modules)' : (m.title || d.moduleId), group: g.groupId || '', linkCode: g.linkCode || '',
+      groupLabel: (i.shortName || i.name || '?') + ' · ' + (g.name || '?') + (g.academicYear ? ' (' + g.academicYear + ')' : ''), active: !!(d.active && g.active && i.active) });
+  });
+  return { ok: true, examUrl: examAppUrl_(), places: places };
+}
+function examOpenAdmin_(p, portalToken) {
+  var S = String(p.storage || ''), pl = examPlaces_(null).places.filter(function (x) { return x.storage === S; })[0];
+  if (!pl) return dirErr_('Unknown exam place.');
+  var now = Date.now(), exp = now + SESSION_TTL_MS;
+  readAll_(SHEETS.SESSIONS).forEach(function (r) { if (r.token === portalToken && Number(r.expiresAt) > now) exp = Math.min(exp, Number(r.expiresAt)); });
+  var token = Utilities.getUuid() + '-' + randomHex_(16);
+  appendRow_(SHEETS.SESSIONS, { module: S, token: token, createdAt: now, expiresAt: exp });
+  var ids = dirAll_(DIR.MOD).map(function (m) { return m.moduleId; }).filter(function (m) { return m !== EXAM_MODULE; });
+  return { ok: true, storage: S, token: token, expiresAt: exp, examUrl: examAppUrl_(), place: pl, keys: examKeys_(ids) };
+}
+function examOpenTeacher_(u, ses, p) {
+  var S = String(p.storage || ''), pl = examPlaces_(u).places.filter(function (x) { return x.storage === S; })[0];
+  if (!pl) return { ok: false, code: 'forbidden', error: 'Exams of this group and module are not assigned to you.' };
+  var r = teacherOpen_(u, ses, { deliveryId: pl.deliveryId }); if (!r.ok) return r;
+  var ids = {}; teacherDeliveries_(u.userId).forEach(function (d) { if (d.moduleId !== EXAM_MODULE) ids[d.moduleId] = 1; });
+  return { ok: true, storage: S, token: r.token, expiresAt: r.expiresAt, examUrl: examAppUrl_(), place: pl, keys: examKeys_(Object.keys(ids)) };
+}
+/** The exam front page (public). With g: the group's deliveries (combined + per module); without: every module's own exams. */
+function portalExamList_(p) {
+  var code = String(p.g || '').trim(), now = Date.now(), c = CacheService.getScriptCache(), ck = 'exlist:' + (code || '_main');
+  var hit = c.get(ck); if (hit) { try { var o = JSON.parse(hit); o.serverTime = now; return o; } catch (e) { } }
+  var out = { ok: true, serverTime: now, exams: [] }, places = [];
+  if (code) {
+    var G = portalGroup_(code); if (!G) return PORTAL_NOGROUP;
+    out.group = { name: G.group.name, academicYear: G.group.academicYear, linkCode: G.group.linkCode };
+    out.institution = { name: G.institution.name, shortName: G.institution.shortName };
+    G.modules.forEach(function (m) { places.push({ storage: m._storage, kind: m.moduleKey === EXAM_MODULE ? 'combined' : 'module', moduleTitle: m.moduleKey === EXAM_MODULE ? 'Combined exam' : m.title }); });
+  } else {
+    var mods = dirReadable_() ? dirAll_(DIR.MOD).filter(function (m) { return m.active && m.moduleId !== EXAM_MODULE; }).map(function (m) { return { id: m.moduleId, title: m.title }; })
+      : portalRegistry_().filter(function (m) { return m.moduleKey; }).map(function (m) { return { id: m.moduleKey, title: m.title }; });
+    mods.forEach(function (m) { places.push({ storage: m.id, kind: 'module', moduleTitle: m.title }); });
+  }
+  var by = {}; places.forEach(function (x) { by[x.storage] = x; });
+  readAll_(SHEETS.CONTENT).forEach(function (r) {
+    if (r.collection !== 'priv:exams' || isTrue_(r.deleted) || !by[r.module]) return;
+    var e = unpackJson_(r); if (!e || e.status !== 'published') return;
+    var state = typeof exWindowState_ === 'function' ? exWindowState_(e, now) : (now < Number(e.opensAt) ? 'notyet' : now > Number(e.closesAt) ? 'closed' : 'open');
+    if (state === 'closed' && now - Number(e.closesAt) > 24 * 3600000) return;   // finished exams stay listed for one day
+    var pl = by[r.module];
+    out.exams.push({ storage: r.module, kind: pl.kind, moduleTitle: pl.moduleTitle, title: String(e.title || ''), opensAt: Number(e.opensAt) || 0, closesAt: Number(e.closesAt) || 0,
+      durationMin: Number(e.durationMin) || 0, questions: typeof exQuestionCount_ === 'function' ? exQuestionCount_(e) : (e.questionIds || []).length, state: state });
+  });
+  out.exams.sort(function (a, b) { return (a.state === 'open' ? 0 : a.state === 'notyet' ? 1 : 2) - (b.state === 'open' ? 0 : b.state === 'notyet' ? 1 : 2) || a.opensAt - b.opensAt; });
+  c.put(ck, JSON.stringify(out), 30);
+  return out;
+}
+
+/* ---- Exam banks ↔ teaching banks (2.6): copy questions between modules, groups and the official exam banks ---- */
+var EXAM_BANK_ACTIONS = { examCopySources: 1, examCourseExtras: 1, examCopyFrom: 1, examTeachWrite: 1, examModuleScores: 1 };
+var EXAM_TEACH_TYPES = { mcq: 1, vignette: 1, tf: 1, selectall: 1, fillblank: 1, matching: 1, short: 1 };
+/** Who holds this module token: a personal teacher (their grant) or the Admin (any other token of the storage). */
+function examCaller_(token) {
+  if (!tSheetsReady_()) return { admin: true };
+  var h = tHash_('pg', String(token)), g = null;
+  dirAll_(DIR.GRANTS).some(function (x) { if (x.tokenHash === h) { g = x; return true; } return false; });
+  return !g || g.userId === 'admin' ? { admin: true } : { admin: false, userId: g.userId };
+}
+/** The teaching banks (courses) and exam banks this caller may read from and copy to. */
+function examSources_(caller) {
+  var md = {}; dirAll_(DIR.MOD).forEach(function (m) { md[m.moduleId] = m; });
+  var gr = {}; dirAll_(DIR.GROUP).forEach(function (g) { gr[g.groupId] = g; });
+  var ins = {}; dirAll_(DIR.INST).forEach(function (i) { ins[i.institutionId] = i; });
+  var courses = [], banks = [], mine = null;
+  if (!caller.admin) { mine = {}; teacherDeliveries_(caller.userId).forEach(function (d) { mine[d.deliveryId] = 1; }); }
+  if (caller.admin) dirAll_(DIR.MOD).forEach(function (m) {
+    if (m.moduleId === EXAM_MODULE) return;
+    var x = { storage: m.moduleId, moduleId: m.moduleId, title: m.title, url: m.url || '', label: 'Master copy (all groups)' };
+    courses.push(x); banks.push({ storage: m.moduleId, moduleId: m.moduleId, title: m.title, label: 'Module’s own exams' });
+  });
+  dirAll_(DIR.DELIV).forEach(function (d) {
+    if (mine && !mine[d.deliveryId]) return;
+    var g = gr[d.groupId] || {}, i = ins[g.institutionId] || {}, m = md[d.moduleId] || {};
+    var label = (i.shortName || i.name || '?') + ' · ' + (g.name || '?') + (g.academicYear ? ' (' + g.academicYear + ')' : '');
+    if (d.moduleId !== EXAM_MODULE) courses.push({ storage: d.backendModule, moduleId: d.moduleId, title: m.title || d.moduleId, url: m.url || '', label: label });
+    banks.push({ storage: d.backendModule, moduleId: d.moduleId, title: d.moduleId === EXAM_MODULE ? 'Combined exams' : (m.title || d.moduleId), label: label });
+  });
+  return { courses: courses, banks: banks };
+}
+/** The teaching bank as the students of that storage see it: imported questions and the Revision exclusions. */
+function examTeachItems_(S) {
+  var M = cvBaseOf_(S), st = cvState_(M), rows;
+  if (st.mode) rows = contentResolve_(S, M, st.mode === 'on', 0, st.changed).items.filter(function (it) { return !it.deleted; });
+  else rows = readAll_(SHEETS.CONTENT).filter(function (r) { return r.module === S && !isTrue_(r.deleted); }).map(function (r) { return { collection: r.collection, id: r.id, data: unpackJson_(r) }; });
+  var out = { questions: [], exclude: [] };
+  rows.forEach(function (it) {
+    if (it.collection === 'importedquestions' && it.data) out.questions.push(Object.assign({}, it.data, { id: String(it.id) }));
+    if (it.collection === 'revexclude' && String(it.id) === 'exclude' && it.data) out.exclude = (it.data.ids || []).map(String);
+  });
+  return out;
+}
+/** Where a change to a teaching bank goes: the master draft (versioned, main storage), the group's local layer (versioned) or the storage itself. */
+function examTeachTarget_(S) {
+  var M = cvBaseOf_(S), st = cvState_(M);
+  if (st.mode !== 'on') return { module: S, where: 'live' };
+  if (S === M) return { module: M + '@draft', where: 'draft' };
+  return { module: S + '@local', where: 'local' };
+}
+function examTeachQuestion_(q, now, i) {
+  if (!q || typeof q !== 'object' || !EXAM_TEACH_TYPES[q.type]) return null;
+  if (!String(q.stem || '').trim() || !String(q.topic || '').trim()) return null;
+  var id = /^imp_[A-Za-z0-9_]{3,40}$/.test(String(q.id || '')) ? String(q.id) : 'imp_x' + now.toString(36) + i.toString(36) + Math.floor(Math.random() * 1e6).toString(36);
+  var o = {}; ['type', 'stem', 'case', 'options', 'answer', 'answers', 'pairs', 'model', 'keywords', 'topic', 'difficulty', 'explanation', 'ref', 'images', 'sourceRef'].forEach(function (k) { if (q[k] !== undefined) o[k] = q[k]; });
+  o.id = id; o.importedAt = now; o.stem = String(o.stem).slice(0, 4000); o.topic = String(o.topic).slice(0, 60);
+  if (!Array.isArray(o.images)) o.images = [];
+  o.images = o.images.filter(function (x) { return x && /^https:\/\//.test(String(x.url || '')); }).slice(0, 6).map(function (x) { return { url: String(x.url).slice(0, 500), caption: String(x.caption || '').slice(0, 300) }; });
+  return o;
+}
+/** Several Content writes to one storage with ONE read of the sheet (data null = deleted). */
+function examBulkWrite_(module, writes, now) {
+  if (!writes.length) return;
+  var lock = LockService.getScriptLock(); lock.waitLock(30000);
+  try {
+    var at = {}; readAll_(SHEETS.CONTENT).forEach(function (r) { if (r.module === module) at[r.collection + '|' + r.id] = r; });
+    var last = {}; writes.forEach(function (x, i) { last[x.collection + '|' + x.id] = i; });
+    var fresh = [];
+    writes.forEach(function (x, i) {
+      if (last[x.collection + '|' + x.id] !== i) return;   // the same item twice: the last write wins
+      var row = { module: module, collection: x.collection, id: String(x.id), updatedAt: now, updatedBy: 'teacher', deleted: x.data == null };
+      Object.assign(row, packJson_(x.data == null ? null : x.data));
+      var ex = at[x.collection + '|' + x.id];
+      if (ex) updateRow_(SHEETS.CONTENT, ex._row, row); else fresh.push(row);
+    });
+    fresh.forEach(function (row) { appendRow_(SHEETS.CONTENT, row); });
+  } finally { lock.releaseLock(); }
+}
+function examBankHook_(S, p) {
+  return authed_(S, p, function (token) {
+    if (p.action === 'examModuleScores') return examModuleScores_(S, String(p.examId || ''));
+    if (!dirReadable_()) return dirErr_('The platform directory is empty.');
+    var caller = examCaller_(token), src = examSources_(caller), a = String(p.action);
+    var course = function (x) { return src.courses.filter(function (c) { return c.storage === String(x || ''); })[0]; };
+    if (a === 'examCopySources') return { ok: true, admin: !!caller.admin, courses: src.courses, banks: src.banks.filter(function (b) { return b.storage !== S; }) };
+    if (a === 'examCourseExtras') {
+      if (!course(p.from)) return { ok: false, code: 'forbidden', error: 'You cannot read this teaching bank.' };
+      var t = examTeachItems_(String(p.from)); return { ok: true, questions: t.questions, exclude: t.exclude };
+    }
+    if (a === 'examCopyFrom') {
+      var b = src.banks.filter(function (x) { return x.storage === String(p.from || '') && x.storage !== S; })[0];
+      if (!b) return { ok: false, code: 'forbidden', error: 'You cannot read this exam bank.' };
+      var qs = []; readAll_(SHEETS.CONTENT).forEach(function (r) { if (r.module === b.storage && r.collection === 'priv:exambank' && !isTrue_(r.deleted)) { var q = unpackJson_(r); if (q) qs.push(q); } });
+      return { ok: true, questions: qs.sort(function (x, y) { return (x.addedAt || 0) - (y.addedAt || 0); }) };
+    }
+    if (a === 'examTeachWrite') {   // add questions to a teaching bank; hide ids from Revision; remove imported questions
+      var to = course(p.to); if (!to) return { ok: false, code: 'forbidden', error: 'You cannot change this teaching bank.' };
+      var tg = examTeachTarget_(to.storage), now = Date.now(), added = [], bad = 0, w = [];
+      (Array.isArray(p.add) ? p.add.slice(0, 300) : []).forEach(function (q, i) { var o = examTeachQuestion_(q, now, i); if (!o) { bad++; return; } w.push({ collection: 'importedquestions', id: o.id, data: o }); added.push(o.id); });
+      if (added.length) { var bid = 'batch_x' + now.toString(36); w.push({ collection: 'importbatches', id: bid, data: { id: bid, fileName: 'Official exam bank', sourceType: 'exam', importedAt: now, count: added.length, questionIds: added } }); }
+      var hide = Array.isArray(p.hide) ? p.hide.map(String).slice(0, 1000) : [], unhide = Array.isArray(p.unhide) ? p.unhide.map(String).slice(0, 1000) : [];
+      if (hide.length || unhide.length) {
+        var set = {}; examTeachItems_(to.storage).exclude.forEach(function (x) { set[x] = 1; }); hide.forEach(function (x) { set[x] = 1; }); unhide.forEach(function (x) { delete set[x]; });
+        w.push({ collection: 'revexclude', id: 'exclude', data: { ids: Object.keys(set) } });
+      }
+      (Array.isArray(p.remove) ? p.remove.map(String).filter(function (x) { return /^imp_/.test(x); }).slice(0, 300) : []).forEach(function (id) { w.push({ collection: 'importedquestions', id: id, data: null }); });
+      examBulkWrite_(tg.module, w, now);
+      cvMarkWrite_(to.storage); if (tg.where === 'draft') cvMarkWrite_(cvBaseOf_(to.storage));
+      return { ok: true, added: added, skipped: bad, where: tg.where, storage: to.storage };
+    }
+    return { ok: false, code: 'badaction', error: 'Unknown action.' };
+  });
+}
+
+/* ---- Teaching lock of a combined exam (2.6): its candidates cannot use ANY teaching module of their group ---- */
+/** The combined-exam storage of a group storage <module>-<code> → exams-<code>; '' for main storages and exam storages. */
+function examGroupStorage_(S) { var M = cvBaseOf_(S); return M === S || M === EXAM_MODULE ? '' : EXAM_MODULE + '-' + S.slice(M.length + 1); }
+/** The lock that applies to this student in this storage: the module's own official exams, or the group's combined exams. */
+function examLockFor_(S, username) {
+  if (typeof exTeachingLock_ !== 'function') return null;
+  var X = examGroupStorage_(S);
+  return exTeachingLock_(S, username) || (X ? exTeachingLock_(X, username) : null);
+}
+/** Student requests to a group's teaching module while a combined exam locks them (Code.gs checks the module's own exams itself). */
+function examGroupLockHook_(S, act, p) {
+  var X = examGroupStorage_(S); if (!X || typeof exLocks_ !== 'function' || act === 'studentLogout') return null;
+  if (!exLocks_(X).length) return null;   // cached; nothing scheduled → nothing to do
+  var username = '';
+  if (p.stoken) { var st = studentFromSession_(S, p.stoken); if (st) username = st.username; }
+  else if (act === 'studentLogin' && p.username && p.password) {   // only after a correct password (no hint about who is a candidate)
+    var s = findStudent_(S, normUser_(p.username));
+    if (s && safeEq_(hashIter_(String(p.password), s.pwSalt, Number(s.pwIter) || PW_ITER), s.pwHash)) username = s.username;
+  }
+  return username ? exTeachingLock_(X, username) : null;
+}
+
+/* ---- Results per module (2.6): each question of a combined exam remembers its module (source.course) ---- */
+function examModuleScores_(S, examId) {
+  if (typeof assessStore_ !== 'function') return { ok: false, error: 'Update Code.gs to 1.7 first.' };
+  var titles = {}; if (dirReadable_()) dirAll_(DIR.MOD).forEach(function (m) { titles[m.moduleId] = m.title; });
+  var st = assessStore_(S), mods = {}, rows = [], base = cvBaseOf_(S);
+  st.list('exattempt').filter(function (x) { return x.examId === examId; }).forEach(function (x0) {
+    var x = (typeof exGetAtt_ === 'function' ? exGetAtt_(S, st, x0.id) : null) || x0;
+    if (x.status !== 'submitted' && x.status !== 'expired') return;
+    var by = {};
+    (x.questions || []).forEach(function (q, i) {
+      var m = (q && q.source && q.source.course) || (base !== EXAM_MODULE ? base : '') || 'other', a = (x.answers || [])[i] || {};
+      var o = by[m] || (by[m] = { marks: 0, max: 0, correct: 0 });
+      o.max += 1; o.marks += Number(a.mark) || 0; if (a.correct) o.correct++;
+      mods[m] = 1;
+    });
+    Object.keys(by).forEach(function (m) { by[m].marks = Math.round(by[m].marks * 100) / 100; by[m].percent = by[m].max ? Math.round(1000 * by[m].marks / by[m].max) / 10 : 0; });
+    rows.push({ username: x.username, name: x.studentName || '', modules: by });
+  });
+  var list = Object.keys(mods).sort().map(function (m) { return { id: m, title: titles[m] || (m === 'other' ? 'Exam-only questions' : m) }; });
+  return { ok: true, examId: examId, modules: list, results: rows };
 }

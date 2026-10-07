@@ -19,7 +19,7 @@ function fixtureBackend(opts) {
   };
   return b;
 }
-const FILES = [path.join(__dirname, 'apps-script', 'Code.core.gs'), path.join(__dirname, '..', 'backend', 'Portal.gs')];
+const FILES = [path.join(__dirname, 'apps-script', 'Code.core.gs'), path.join(__dirname, 'apps-script', 'Code.exam.gs'), path.join(__dirname, '..', 'backend', 'Portal.gs')];
 const PW = 'student-pass-1';
 
 function setup() {
@@ -1227,4 +1227,188 @@ test('speed: sign-out forgets the cached token check; tidy up removes only histo
   assert.ok(!S.b.sheets.Sessions._rows.some(function (r) { return r[1] === 'old-token-1'; }));
   assert.strictEqual(S.dir('portalTidyReport').historyTombstones, 0);
   assert.ok(X.portalWarm());
+});
+
+
+/* ---------------- Official Exams (2.6) ---------------- */
+function examsSetup() {
+  const S = teachersSetup();
+  // the Official Exams module, delivered to Al-Razi A → storage exams-razi-a-26
+  assert.ok(S.save('module', { moduleId: 'exams', title: 'Official Exams', url: 'https://third-year-med.github.io/pathology-exams/', storagePrefix: 'xm_', icon: '📝' }, { create: true }).ok);
+  S.dl['exams-razi-a-26'] = S.save('delivery', { groupId: S.ra.groupId, moduleId: 'exams', status: 'available' }).record;
+  assert.strictEqual(S.dl['exams-razi-a-26'].backendModule, 'exams-razi-a-26');
+  assert.ok(S.dir('teacherAssign', { userId: S.ahmed.teacher.userId, deliveryIds: [S.dl['cellinjury-razi-a-26'].deliveryId, S.dl['inflhealing-razi-a-26'].deliveryId, S.dl['exams-razi-a-26'].deliveryId] }).ok);
+  S.b.ctx.CONTENT_KEYS.cellinjury = Buffer.alloc(32, 1).toString('base64'); S.b.ctx.CONTENT_KEYS.inflhealing = Buffer.alloc(32, 2).toString('base64');
+  return S;
+}
+test('exams: places + examiner sessions without a module password (Admin: all; teacher: only assigned), keys only for allowed modules', function () {
+  const S = examsSetup();
+  const pa = S.dir('examPlaces'); assert.ok(pa.ok, JSON.stringify(pa));
+  const st = pa.places.map(function (x) { return x.storage; });
+  ['cellinjury', 'inflhealing', 'cellinjury-razi-a-26', 'exams-razi-a-26', 'cellinjury-misrata-a-26'].forEach(function (k) { assert.ok(st.indexOf(k) >= 0, k); });
+  assert.ok(st.indexOf('exams') < 0, 'the exams module itself is not a place');
+  assert.strictEqual(pa.places.filter(function (x) { return x.storage === 'exams-razi-a-26'; })[0].kind, 'combined');
+  // Admin opens the combined exams of Al-Razi A: a session for that storage only; keys of all modules
+  const oa = S.dir('examOpen', { storage: 'exams-razi-a-26' }); assert.ok(oa.ok, JSON.stringify(oa));
+  assert.ok(oa.keys.cellinjury && oa.keys.inflhealing);
+  assert.ok(S.call({ module: 'exams-razi-a-26', action: 'examBankList', token: oa.token }).ok, 'works in the exam app');
+  assert.strictEqual(S.call({ module: 'cellinjury', action: 'examBankList', token: oa.token }).ok, false, 'not for another storage');
+  assert.strictEqual(S.dir('examOpen', { storage: 'nope-x' }).ok, false);
+  // personal teacher (Dr. Ahmed: Al-Razi A only)
+  const pt = S.t('examPlaces', S.ahmed.tok); assert.ok(pt.ok, JSON.stringify(pt));
+  assert.deepStrictEqual(pt.places.map(function (x) { return x.storage; }).sort(), ['cellinjury-razi-a-26', 'exams-razi-a-26', 'inflhealing-razi-a-26']);
+  const ot = S.t('examOpen', S.ahmed.tok, { storage: 'exams-razi-a-26' }); assert.ok(ot.ok, JSON.stringify(ot));
+  assert.deepStrictEqual(Object.keys(ot.keys).sort(), ['cellinjury', 'inflhealing']);
+  assert.ok(S.call({ module: 'exams-razi-a-26', action: 'examList', token: ot.token }).ok);
+  assert.strictEqual(S.t('examOpen', S.ahmed.tok, { storage: 'cellinjury-misrata-a-26' }).code, 'forbidden');
+  assert.strictEqual(S.t('examOpen', S.ahmed.tok, { storage: 'cellinjury' }).code, 'forbidden', 'the main storage is the Admin\'s');
+  // removing the assignment ends the examiner session at once
+  assert.ok(S.dir('teacherAssign', { userId: S.ahmed.teacher.userId, deliveryIds: [S.dl['cellinjury-razi-a-26'].deliveryId] }).ok);
+  assert.strictEqual(S.call({ module: 'exams-razi-a-26', action: 'examList', token: ot.token }).ok, false);
+  assert.strictEqual(S.call({ module: 'portal', action: 'examOpen', token: S.ahmed.tok, storage: 'exams-razi-a-26' }).ok, false, 'a teacher token is not an Admin token');
+});
+test('exams: delivering Official Exams creates exam accounts with the group password; the group page sign-in is not affected', function () {
+  const S = examsSetup();
+  assert.ok(S.dir('rosterAdd', { groupId: S.ra.groupId, students: [{ studentId: 'e1', name: 'Exam One', password: 'exam-pass-11' }], mustChange: false }).ok);
+  const rows = S.b.sheets.Students._rows.filter(function (r) { return r[1] === 'e1'; }).map(function (r) { return r[0]; }).sort();
+  assert.deepStrictEqual(rows, ['cellinjury-razi-a-26', 'exams-razi-a-26', 'inflhealing-razi-a-26']);
+  // an exam in the group's exam storage: the student signs in with the access code + the group password
+  const oa = S.dir('examOpen', { storage: 'exams-razi-a-26' }), X = 'exams-razi-a-26', now = Date.now();
+  const bk = S.call({ module: X, action: 'examBankSave', token: oa.token, questions: [{ type: 'tf', stem: 'Necrosis is irreversible', answer: true }] });
+  const ex = S.call({ module: X, action: 'examUpsert', token: oa.token, exam: { title: 'Combined midterm', code: 'MID26', opensAt: now - 1000, closesAt: now + 3600000, durationMin: 20, questionIds: bk.saved, status: 'published' } });
+  assert.ok(ex.ok, JSON.stringify(ex));
+  const lg = S.call({ module: X, action: 'examLogin', code: 'mid26', username: 'e1', password: 'exam-pass-11' }); assert.ok(lg.ok, JSON.stringify(lg));
+  // the group page sign-in does not open the exam storage (exams need the access code)
+  const g = S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: 'e1', password: 'exam-pass-11' });
+  assert.ok(g.ok, JSON.stringify(g)); assert.ok(!('exams' in g.modules));
+  // a password change inside a module of the group also changes the exam password
+  const cs = g.modules.cellinjury.token;
+  assert.ok(S.call({ module: 'cellinjury-razi-a-26', action: 'studentChangePassword', stoken: cs, oldPassword: 'exam-pass-11', newPassword: 'exam-pass-22' }).ok);
+  assert.strictEqual(S.call({ module: X, action: 'examLogin', code: 'MID26', username: 'e1', password: 'exam-pass-11' }).ok, false);
+  assert.ok(S.call({ module: X, action: 'examLogin', code: 'MID26', username: 'e1', password: 'exam-pass-22' }).ok);
+  // the Content tab does not list Official Exams as a teaching module
+  assert.ok(!S.dir('contentStatus').modules.some(function (m) { return m.moduleId === 'exams'; }));
+});
+test('exams: the public exam list shows titles, times and state only — never codes, candidates or questions', function () {
+  const S = examsSetup(), X = 'exams-razi-a-26', now = Date.now();
+  const oa = S.dir('examOpen', { storage: X });
+  const bk = S.call({ module: X, action: 'examBankSave', token: oa.token, questions: [{ type: 'tf', stem: 'Secret stem', answer: true }] });
+  S.call({ module: X, action: 'examUpsert', token: oa.token, exam: { title: 'Combined midterm', code: 'SECRET1', opensAt: now + 3600000, closesAt: now + 7200000, durationMin: 45, questionIds: bk.saved, status: 'published', candidates: ['e1'] } });
+  S.call({ module: X, action: 'examUpsert', token: oa.token, exam: { title: 'Draft only', code: 'DRAFT1', opensAt: now, closesAt: now + 7200000, durationMin: 45, questionIds: bk.saved, status: 'draft' } });
+  const oc = S.dir('examOpen', { storage: 'cellinjury-razi-a-26' });
+  const b2 = S.call({ module: 'cellinjury-razi-a-26', action: 'examBankSave', token: oc.token, questions: [{ type: 'tf', stem: 'q', answer: false }] });
+  S.call({ module: 'cellinjury-razi-a-26', action: 'examUpsert', token: oc.token, exam: { title: 'Cell injury quiz', code: 'CIQ1', opensAt: now - 60000, closesAt: now + 600000, durationMin: 10, questionIds: b2.saved, status: 'published' } });
+  const om = S.dir('examOpen', { storage: 'cellinjury-misrata-a-26' });
+  const b3 = S.call({ module: 'cellinjury-misrata-a-26', action: 'examBankSave', token: om.token, questions: [{ type: 'tf', stem: 'q', answer: false }] });
+  S.call({ module: 'cellinjury-misrata-a-26', action: 'examUpsert', token: om.token, exam: { title: 'Misrata exam', code: 'MIS1', opensAt: now - 60000, closesAt: now + 600000, durationMin: 10, questionIds: b3.saved, status: 'published' } });
+  const l = S.call({ module: 'portal', action: 'portalExamList', g: 'razi-a-26' }); assert.ok(l.ok, JSON.stringify(l));
+  assert.strictEqual(l.group.name, 'Group A');
+  assert.deepStrictEqual(l.exams.map(function (e) { return [e.title, e.kind, e.state, e.questions]; }), [['Cell injury quiz', 'module', 'open', 1], ['Combined midterm', 'combined', 'notyet', 1]]);
+  const txt = JSON.stringify(l);
+  ['SECRET1', 'CIQ1', 'Secret stem', 'e1', 'Draft only', 'Misrata'].forEach(function (w) { assert.strictEqual(txt.indexOf(w), -1, w); });
+  assert.strictEqual(S.call({ module: 'portal', action: 'portalExamList', g: 'nope' }).code, 'nogroup');
+  assert.ok(S.call({ module: 'portal', action: 'portalExamList' }).ok, 'the page without a group lists the modules\' own exams');
+});
+test('exams: copy questions between exam banks and teaching banks — teachers only within their own groups', function () {
+  const S = examsSetup(), X = 'exams-razi-a-26', C = 'cellinjury-razi-a-26';
+  const oa = S.dir('examOpen', { storage: X }), ot = S.t('examOpen', S.ahmed.tok, { storage: X });
+  const call = function (tok, a, o) { return S.call(Object.assign({ module: X, action: a, token: tok }, o || {})); };
+  // sources: Admin → every module + every group; Dr. Ahmed → only Al-Razi A
+  const sa = call(oa.token, 'examCopySources'); assert.ok(sa.ok && sa.admin, JSON.stringify(sa));
+  assert.ok(sa.courses.some(function (c) { return c.storage === 'cellinjury'; }) && sa.courses.some(function (c) { return c.storage === 'cellinjury-misrata-a-26'; }));
+  assert.ok(!sa.banks.some(function (b) { return b.storage === X; }), 'not its own bank');
+  const st = call(ot.token, 'examCopySources'); assert.ok(st.ok && !st.admin);
+  assert.deepStrictEqual(st.courses.map(function (c) { return c.storage; }).sort(), [C, 'inflhealing-razi-a-26']);
+  assert.deepStrictEqual(st.banks.map(function (c) { return c.storage; }).sort(), [C, 'inflhealing-razi-a-26']);
+  // copy from another exam bank (the group's Cell Injury exam bank)
+  const oc = S.dir('examOpen', { storage: C });
+  const b = S.call({ module: C, action: 'examBankSave', token: oc.token, questions: [{ type: 'mcq', stem: 'Pick one', options: ['a', 'b'], answer: 1, topic: '03 · Necrosis', image: 'https://drive.google.com/thumbnail?id=abc&sz=w2000' }] });
+  const cf = call(ot.token, 'examCopyFrom', { from: C }); assert.ok(cf.ok, JSON.stringify(cf));
+  assert.strictEqual(cf.questions.length, 1); assert.strictEqual(cf.questions[0].image, 'https://drive.google.com/thumbnail?id=abc&sz=w2000');
+  assert.strictEqual(call(ot.token, 'examCopyFrom', { from: 'cellinjury-misrata-a-26' }).code, 'forbidden');
+  assert.strictEqual(call(ot.token, 'examCopyFrom', { from: 'cellinjury' }).code, 'forbidden', 'the main storage is the Admin\'s');
+  assert.ok(call(oa.token, 'examCopyFrom', { from: 'cellinjury-misrata-a-26' }).ok);
+  // saved into the combined bank with the module as source → per-module sub-scores later
+  const sv = call(ot.token, 'examBankSave', { questions: [Object.assign({}, cf.questions[0], { id: undefined, source: { kind: 'exambank', origId: b.saved[0], course: 'cellinjury' } })] });
+  assert.strictEqual(call(ot.token, 'examBankList').questions[0].source.course, 'cellinjury');
+  // exam → teaching bank (versioned content OFF: straight into the group's storage)
+  const tq = { type: 'mcq', stem: 'Pick one', options: ['a', 'b'], answer: 1, topic: 't03', images: [{ url: 'https://drive.google.com/thumbnail?id=abc&sz=w2000', caption: '' }, { url: 'javascript:alert(1)' }] };
+  const w = call(ot.token, 'examTeachWrite', { to: C, add: [tq, { type: 'mcq', stem: '' }], hide: ['q001'] }); assert.ok(w.ok, JSON.stringify(w));
+  assert.strictEqual(w.added.length, 1); assert.strictEqual(w.skipped, 1); assert.strictEqual(w.where, 'live');
+  const ex = call(ot.token, 'examCourseExtras', { from: C }); assert.ok(ex.ok);
+  assert.deepStrictEqual(ex.questions.map(function (q) { return [q.id, q.topic, q.images.length]; }), [[w.added[0], 't03', 1]]);
+  assert.deepStrictEqual(ex.exclude, ['q001']);
+  assert.ok(S.b.sheets.Content._rows.some(function (r) { return r[0] === C && r[1] === 'importbatches'; }), 'provenance batch');
+  // the students of that group see it; Misrata does not
+  const g1 = S.call({ module: C, action: 'getAllContent', token: oc.token, since: 0 });
+  assert.ok(g1.items.some(function (i) { return i.collection === 'importedquestions' && i.id === w.added[0]; }));
+  // move back: remove the imported question and show it in Revision again
+  assert.ok(call(ot.token, 'examTeachWrite', { to: C, remove: [w.added[0]], unhide: ['q001'] }).ok);
+  const ex2 = call(ot.token, 'examCourseExtras', { from: C }); assert.strictEqual(ex2.questions.length, 0); assert.deepStrictEqual(ex2.exclude, []);
+  // refused outside the teacher's groups
+  assert.strictEqual(call(ot.token, 'examTeachWrite', { to: 'cellinjury-misrata-a-26', add: [tq] }).code, 'forbidden');
+  assert.strictEqual(call(ot.token, 'examCourseExtras', { from: 'cellinjury' }).code, 'forbidden');
+  assert.strictEqual(S.call({ module: X, action: 'examCopySources', token: 'nope' }).code, 'auth');
+  // versioned content ON: the Admin writes to the master draft; a teacher to the group's local layer
+  assert.ok(S.dir('contentMigrate', { moduleId: 'cellinjury', decisions: {} }).ok);
+  assert.ok(S.dir('contentSetMode', { moduleId: 'cellinjury', mode: 'on' }).ok);
+  const wa = call(oa.token, 'examTeachWrite', { to: 'cellinjury', add: [tq] }); assert.strictEqual(wa.where, 'draft');
+  assert.ok(S.b.sheets.Content._rows.some(function (r) { return r[0] === 'cellinjury@draft' && r[2] === wa.added[0]; }));
+  const wt = call(ot.token, 'examTeachWrite', { to: C, add: [tq] }); assert.strictEqual(wt.where, 'local');
+  assert.ok(S.b.sheets.Content._rows.some(function (r) { return r[0] === C + '@local' && r[2] === wt.added[0]; }));
+  assert.ok(call(ot.token, 'examCourseExtras', { from: C }).questions.some(function (q) { return q.id === wt.added[0]; }), 'reads the group\'s effective bank');
+  assert.ok(!S.b.sheets.Content._rows.some(function (r) { return r[0] === 'cellinjury' && r[2] === wa.added[0]; }), 'the live master is unchanged until Publish');
+});
+test('exams: a combined exam closes every teaching module of the group for its candidates only (from 15 min before)', function () {
+  const S = examsSetup(), X = 'exams-razi-a-26', now = Date.now();
+  assert.ok(S.dir('rosterAdd', { groupId: S.ra.groupId, students: [{ studentId: 'e1', name: 'Exam One', password: 'exam-pass-11' }, { studentId: 'e2', name: 'Exam Two', password: 'exam-pass-22' }], mustChange: false }).ok);
+  const g1 = S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: 'e1', password: 'exam-pass-11' }); assert.ok(g1.ok, JSON.stringify(g1));
+  const tok = g1.modules.cellinjury.token; assert.ok(tok);
+  assert.ok(S.call({ module: 'cellinjury-razi-a-26', action: 'getAllContent', stoken: tok, since: 0 }).ok, 'open before the exam');
+  const oa = S.dir('examOpen', { storage: X });
+  const bk = S.call({ module: X, action: 'examBankSave', token: oa.token, questions: [{ type: 'tf', stem: 'x', answer: true, source: { kind: 'new', course: 'cellinjury' } }] });
+  const ex = S.call({ module: X, action: 'examUpsert', token: oa.token, exam: { title: 'Combined final', code: 'FIN26', opensAt: now + 10 * 60000, closesAt: now + 3600000, durationMin: 30, questionIds: bk.saved, status: 'published', lockTeaching: true, candidates: ['e1'] } });
+  assert.ok(ex.ok, JSON.stringify(ex));
+  // e1 (candidate): every module of the group is closed — open session, new sign-in, group page
+  ['cellinjury-razi-a-26', 'inflhealing-razi-a-26'].forEach(function (m, i) {
+    if (i === 0) assert.strictEqual(S.call({ module: m, action: 'getAllContent', stoken: tok, since: 0 }).code, 'examlock', m);
+    assert.strictEqual(S.call({ module: m, action: 'studentLogin', username: 'e1', password: 'exam-pass-11' }).code, 'examlock', m);
+  });
+  assert.strictEqual(S.call({ module: 'cellinjury-razi-a-26', action: 'studentLogin', username: 'e1', password: 'wrong-pass' }).code !== 'examlock', true, 'no hint without the right password');
+  const g2 = S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: 'e1', password: 'exam-pass-11' });
+  assert.strictEqual(g2.modules.cellinjury.reason, 'examlock'); assert.strictEqual(g2.modules.inflhealing.reason, 'examlock');
+  assert.ok(S.call({ module: 'cellinjury-razi-a-26', action: 'studentLogout', stoken: tok }).ok, 'signing out still works');
+  // e2 (not a candidate) and other groups: unaffected
+  const g3 = S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: 'e2', password: 'exam-pass-22' });
+  assert.ok(g3.modules.cellinjury.access && g3.modules.inflhealing.access, JSON.stringify(g3));
+  assert.ok(S.call({ module: 'cellinjury-razi-a-26', action: 'getAllContent', stoken: g3.modules.cellinjury.token, since: 0 }).ok);
+  // teachers keep working; the candidate can sign in to the exam itself
+  assert.ok(S.call({ module: 'cellinjury-razi-a-26', action: 'getAllContent', token: S.dir('examOpen', { storage: 'cellinjury-razi-a-26' }).token, since: 0 }).ok);
+  // switching the lock off reopens the modules at once
+  assert.ok(S.call({ module: X, action: 'examUpsert', token: oa.token, exam: Object.assign({}, ex.exam, { lockTeaching: false }) }).ok);
+  assert.ok(S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: 'e1', password: 'exam-pass-11' }).modules.cellinjury.access);
+});
+test('exams: results of a combined exam per module (each question counts in the module it came from)', function () {
+  const S = examsSetup(), X = 'exams-razi-a-26', now = Date.now();
+  assert.ok(S.dir('rosterAdd', { groupId: S.ra.groupId, students: [{ studentId: 'e1', name: 'Exam One', password: 'exam-pass-11' }], mustChange: false }).ok);
+  const oa = S.dir('examOpen', { storage: X });
+  const bk = S.call({ module: X, action: 'examBankSave', token: oa.token, questions: [
+    { type: 'tf', stem: 'ci 1', answer: true, source: { kind: 'course', origId: 'q1', course: 'cellinjury' } },
+    { type: 'tf', stem: 'ci 2', answer: true, source: { kind: 'course', origId: 'q2', course: 'cellinjury' } },
+    { type: 'tf', stem: 'ih 1', answer: false, source: { kind: 'course', origId: 'q1', course: 'inflhealing' } },
+    { type: 'fillblank', stem: 'What is the diagnosis?', answers: [['granuloma']], image: 'https://drive.google.com/thumbnail?id=pic1&sz=w2000', source: { kind: 'new' } }] });
+  assert.strictEqual(bk.saved.length, 4, JSON.stringify(bk));
+  const ex = S.call({ module: X, action: 'examUpsert', token: oa.token, exam: { title: 'Combined', code: 'CMB26', opensAt: now - 1000, closesAt: now + 3600000, durationMin: 20, questionIds: bk.saved, status: 'published', shuffleQuestions: false, shuffleOptions: false } });
+  const lg = S.call({ module: X, action: 'examLogin', code: 'CMB26', username: 'e1', password: 'exam-pass-11' }); assert.ok(lg.ok, JSON.stringify(lg));
+  const stt = S.call({ module: X, action: 'examStart', etoken: lg.etoken }); assert.ok(stt.ok, JSON.stringify(stt));
+  assert.strictEqual(stt.paper[3].image, 'https://drive.google.com/thumbnail?id=pic1&sz=w2000', 'the picture reaches the paper');
+  assert.ok(!JSON.stringify(stt).includes('granuloma'), 'never the answer');
+  const sub = S.call({ module: X, action: 'examSubmit', etoken: lg.etoken, responses: { 0: true, 1: false, 2: false, 3: ['Granuloma'] } }); assert.ok(sub.ok, JSON.stringify(sub));
+  const ms = S.call({ module: X, action: 'examModuleScores', token: oa.token, examId: ex.exam.id }); assert.ok(ms.ok, JSON.stringify(ms));
+  assert.deepStrictEqual(ms.modules.map(function (m) { return m.id; }), ['cellinjury', 'inflhealing', 'other']);
+  const r = ms.results[0].modules;
+  assert.deepStrictEqual([r.cellinjury.marks, r.cellinjury.max, r.cellinjury.percent], [1, 2, 50]);
+  assert.deepStrictEqual([r.inflhealing.marks, r.inflhealing.max], [1, 1]);
+  assert.deepStrictEqual([r.other.marks, r.other.max], [1, 1], 'picture question, typed answer accepted case-insensitively');
+  assert.strictEqual(S.call({ module: X, action: 'examModuleScores', token: 'bad', examId: ex.exam.id }).code, 'auth');
 });
