@@ -220,7 +220,7 @@ The user is a pathologist, not a developer. They follow steps literally and send
   "initial", master v1.0, ON).
   Introduction to Pathology (`intropath`, prefix `ip_`, repo third-year-med/introduction-to-pathology, Chapter 1 —
   first card) added 2026-10-10: front-page card, directory module + deliveries, Code.gs entries, platform block; tested
-  by the user. Versioned content not yet migrated. Groups include `cellinjury-B`, `cellinjury-C` (not registered), `cellinjury-razi-a-26`.
+  by the user. Versioned content: master v1.0 created and switched ON by the user (2026-10-10). Groups include `cellinjury-B`, `cellinjury-C` (not registered), `cellinjury-razi-a-26`.
 - The 10-step multi-university plan is complete; the packaged-release procedure, the Practical fixes and the 7 exam
   steps are done.
 - Tests: 60 backend, 43 e2e (with keys). The e2e exam test drives the real exam app; the harness fakes DriveApp
