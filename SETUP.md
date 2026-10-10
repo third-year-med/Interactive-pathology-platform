@@ -268,6 +268,9 @@ Script editor, choose **authorizeDriveAccess** in the function list and press �
 ## Before every Deploy: run the self-check
 
 Apps Script → at the top, choose the function **platformCheck** → **▶ Run** → open the **Execution log**.
+
+![Where to find platformCheck: 1 function list, 2 ▶ Run, 3 Execution log](docs/images/platformCheck-where.png)
+
 - **✅ No problems found** → deploy (Deploy → Manage deployments → Edit → New version → Deploy).
 - **❌ …** → it says exactly which line is missing or which key is wrong; fix it, run the check again, then deploy.
 It only reads; it changes nothing and never shows a key.
