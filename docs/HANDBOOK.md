@@ -13,13 +13,20 @@ in this repository, so every new session starts from it. State as of **2026-10-0
 | `Interactive-pathology-platform` | Front page (Platform Home, group pages, Teacher Sign-In, Teacher Dashboard, Admin directory), `backend/Portal.gs`, tests, release tool, docs | `https://third-year-med.github.io/Interactive-pathology-platform/` |
 | `cell-injury-teaching-platform` | Module **Cell Injury & Cell Death** — one `index.html` (module key `cellinjury`, storage prefix `ci_`) | `…/cell-injury-teaching-platform/` |
 | `inflammation-healing` | Module **Inflammation & Healing** — one `index.html` (`inflhealing`, `ih_`) | `…/inflammation-healing/` |
-| `Vulvar-pathology` | The first module rebuilt on the Apps Script + GitHub Pages model (its own `Gyn.gs` backend, teacher editor) | its own Pages site |
+| `introduction-to-pathology` | Module **Introduction to Pathology** (Chapter 1, first card) — one `index.html` (`intropath`, `ip_`) | `…/introduction-to-pathology/` |
+| `pathology-exams` | The Official Exams app — one `index.html` (`?m=<storage>`, `?g=<link code>`) | `…/pathology-exams/` |
+
+**Cancelled (2026-10-10):** the Vulva and Vagina modules (`Vulvar-pathology`, `vaginal-pathology`, their separate
+`Gyn.gs` Apps Script backend). The user is deleting those repositories; do not build on them or link to them.
+`Gyn-pathology` is **kept for now** (not part of the platform) — do not change or delete it unless the user asks.
+The tests still use the name `vulva` for a simulated second backend; that is only a test fixture.
 
 **Backend:** one Google Apps Script project (the "main backend") holds both module data and the platform:
 - **`Code.gs`**: written and maintained **by the user**. Never rewrite it; never ask to paste it into the repo. The only
-  change ever made was ONE line in `route_` (see SETUP.md 1.3) that calls `portalHook_(module, p)`.
+  changes ever made: ONE line in `route_` that calls `portalHook_(module, p)` (SETUP.md 1.3), the two speed lines in
+  `authed_` (SETUP.md → Speed) and, per module, the four entries of HANDBOOK §5. `platformCheck` verifies them.
 - **`Portal.gs`**: maintained in this repo (`backend/Portal.gs`), pasted by the user into a separate Apps Script file
-  named "Portal". Currently **version 2.5**.
+  named "Portal". Currently **version 2.6**.
 - Data: one Google Sheet. Code.gs sheets: Content, Results, Settings, Sessions, LiveChat, LiveMembers, LiveFiles,
   AttendanceSessions, AttendanceRecords, AssessRecords, StudySync, Students, StudentSessions. Portal sheets (created on
   first use): Institutions, Groups, Modules, Deliveries, TeacherAssignments, ModuleContentRoles, StudentMemberships,
