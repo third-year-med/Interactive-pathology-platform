@@ -265,6 +265,17 @@ shown; never the code) → sign in with the access code, student ID and password
 Drive permission: the first picture upload needs Drive access. If you see "Access denied: DriveApp", open the Apps
 Script editor, choose **authorizeDriveAccess** in the function list and press ▶ once.
 
+## Before every Deploy: run the self-check
+
+Apps Script → at the top, choose the function **platformCheck** → **▶ Run** → open the **Execution log**.
+- **✅ No problems found** → deploy (Deploy → Manage deployments → Edit → New version → Deploy).
+- **❌ …** → it says exactly which line is missing or which key is wrong; fix it, run the check again, then deploy.
+It only reads; it changes nothing and never shows a key.
+
+**Never replace Code.gs with a whole new copy** — add only the lines a module needs (STUDENT_AUTH_MODULES,
+CONTENT_KEYS, DEFAULT_QUIZ_PW, DEFAULT_LIVE_PW). If something breaks after a deploy: Deploy → Manage deployments →
+Edit → Version: the previous one → Deploy, then fix calmly.
+
 ## 5. Give students access
 
 Status never opens a module by itself. A student can enter a module when their account exists there:

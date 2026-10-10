@@ -8,6 +8,9 @@ Essentials:
 - Code.gs belongs to the user — never rewrite it. `backend/Portal.gs` (here) is pasted by the user into the Apps Script
   file "Portal"; after each change give the raw-URL steps, the new line count and the last 3 lines, then
   "Deploy → Manage deployments → Edit → New version → Deploy".
+- **Never give the user a whole new Code.gs** — only the lines to add and where (a replaced Code.gs lost the Portal line on
+  2026-10-10 and took the front page down). New module: follow HANDBOOK §5; the user runs **platformCheck** (▶ in Apps
+  Script) before every deploy and deploys only on ✅.
 - Never commit or expose content keys, GitHub tokens, admin credentials or the user's full Code.gs. Keys only as env
   variables (`CI_CONTENT_KEY`, `IH_CONTENT_KEY`, `CONTENT_KEY`) in a session.
 - `?g=` selects a group but never grants access. Module IDs never contain "-". Storage of a delivery = `<module>-<linkCode>`.

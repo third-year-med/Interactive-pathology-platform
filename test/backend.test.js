@@ -1433,3 +1433,22 @@ test('exams: copy an exam from the normal link to a group (questions copied once
   const ot = S.t('examOpen', S.ahmed.tok, { storage: G });
   assert.strictEqual(S.call({ module: G, action: 'examCopyExam', token: ot.token, examId: list[0].id, to: 'cellinjury-misrata-a-26' }).code, 'forbidden');
 });
+test('platformCheck: reports a missing Portal line, missing/invalid content keys — never prints a key', function () {
+  const S = examsSetup();
+  S.b.ctx.CONTENT_KEYS.vagina = Buffer.alloc(32, 3).toString('base64');
+  const a = S.b.eval('platformCheck()');
+  assert.ok(a.ok, a.text);
+  assert.match(a.text, /No problems found/);
+  assert.ok(!/AAECAwQFBgcICQoL/.test(a.text), 'no key in the report');
+  // a module with student sign-in but no key, and a broken key
+  S.b.eval("STUDENT_AUTH_MODULES.cardio = true; CONTENT_KEYS.vulva = 'short'; CONTENT_KEYS.vagina = '__VAGINA_CONTENT_KEY__';");
+  const b = S.b.eval('platformCheck()');
+  assert.strictEqual(b.ok, false);
+  assert.ok(b.errors.some(function (e) { return /"cardio".*NO entry in CONTENT_KEYS/.test(e); }), b.text);
+  assert.ok(b.errors.some(function (e) { return /content key of "vulva" is not a valid key/.test(e); }), b.text);
+  assert.ok(b.warnings.some(function (e) { return /"vagina" is still a placeholder/.test(e); }), b.text);
+  // the Portal line lost from route_ (what happened on 2026-10-10)
+  S.b.eval("route_ = function (p) { var module = p.module, action = p.action; if (!STUDENT_PUBLIC_ACTIONS[action] && studentAuthOn_(module)) { var gate = gateRequest_(module, p); if (gate) return gate; } return { ok: false, code: 'badaction' }; };");
+  const c = S.b.eval('platformCheck()');
+  assert.ok(c.errors.some(function (e) { return /Portal line is MISSING/.test(e); }), c.text);
+});

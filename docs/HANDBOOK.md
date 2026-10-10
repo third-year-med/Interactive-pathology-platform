@@ -103,19 +103,44 @@ sessions). Optional Code.gs `authed_` cache (documented in SETUP.md) and the `po
 - Practical tab = structured practicals (drafts in `priv:pracdrafts`, published copies in `practicalpub`, resources and
   the image Active switch go live on their own) + the Image Bank (`practical` collection).
 
-## 5. Adding the next module — checklist
+## 5. Adding the next module — checklist (follow in this order; learned the hard way on 2026-10-10)
+
+**Golden rule: never give the user a complete new Code.gs.** Code.gs is the user's file and carries lines added
+over time (the Portal line in `route_`, the speed lines in `authed_`). On 2026-10-10 a "fresh" Code.gs from another
+chat dropped the Portal line and the whole front page went down ("does not have the front-page file (Portal.gs)").
+Give **only the lines to add, and where**.
 
 1. **Build** the module with the builder skill. Choose `moduleKey` (lowercase letters/digits, **no "-"**) and a unique
-   `storagePrefix` (e.g. `np_`). Use stable IDs (section 3 rules). Set `NEO_CONFIG.platformHome` to the front page.
-2. **Content key**: the builder encrypts with a new key. The user adds it to Code.gs `CONTENT_KEYS` and the module to
-   `STUDENT_AUTH_MODULES`, then deploys a new version. The key is never committed or shown in files.
-3. **Platform block + build label**: `CONTENT_KEY=… node tools/module-release.js refresh <module repo> [--build LABEL]`.
-4. Create the module repo, push `index.html`, enable GitHub Pages (`main` / root).
-5. Platform directory → **Modules**: add it (title, URL, storage prefix, icon, colour); **Deliveries**: deliver it to
-   groups; **Students**: accounts are created automatically for each group's roster; **Teachers**: tick assignments.
-6. Content tab → **Migration report** → decisions → migrate → **Switch versioned content ON** (when the module has edits).
-7. Test the real page with the key (section 7) before telling the user it is ready.
-8. Update `SETUP.md`, this handbook, and give the user the exact deployment steps (section 6).
+   `storagePrefix` (e.g. `np_`). Use stable IDs (section 3 rules). Its `NEO_CONFIG` must contain
+   `"platformHome":"https://third-year-med.github.io/Interactive-pathology-platform/"` and the page must contain the
+   `<script id="platform-nav">` block (copy of `modules/platform-nav.js`), otherwise there is no "← Back to Platform
+   Home". With the key: `CONTENT_KEY=… node tools/module-release.js refresh <repo>` refreshes the block; a page without
+   any block gets it inserted before `<script id="neo-data"` (done this way for introduction-to-pathology, 9af50d5).
+2. **Module repo**: create it, push `index.html`, enable GitHub Pages (`main` / root). Only `index.html` (encrypted);
+   never Code.gs, keys or unencrypted course files.
+3. **Code.gs — exactly four additions** (the user makes them; give them like this, with the real module key):
+   | Ctrl+F | add |
+   |---|---|
+   | `var STUDENT_AUTH_MODULES` | `, newkey: true` |
+   | `var CONTENT_KEYS` | `newkey: '<its content key>',` (the user pastes the key; never write it in a file) |
+   | `var DEFAULT_QUIZ_PW` | `newkey: 'NEWKEY-2026',` |
+   | `var DEFAULT_LIVE_PW` | `newkey: 'CLASSROOM-2026',` |
+4. **Self-check, then deploy**: Apps Script → function list → **platformCheck** → ▶ Run → Execution log must start
+   with ✅ (it checks the Portal line, the speed lines, every module's key, the front-page list and the directory;
+   it never prints a key). Then **Deploy → Manage deployments → Edit → New version → Deploy**.
+   If anything breaks after a deploy: **Manage deployments → Edit → Version: the previous one → Deploy** first, fix after.
+5. **Front-page card** (the cards are DATA on the backend, not HTML): Teacher Dashboard → module list → ＋ Add a module
+   (title, subtitle, icon, link, status Available; Advanced: module key, hand-off "Platform modules", storage prefix)
+   → ↑ to its chapter position → 💾 Save. (`PORTAL_DEFAULT` in Portal.gs only matters on a fresh install.)
+6. **Groups**: Platform directory → **Modules** → Add (id = module key) → **Deliveries** for each group; accounts are
+   created from each group's roster; **Teachers**: tick assignments.
+7. Content tab → Migration report → decisions → migrate → **Switch versioned content ON** (when the module has edits).
+8. **Test** (section 7) and ask the user to check in an incognito window: front page → test student → module →
+   "← Back to Platform Home".
+9. Update `SETUP.md`, this handbook, and give the user the exact deployment steps (section 6).
+
+**Keys**: the user keeps them in a password manager. If the user pastes Code.gs in a chat, ask them to replace keys
+with `XXX` first; never write a key into a repository, file or commit (scan diffs before every commit).
 
 ## 6. How the user deploys (always give these exact steps)
 
@@ -126,7 +151,8 @@ The user is a pathologist, not a developer. They follow steps literally and send
   check the paste.
 - **Front page / modules:** they go live via GitHub Pages after a push (about 1 minute); the user then presses
   **Ctrl+F5** (a normal reload can show the old version for ~10 minutes).
-- Code.gs changes are made by the user; give the exact line and where to put it.
+- Code.gs changes are made by the user; give the exact line and where to put it — never a whole new Code.gs.
+- Before every deploy the user runs **platformCheck** (Apps Script → function list → ▶ Run) and deploys only on ✅.
 
 ## 7. Testing workflow (do this before every push)
 
@@ -168,6 +194,9 @@ The user is a pathologist, not a developer. They follow steps literally and send
 - **Tests**: millisecond timestamps need `<=` comparisons and small pauses; copy Code.gs functions verbatim into
   `Code.core.gs` when a test needs them; CSS `:nth-of-type` counts other siblings — select rows explicitly.
 - **Playwright**: `page.goto()` to the same URL with only a different `#hash` does not reload the page → `page.reload()`.
+- **2026-10-10 front page down**: a replaced Code.gs lost `if (typeof portalHook_ …)` in `route_` → every portal request
+  fell through to `badaction` → "backend does not have the front-page file". The backend link (GET) still said
+  "running (v1.7)", so a running backend proves nothing about the hook. → platformCheck, and never replace Code.gs.
 
 ## 9. How to work with the user
 
@@ -191,5 +220,5 @@ The user is a pathologist, not a developer. They follow steps literally and send
   "initial", master v1.0, ON). Groups include `cellinjury-B`, `cellinjury-C` (not registered), `cellinjury-razi-a-26`.
 - The 10-step multi-university plan is complete; the packaged-release procedure, the Practical fixes and the 7 exam
   steps are done.
-- Tests: 58 backend, 41 e2e (with keys). The e2e exam test drives the real exam app; the harness fakes DriveApp
+- Tests: 60 backend, 43 e2e (with keys). The e2e exam test drives the real exam app; the harness fakes DriveApp
   (uploads in `backend.drive`). `test/apps-script/Code.exam.gs` is a verbatim copy of Code.gs's exam engine (no keys).

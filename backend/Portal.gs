@@ -53,6 +53,9 @@
  *   Combined-exam teaching lock: a published exam in exams-<code> with lockTeaching closes every teaching module
  *                     <module>-<code> of that group for its candidates (sign-in, group page and every request)
  *
+ * Self-check: platformCheck()  run it in the Apps Script editor (▶) before every Deploy — reports a missing Portal line in
+ *                     route_, missing speed lines, missing/invalid content keys, unknown module keys; never prints a key
+ *
  * Speed (2.5):
  *   (module) getAllContent  answered at once ("nothing new") when the storage and its master copy did not change
  *                     since the browser's last check (markers in CacheService; anything uncertain → the normal path)
@@ -2218,3 +2221,53 @@ function examCopyExam_(S, src, p) {
 
 /** Forget the cached public exam list of the place's group (or of the main page). */
 function examListForget_(S) { var M = cvBaseOf_(S); CacheService.getScriptCache().remove('exlist:' + (S === M ? '_main' : S.slice(M.length + 1))); }
+
+/* ======================================================================
+ * Self-check (2.6) — run it in the Apps Script editor BEFORE every Deploy:
+ * choose "platformCheck" in the function list and press ▶ Run, then read the Execution log.
+ * It only reads the code and the module lists; it changes nothing and never prints a key.
+ * ====================================================================== */
+function platformCheck() {
+  var errors = [], warnings = [], okLines = [];
+  var src = function (f) { try { return typeof f === 'function' ? String(f) : ''; } catch (e) { return ''; } };
+  // 1. Code.gs sends requests to Portal.gs (the one line in route_)
+  var r = src(typeof route_ === 'function' ? route_ : null);
+  if (!r) errors.push('Code.gs has no route_ function — is Code.gs in this project?');
+  else if (!/portalHook_\s*\(/.test(r)) errors.push('The Portal line is MISSING in Code.gs → route_. Below the line with EX_PUBLIC_ACTIONS[action] add:\n    if (typeof portalHook_ === \'function\') { var hp = portalHook_(module, p); if (hp) return hp; }');
+  else {
+    var iHook = r.search(/portalHook_\s*\(/), iGate = r.search(/gateRequest_\s*\(/);
+    if (iGate >= 0 && iGate < iHook) errors.push('The Portal line is in route_, but BELOW the student sign-in check (gateRequest_). Move it up, directly below the line with EX_PUBLIC_ACTIONS[action].');
+    else okLines.push('Portal line in route_: present, in the right place.');
+  }
+  // 2. speed lines in authed_ (optional, but they were added once)
+  if (/tcache/.test(src(typeof authed_ === 'function' ? authed_ : null))) okLines.push('Speed lines in authed_: present.');
+  else warnings.push('The speed lines in authed_ are missing (optional — teacher actions are slower without them). See SETUP.md → Speed → "Faster teacher actions".');
+  // 3. every module with student sign-in has a valid content key (and the other way round)
+  var sam = typeof STUDENT_AUTH_MODULES === 'object' && STUDENT_AUTH_MODULES ? STUDENT_AUTH_MODULES : {}, ck = typeof CONTENT_KEYS === 'object' && CONTENT_KEYS ? CONTENT_KEYS : {};
+  var keyOk = function (k) { k = String(k || ''); if (!k || /^__/.test(k)) return false; try { return Utilities.base64Decode(k).length === 32; } catch (e) { return false; } };
+  Object.keys(sam).filter(function (m) { return sam[m]; }).forEach(function (m) {
+    if (!(m in ck)) errors.push('Module "' + m + '" is in STUDENT_AUTH_MODULES but has NO entry in CONTENT_KEYS.');
+    else if (/^__/.test(String(ck[m]))) warnings.push('The content key of "' + m + '" is still a placeholder — fine only if this module runs on another backend; otherwise paste its real key.');
+    else if (!keyOk(ck[m])) errors.push('The content key of "' + m + '" is not a valid key (it must be 44 characters ending in "=", copied whole, in quotes).');
+    else okLines.push('Module "' + m + '": student sign-in on, content key valid.');
+  });
+  Object.keys(ck).forEach(function (m) { if (!sam[m] && keyOk(ck[m])) warnings.push('Module "' + m + '" has a content key but is not in STUDENT_AUTH_MODULES — its students cannot sign in yet.'); });
+  // 4. the front-page list and the platform directory only name modules the backend knows
+  try {
+    portalRegistry_().forEach(function (m) {
+      if (m.handoff === 'neo' && m.moduleKey && !m.backend && !sam[m.moduleKey]) warnings.push('Front-page card "' + m.title + '" uses module key "' + m.moduleKey + '", which is not in STUDENT_AUTH_MODULES.');
+    });
+    if (dirReadable_()) dirAll_(DIR.MOD).forEach(function (m) {
+      if (m.moduleId !== EXAM_MODULE && m.active && !sam[m.moduleId]) warnings.push('Directory module "' + m.moduleId + '" (' + m.title + ') is not in STUDENT_AUTH_MODULES — its groups cannot sign in.');
+    });
+    okLines.push('Front-page list: ' + portalRegistry_().map(function (m) { return m.title + (m.moduleKey ? ' (' + m.moduleKey + ')' : ''); }).join(', ') + '.');
+  } catch (e) { warnings.push('Could not read the module lists: ' + (e && e.message || e)); }
+  // 5. the other parts the platform relies on
+  if (typeof exRoute_ !== 'function') warnings.push('The Official Exams part of Code.gs (1.7) is missing — the exam app will not work.');
+  if (typeof VERSION !== 'undefined') okLines.push('Code.gs version ' + VERSION + ', Portal.gs version ' + PORTAL_VERSION + '.');
+  var text = (errors.length ? '❌ ' + errors.length + ' PROBLEM(S) — fix before you deploy:\n' + errors.map(function (x) { return '  ❌ ' + x; }).join('\n') + '\n' : '✅ No problems found — safe to deploy (Deploy → Manage deployments → Edit → New version → Deploy).\n')
+    + (warnings.length ? warnings.map(function (x) { return '  ⚠️ ' + x; }).join('\n') + '\n' : '') + okLines.map(function (x) { return '  ✓ ' + x; }).join('\n');
+  try { Logger.log(text); } catch (e) { }
+  try { console.log(text); } catch (e) { }
+  return { ok: !errors.length, errors: errors, warnings: warnings, text: text };
+}
