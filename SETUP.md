@@ -265,7 +265,7 @@ shown; never the code) → sign in with the access code, student ID and password
 Drive permission: the first picture upload needs Drive access. If you see "Access denied: DriveApp", open the Apps
 Script editor, choose **authorizeDriveAccess** in the function list and press ▶ once.
 
-## Teaching Sessions (Portal.gs 2.9)
+## Teaching Sessions (Portal.gs 2.10)
 
 **Modules contain learning content; Teaching Sessions contain teaching events.** Teacher Dashboard → **🎓 Teaching
 Sessions** (the Admin: every group; a personal teacher: only the modules assigned to them). Choose the **group** at the top.
@@ -311,7 +311,16 @@ classroom, whichever module the lecture belongs to:
   its candidates too.
 - Files are kept in your Google Drive folder "Live classroom files — live-<link code>" (private). If an upload says
   Drive access is missing, run **authorizeDriveAccess** once in the Apps Script editor (▶).
-The modules' own Live Classrooms are not changed (they will be hidden in step 4).
+**Inside the module pages (step 4):** the modules' own **Live Classroom** and **Attendance** buttons, and the Teacher
+Portal's **📋 Attendance** tab, are **hidden** — everything happens in 🎓 Teaching Sessions and the group Live Classroom.
+An old link or QR code to those pages opens the module's start page with a short note pointing to the group page
+(teachers: to the Teacher Dashboard). The module pages also stop their background classroom checks, which saves
+server time. **To show them again:** Teacher Dashboard → 🎓 Teaching Sessions → **⚙ Change** → untick *Hide the Live
+Classroom and Attendance inside the module pages* → Save (the modules follow within about 5 minutes). Nothing is deleted.
+
+**Results & attendance** (Platform directory → Results & attendance, and 📊 for teachers) now use the same statuses: the
+register shows ✓ present · 🕒 late · 📝 excused · · absent; the percentage leaves out excused lectures and a lecture whose
+attendance is still open; the student table and the CSV have **Late** and **Excused** columns.
 
 The attendance of a lecture is the module's own attendance (the same as the module's Attendance tab, its Google
 Drive copy, and **Results & attendance**), so nothing changes for the modules. The schedule and the teacher's marks

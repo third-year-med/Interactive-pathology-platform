@@ -109,8 +109,12 @@ membership; identity email = sha256(LIVE_ID_SALT script property|storage|usernam
 liveSync cache fast path in doPost bypasses Portal but only answers "no change" for a known pid); every student request
 carries `gs` (group sessions) and is re-checked (cache `lvg:` 5 min) + combined-exam lock; teachers via
 `liveTeacherOpen` (SESSIONS row for the storage + PortalGrants for personal teachers); `livePostSystem_` posts lecture
-started/ended announcements; UI `assets/classroom.js` (CSP: thumbnails via data: URLs, never blob:)) → 4 hide Live/Attendance buttons in module pages (reversible) + reports use the Teaching Sessions statuses
-(excused). Then: repeating schedule, exam lock pauses the group chat.
+started/ended announcements; UI `assets/classroom.js` (CSP: thumbnails via data: URLs, never blob:)) → 4 (done, 2.10) module Live/Attendance hidden by the platform block (`modules/platform-nav.js`: reads public
+`portalModuleFlags` → setting `ts:modulelive` (absent = hidden; 'show' = shown), remembered 5 min in localStorage
+`pf_flags_v1`; CSS hides `[data-view=live|attendance]` + the Teacher Portal 📋 Attendance tab; `#/live…`, `#/attendance…`,
+`#live=`/`#att=` and teacher `#/teacher/attendance` → start page + notice; while hidden it answers the module's `live*`
+fetches itself) — refreshed into the 3 module repos with `tools/module-release.js refresh`; Step 10 `reportDelivery_`
+gives each student a status per session (late/excused from TeachingSessions; open sessions = waiting, not counted). Later (not started): a repeating schedule (item 9). The combined-exam lock already closes the group classroom (2.9).
 
 **Speed (2.5):** `portalHook_` answers `getAllContent` from memory when nothing changed for that storage (markers
 `cvw:<storage>` in CacheService, set by every request that may write Content; unknown requests count as writes; a
@@ -238,7 +242,7 @@ The user is a pathologist, not a developer. They follow steps literally and send
 
 ## 10. Current state (2026-10-07)
 
-- **Portal.gs 2.9 (2026-10-10): Teaching Sessions steps 1–3** (teacher panel; group-page card with check-in; group Live
+- **Portal.gs 2.10 (2026-10-10): Teaching Sessions steps 1–4 complete** (teacher panel; group-page card with check-in; group Live
   Classroom, see §3). Code.core.gs test fixture includes the verbatim attendance engine and Live Classroom engine of
   Code.gs (attendance Drive copy stubbed; `driveFake()` in the harness fakes Drive uploads). Tests: 76 backend, 46 e2e.
 - Portal.gs **2.6** (2275 lines, with platformCheck) deployed by the user on 2026-10-10; in the repo (Official Exams: places/hand-off, public exam list, combined exams, bank transfers,

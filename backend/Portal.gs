@@ -184,7 +184,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.9';
+var PORTAL_VERSION = '2.10';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -255,6 +255,7 @@ function portalHook_(module, p) {
     case 'portalGroupRefresh': return portalGroupRefresh_(p);
     case 'portalGroupSessions': return tsStudentSessions_(p);   // 2.8: the group page's 🎓 Teaching Sessions card
     case 'portalGroupCheckIn': return tsStudentCheckIn_(p);
+    case 'portalModuleFlags': return { ok: true, hideLiveAttendance: tsSettings_().hideModuleLive };   // 2.10: read by the module pages' platform block
     case 'liveOpen': return liveOpen_(p);   // 2.9: the group's Live Classroom (student)
     case 'liveTeacherOpen':
       if (p.ttoken) return tAuthed_(p, function (u, ses) { return isTrue_(u.mustChange) ? { ok: false, code: 'mustchange', error: 'Please choose your own password first.' } : liveTeacherOpen_(p, null, u, ses); });
@@ -1670,7 +1671,7 @@ function rpCollect_(storages) {
   });
   var sid = {};
   rpRows_(SHEETS.ATT_SESSIONS).forEach(function (r) { if (want[r.module]) { sid[r.sessionId] = r.module; out[r.module].sessions.push({ sessionId: String(r.sessionId), title: String(r.sessionTitle || r.chapter || r.course || ''), at: rpNum_(r.createdAt), status: String(r.status || '') }); } });
-  rpRows_(SHEETS.ATT_RECORDS).forEach(function (r) { var st = sid[r.sessionId]; if (st) out[st].records.push({ sessionId: String(r.sessionId), id: normUser_(r.studentId), email: String(r.email || '').toLowerCase(), name: String(r.studentName || '') }); });
+  rpRows_(SHEETS.ATT_RECORDS).forEach(function (r) { var st = sid[r.sessionId]; if (st) out[st].records.push({ sessionId: String(r.sessionId), id: normUser_(r.studentId), email: String(r.email || '').toLowerCase(), name: String(r.studentName || ''), at: rpNum_(r.scannedAt) }); });
   return out;
 }
 function rpDeliveryList_(ids) {
@@ -1728,8 +1729,20 @@ function reportDelivery_(p) {
   x.quiz.forEach(function (q) { var r = who(q); if (r) r.quiz.push(q.percent); else other(q, 'quiz'); });
   x.assess.forEach(function (q) { var r = who(q); if (r) r.assess.push(q.percent); else other(q, 'assess'); });
   x.exams.forEach(function (q) { var r = who(q); if (r) r.exams.push(q.percent); else other(q, 'exams'); });
-  x.records.forEach(function (q) { var r = who(q); if (r) r.att[q.sessionId] = 1; else other(q, 'attendance'); });
+  x.records.forEach(function (q) { var r = who(q); if (r) { if (!r.att[q.sessionId]) r.att[q.sessionId] = q; } else other(q, 'attendance'); });
   var sessions = x.sessions.slice().sort(function (a, b) { return a.at - b.at; });
+  // 2.10: with Teaching Sessions, each student has a status per lecture — present / late / excused / absent (an open
+  // session: "waiting", not counted yet). Excused lectures do not count against the student.
+  var tsBy = {}; tsRows_().forEach(function (t) { if (t.backendModule === d.storage && t.attSessionId) tsBy[t.attSessionId] = t; });
+  function statusOf(r, s) {
+    var t = tsBy[s.sessionId], q = r.att[s.sessionId], mk = t ? tsJson_(t.marksJson, {})[r.studentId] : '';
+    if (q) {
+      if (mk === 'present' || mk === 'late') return mk;
+      var late = t ? (Number(t.lateAfterMin) || 0) * 60000 : 0, ref = t ? Math.max(Number(t.startAt) || 0, Number(t.startedAt) || 0) : 0;
+      return late > 0 && q.at > ref + late ? 'late' : 'present';
+    }
+    return mk === 'excused' ? 'excused' : s.status === 'active' ? 'waiting' : 'absent';
+  }
   var present = {}; x.records.forEach(function (r) { present[r.sessionId] = (present[r.sessionId] || 0) + 1; });
   function byRef(list) {
     var m = {}, order = [];
@@ -1737,14 +1750,17 @@ function reportDelivery_(p) {
     return order.map(function (k) { var o = m[k]; return { id: o.id, title: o.title, submitted: o.percents.length, avg: rpAvg_(o.percents) }; });
   }
   return { ok: true, serverTime: Date.now(), delivery: d,
-    sessions: sessions.map(function (s) { return { sessionId: s.sessionId, title: s.title, at: s.at, status: s.status, present: present[s.sessionId] || 0 }; }),
+    sessions: sessions.map(function (s) { return { sessionId: s.sessionId, title: s.title, at: s.at, status: s.status, present: present[s.sessionId] || 0, teaching: !!tsBy[s.sessionId] }; }),
     assessments: byRef(x.assess), exams: byRef(x.exams),
     students: rows.map(function (r) {
-      var att = Object.keys(r.att);
+      var att = Object.keys(r.att), st = {}, c = { present: 0, late: 0, excused: 0, absent: 0, waiting: 0 };
+      sessions.forEach(function (s) { var v = statusOf(r, s); st[s.sessionId] = v; c[v]++; });
+      var counted = c.present + c.late + c.absent;
       return { studentId: r.studentId, name: r.name, active: r.active, hasAccount: r.hasAccount, lastLogin: r.lastLogin,
         quiz: { attempts: r.quiz.length, best: r.quiz.length ? Math.max.apply(null, r.quiz) : null, avg: rpAvg_(r.quiz) },
         assess: { submitted: r.assess.length, avg: rpAvg_(r.assess) }, exams: { submitted: r.exams.length, avg: rpAvg_(r.exams) },
-        attended: att.length, attendedPct: sessions.length ? Math.round(att.length / sessions.length * 100) : null, sessions: att };
+        attended: att.length, attendedPct: counted ? Math.round((c.present + c.late) / counted * 100) : null, sessions: att,
+        status: st, late: c.late, excused: c.excused, absent: c.absent };
     }),
     others: Object.keys(others).map(function (k) { return others[k]; }) };
 }
@@ -2307,13 +2323,14 @@ function tsDo_(p, who) {
 function tsSettings_() {
   var tz = getSetting_('ts:tz') || ''; if (!tz) { try { tz = Session.getScriptTimeZone(); } catch (e) { tz = 'UTC'; } }
   var th = Number(getSetting_('ts:threshold')); if (!(th >= 1 && th <= 100)) th = 75;
-  return { timeZone: tz || 'UTC', threshold: th };
+  return { timeZone: tz || 'UTC', threshold: th, hideModuleLive: getSetting_('ts:modulelive') !== 'show' };
 }
 function tsSettingsSave_(p) {
   var tz = dirStr_(p.timeZone, 60), th = Number(p.threshold);
   if (tz && !/^[A-Za-z]+(\/[A-Za-z0-9_+\-]+){0,2}$|^UTC$/.test(tz)) return dirErr_('Choose a time zone such as Asia/Aden or UTC.');
   if (p.threshold != null && p.threshold !== '' && !(th >= 1 && th <= 100)) return dirErr_('The attendance warning threshold must be between 1 and 100 %.');
   if (tz) setSetting_('ts:tz', tz);
+  if (p.hideModuleLive != null) setSetting_('ts:modulelive', p.hideModuleLive === false || p.hideModuleLive === 'false' ? 'show' : 'hide');
   if (p.threshold != null && p.threshold !== '') setSetting_('ts:threshold', String(Math.round(th)));
   return { ok: true, settings: tsSettings_() };
 }

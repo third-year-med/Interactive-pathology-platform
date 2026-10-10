@@ -802,7 +802,7 @@
       var g = grp(), set = G.settings;
       body.innerHTML = '';
       var top = h('<div class="ts-top"><label class="ts-g">Group <select>' + G.groups.map(function (x) { return '<option value="' + esc(x.groupId) + '"' + (x.groupId === groupId ? ' selected' : '') + '>' + esc(x.label) + '</option>'; }).join('') + '</select></label>' +
-        '<span class="small muted">Times: <b>' + esc(set.timeZone) + '</b> · warning below <b>' + set.threshold + '%</b>' + (admin ? ' <button class="btn linkish" type="button" data-a="set">⚙ Change</button>' : '') + '</span></div>');
+        '<span class="small muted">Times: <b>' + esc(set.timeZone) + '</b> · warning below <b>' + set.threshold + '%</b> · module Live/Attendance: <b>' + (set.hideModuleLive !== false ? 'hidden' : 'shown') + '</b>' + (admin ? ' <button class="btn linkish" type="button" data-a="set">⚙ Change</button>' : '') + '</span></div>');
       $('select', top).onchange = function () { groupId = this.value; try { sessionStorage.setItem('pp_ts_group', groupId); } catch (e) { } paint(); };
       var sb = $('[data-a=set]', top); if (sb) sb.onclick = function () { settingsForm(top); };
       body.appendChild(top);
@@ -823,11 +823,13 @@
     function settingsForm(anchor) {
       var cur = $('.ts-set', body); if (cur) { cur.remove(); return; }
       var f = h('<form class="dir-form rowed ts-set" novalidate><label>Time zone of the platform<input data-k="tz" value="' + esc(G.settings.timeZone) + '" placeholder="e.g. Asia/Aden"></label>' +
-        '<label>Attendance warning below (%)<input data-k="th" type="number" min="1" max="100" value="' + G.settings.threshold + '"></label><div class="dir-act"><button class="btn primary" type="submit">Save</button></div>' +
-        '<p class="small muted" style="flex-basis:100%">Every date and time on the platform is shown and entered in this time zone, on every device. Students below the threshold are marked ⚠.</p></form>');
+        '<label>Attendance warning below (%)<input data-k="th" type="number" min="1" max="100" value="' + G.settings.threshold + '"></label>' +
+        '<label class="chk" style="flex-basis:100%"><input type="checkbox" data-k="hide"' + (G.settings.hideModuleLive !== false ? ' checked' : '') + '> Hide the Live Classroom and Attendance <b>inside the module pages</b> (students and teachers use 🎓 Teaching Sessions and the group Live Classroom). Untick to show them in the modules again.</label>' +
+        '<div class="dir-act"><button class="btn primary" type="submit">Save</button></div>' +
+        '<p class="small muted" style="flex-basis:100%">Every date and time on the platform is shown and entered in this time zone, on every device. Students below the threshold are marked ⚠. The module pages pick up the Live Classroom / Attendance setting within about 5 minutes.</p></form>');
       f.onsubmit = function (e) {
         e.preventDefault(); var b = $('button', f); b.disabled = true;
-        call('tsSettings', { timeZone: $('[data-k=tz]', f).value.trim(), threshold: $('[data-k=th]', f).value }).then(function (r) { b.disabled = false; if (!r.ok) return fail(r); G.settings = r.settings; toast('Saved.'); paint(); });
+        call('tsSettings', { timeZone: $('[data-k=tz]', f).value.trim(), threshold: $('[data-k=th]', f).value, hideModuleLive: $('[data-k=hide]', f).checked }).then(function (r) { b.disabled = false; if (!r.ok) return fail(r); G.settings = r.settings; toast('Saved.'); paint(); });
       };
       anchor.after(f);
     }
@@ -1102,21 +1104,21 @@
             x.students.map(function (s) {
               return '<tr' + (s.active ? '' : ' class="off"') + ' data-student="' + esc(s.studentId) + '"><td><code>' + esc(s.studentId) + '</code></td><td>' + esc(s.name) + (s.active ? '' : ' <span class="small muted">(inactive)</span>') + '</td><td>' + (s.lastLogin ? day(s.lastLogin) : '<span class="small muted">' + (s.hasAccount ? 'never' : 'no account') + '</span>') + '</td>' +
                 '<td>' + (s.quiz.attempts ? s.quiz.attempts + ' · ' + pct(s.quiz.best) + ' · ' + pct(s.quiz.avg) : '—') + '</td><td>' + (s.assess.submitted ? s.assess.submitted + ' · ' + pct(s.assess.avg) : '—') + '</td><td>' + (s.exams.submitted ? s.exams.submitted + ' · ' + pct(s.exams.avg) : '—') + '</td>' +
-                '<td>' + (S.length ? s.attended + ' (' + s.attendedPct + '%)' : '—') + '</td></tr>';
+                '<td>' + (S.length ? s.attended + (s.attendedPct == null ? '' : ' (' + s.attendedPct + '%)') + (s.late || s.excused ? '<div class="small muted">' + [s.late ? s.late + ' late' : '', s.excused ? s.excused + ' excused' : ''].filter(Boolean).join(' · ') + '</div>' : '') : '—') + '</td></tr>';
             }).join('') + '</tbody></table></div>' +
-            (S.length ? '<details class="rep-reg"><summary class="small">Attendance register (' + S.length + ' session(s))</summary><div class="tbl-wrap"><table class="dir-tbl"><thead><tr><th>Student</th>' + S.map(function (z) { return '<th title="' + esc(z.title) + '">' + esc(day(z.at)) + '<div class="small muted">' + esc(z.title) + '</div></th>'; }).join('') + '</tr></thead><tbody>' +
-              x.students.map(function (s) { return '<tr><td>' + esc(s.name) + '</td>' + S.map(function (z) { return '<td>' + (s.sessions.indexOf(z.sessionId) >= 0 ? '✓' : '<span class="muted">·</span>') + '</td>'; }).join('') + '</tr>'; }).join('') +
+            (S.length ? '<details class="rep-reg"><summary class="small">Attendance register (' + S.length + ' session(s)) — ✓ present · 🕒 late · 📝 excused · <span class="muted">·</span> absent</summary><div class="tbl-wrap"><table class="dir-tbl"><thead><tr><th>Student</th>' + S.map(function (z) { return '<th title="' + esc(z.title) + '">' + esc(day(z.at)) + '<div class="small muted">' + esc(z.title) + '</div></th>'; }).join('') + '</tr></thead><tbody>' +
+              x.students.map(function (s) { return '<tr><td>' + esc(s.name) + '</td>' + S.map(function (z) { var v = (s.status || {})[z.sessionId] || (s.sessions.indexOf(z.sessionId) >= 0 ? 'present' : 'absent'); return '<td title="' + v + '">' + ({ present: '✓', late: '🕒', excused: '📝', waiting: '…' }[v] || '<span class="muted">·</span>') + '</td>'; }).join('') + '</tr>'; }).join('') +
               '<tr><td><b>Present</b></td>' + S.map(function (z) { return '<td><b>' + z.present + '</b></td>'; }).join('') + '</tr></tbody></table></div></details>' : '') +
             (x.assessments.length || x.exams.length ? '<p class="small">' + x.assessments.map(function (a) { return 'Assessment <b>' + esc(a.title) + '</b>: ' + a.submitted + ' submitted, average ' + pct(a.avg); }).concat(x.exams.map(function (a) { return 'Exam <b>' + esc(a.title) + '</b>: ' + a.submitted + ' submitted, average ' + pct(a.avg); })).join('<br>') + '</p>' : '') +
             (x.others.length ? '<p class="small warn-t">Also found, not in this group’s student list (e.g. a typing difference at attendance check-in, or someone removed from the list): ' + x.others.map(function (o) { return esc(o.label) + ' (' + ['quiz', 'assess', 'exams', 'attendance'].filter(function (k) { return o[k]; }).map(function (k) { return o[k] + ' ' + { quiz: 'quiz', assess: 'assessment', exams: 'exam', attendance: 'attendance' }[k]; }).join(', ') + ')'; }).join('; ') + '</p>' : '') + '</div>');
           $('[data-a=close]', w).onclick = function () { out.innerHTML = ''; };
           $('[data-a=csv]', w).onclick = function () {
             var q = function (v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
-            var head = ['Student ID', 'Name', 'Active', 'Last sign-in', 'Quiz attempts', 'Quiz best %', 'Quiz average %', 'Assessments submitted', 'Assessment average %', 'Exams submitted', 'Exam average %', 'Sessions attended', 'Attendance %']
+            var head = ['Student ID', 'Name', 'Active', 'Last sign-in', 'Quiz attempts', 'Quiz best %', 'Quiz average %', 'Assessments submitted', 'Assessment average %', 'Exams submitted', 'Exam average %', 'Sessions attended', 'Attendance %', 'Late', 'Excused']
               .concat(S.map(function (z) { return day(z.at) + ' ' + z.title; }));
             var lines = x.students.map(function (s) {
-              return [s.studentId, s.name, s.active ? 'yes' : 'no', s.lastLogin ? day(s.lastLogin) : '', s.quiz.attempts, s.quiz.best, s.quiz.avg, s.assess.submitted, s.assess.avg, s.exams.submitted, s.exams.avg, s.attended, s.attendedPct]
-                .concat(S.map(function (z) { return s.sessions.indexOf(z.sessionId) >= 0 ? 'present' : ''; })).map(q).join(',');
+              return [s.studentId, s.name, s.active ? 'yes' : 'no', s.lastLogin ? day(s.lastLogin) : '', s.quiz.attempts, s.quiz.best, s.quiz.avg, s.assess.submitted, s.assess.avg, s.exams.submitted, s.exams.avg, s.attended, s.attendedPct, s.late || 0, s.excused || 0]
+                .concat(S.map(function (z) { var v = (s.status || {})[z.sessionId] || (s.sessions.indexOf(z.sessionId) >= 0 ? 'present' : 'absent'); return v === 'waiting' ? '' : v; })).map(q).join(',');
             });
             var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['\ufeff' + head.map(q).join(',') + '\r\n' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }));
             a.download = 'results-attendance-' + d.storage + '.csv';

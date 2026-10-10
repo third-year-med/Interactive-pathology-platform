@@ -1095,7 +1095,7 @@ test('Step 10: Results & attendance — Admin tab (all groups) and a personal te
   const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#t-dir .rep-detail [data-a=csv]')]);
   const csv = fs.readFileSync(await dl.path(), 'utf8');
   assert.strictEqual(dl.suggestedFilename(), 'results-attendance-cellinjury-tr-a.csv');
-  assert.match(csv, /Student ID,Name,Active,Last sign-in,Quiz attempts[\s\S]*2026-10-01 Lecture One\r\n[\s\S]*ahmed,Student Ahmed,yes,[^,]*,1,75,75,0,,0,,1,100,present/);
+  assert.match(csv, /Student ID,Name,Active,Last sign-in,Quiz attempts[\s\S]*2026-10-01 Lecture One\r\n[\s\S]*ahmed,Student Ahmed,yes,[^,]*,1,75,75,0,,0,,1,100,0,0,present/);
   await p.context().close();
   // personal teacher: only the assigned group + module
   p = await page();
@@ -1769,6 +1769,71 @@ test('Group Live Classroom: a student (group page) and the teacher (dashboard) c
   await s.click('.lc [data-a=back]');
   await s.waitForSelector('#ts-stu');
   await s.context().close(); await tp.context().close();
+});
+
+test('Teaching Sessions step 4: inside the real module page the Live Classroom and Attendance are hidden (no background classroom checks), old links show a notice, the Admin switch shows them again', { skip: SKIP || ((!fs.existsSync(REAL[0][2]) || !REAL[0][3]) && 'module page or key not available') }, async function () {
+  const M = REAL[0];
+  groupFixture();
+  main.addStudents('cellinjury', [{ username: 'hide-s', name: 'Hide Student', password: PW, mustChange: false }]);
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  assert.ok(main.call({ module: 'portal', action: 'tsSettings', token: t, hideModuleLive: true }).ok);
+  const calls = [];
+  const p = await realPage(M, calls);
+  await p.goto(HOME);
+  await p.waitForSelector('.mod[data-id="cellinjury"]');
+  await signIn(p, 'hide-s', PW);
+  await p.waitForSelector('.mod[data-id="cellinjury"] .go');
+  await p.click('.mod[data-id="cellinjury"] .go');
+  await p.waitForURL(new RegExp(M[1]));
+  await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'student'; }, null, { timeout: 20000 });
+  await p.waitForSelector('.nav-btn[data-view="quiz"]', { state: 'visible' });
+  assert.ok(!(await p.isVisible('.nav-btn[data-view="live"]')), 'Live Classroom button hidden');
+  assert.ok(!(await p.isVisible('.nav-btn[data-view="attendance"]')), 'Attendance button hidden');
+  assert.ok(calls.some(function (c) { return c.module === 'portal' && c.action === 'portalModuleFlags'; }), 'the setting was read from the platform');
+  if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'module-hidden.png'), clip: { x: 0, y: 0, width: 1280, height: 260 } });
+  // an old link (bookmark / QR) → the start page + a notice pointing to the group page
+  await p.evaluate(function () { location.hash = '#/attendance'; });
+  await p.waitForSelector('#pf-moved');
+  assert.match(await p.textContent('#pf-moved'), /now on your group page/);
+  await p.waitForFunction(function () { return !/attendance/.test(location.hash); });
+  await p.evaluate(function () { location.hash = '#/live'; });
+  await p.waitForFunction(function () { return !/live/.test(location.hash); });
+  await p.waitForTimeout(1500);
+  assert.strictEqual(calls.filter(function (c) { return /^live/.test(String(c.action || '')); }).length, 0, 'no Live Classroom request reached the server');
+  // the Admin shows them again → after the 5-minute memory (cleared here), the buttons are back
+  assert.ok(main.call({ module: 'portal', action: 'tsSettings', token: t, hideModuleLive: false }).ok);
+  await p.evaluate(function () { localStorage.removeItem('pf_flags_v1'); });
+  await p.reload();
+  await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'student'; }, null, { timeout: 20000 });
+  await p.waitForSelector('.nav-btn[data-view="live"]', { state: 'visible', timeout: 15000 });
+  assert.ok(await p.isVisible('.nav-btn[data-view="attendance"]'));
+  assert.ok(main.call({ module: 'portal', action: 'tsSettings', token: t, hideModuleLive: true }).ok);
+  await p.context().close();
+});
+
+test('Teaching Sessions step 4: the teacher inside the real module — the Teacher Portal has no Attendance tab while hidden', { skip: SKIP || ((!fs.existsSync(REAL[0][2]) || !REAL[0][3]) && 'module page or key not available') }, async function () {
+  const M = REAL[0];
+  groupFixture();
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  assert.ok(main.call({ module: 'portal', action: 'tsSettings', token: t, hideModuleLive: true }).ok);
+  const calls = [];
+  const p = await realPage(M, calls);
+  await p.goto(HOME + '#/teacher');
+  await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+  await p.waitForSelector('#t-modules .mod[data-id="cellinjury"] .t-admin');
+  await p.click('#t-modules .mod[data-id="cellinjury"] .t-admin');
+  await p.waitForURL(new RegExp(M[1]));
+  await p.waitForSelector('.portal-tabs button.tab', { state: 'attached', timeout: 20000 });
+  await p.waitForTimeout(500);
+  const tabs = await p.$$eval('.portal-tabs button.tab', function (b) { return b.filter(function (x) { return x.offsetParent !== null; }).map(function (x) { return x.textContent.trim(); }); });
+  assert.ok(tabs.length > 3, tabs.join('|'));
+  assert.ok(!tabs.some(function (x) { return /Attendance/.test(x); }), 'no Attendance tab: ' + tabs.join('|'));
+  await p.evaluate(function () { location.hash = '#/teacher/attendance'; });
+  await p.waitForSelector('#pf-moved');
+  assert.match(await p.textContent('#pf-moved'), /Teacher Dashboard/);
+  await p.context().close();
 });
 
 test('no JavaScript errors', { skip: SKIP }, function () { assert.deepStrictEqual(errors, []); });

@@ -14,6 +14,12 @@
                          master-draft session receives its key; students cannot open it
      In a master-draft session the page reports the IDs of its packaged course (topics, sections,
      questions, cases, images — with short fingerprints, no content) for the compatibility check.
+   Teaching Sessions (Portal.gs 2.10): while the platform setting "Live Classroom and Attendance in the modules" is
+   HIDDEN (the default; Teacher Dashboard → 🎓 Teaching Sessions → ⚙ Change), this block hides the module's own Live
+   Classroom and Attendance buttons and the Teacher Portal's Attendance tab, sends their addresses to a short notice
+   (they are on the group page / Teacher Dashboard now) and answers the module's background Live Classroom checks
+   itself, so they cost the server nothing. The setting is read from the platform (portalModuleFlags) and remembered
+   for 5 minutes; switching it back shows everything again.
    This block is maintained in the platform repository (modules/platform-nav.js) and written
    into each module by tools/module-release.js.
    ========================================================================== */
@@ -22,6 +28,7 @@
   var NC = window.NEO_CONFIG || {}, PREVIEW = NC.preview === true, BUILD = String(NC.build || '');
   var HOME = String(NC.platformHome || '').trim();
   if (PREVIEW) previewMode();
+  moveToSessions();
   if (!/^https:\/\/[^\s"'<>]+$/.test(HOME)) return;
   window.PLATFORM_HOME = HOME;
   var GROUP = (function () { try { var m = /[?&]g=([A-Za-z0-9_-]{1,24})/.exec(location.search); return m ? m[1] : ''; } catch (e) { return ''; } })();   // the module's own ?g= rule
@@ -93,6 +100,67 @@
       return nf(url, opt);
     };
   }
+  /* ---- Teaching Sessions: the module's own Live Classroom / Attendance are hidden (platform setting) ---- */
+  var FKEY = 'pf_flags_v1', HIDE = null;
+  function moveToSessions() {
+    var url = String(NC.backendUrl || ''), cached = null;
+    try { cached = JSON.parse(localStorage.getItem(FKEY) || 'null'); } catch (e) { cached = null; }
+    HIDE = cached ? cached.hide !== false : true;   // until the platform answers: the last known setting (default hidden)
+    if (window.fetch && window.Response) {
+      var nf = window.fetch.bind(window);
+      window.fetch = function (u, opt) {   // the module's background Live Classroom checks: answered here while hidden
+        if (HIDE) {
+          var p = null; try { p = opt && typeof opt.body === 'string' ? JSON.parse(opt.body) : null; } catch (e) { p = null; }
+          if (p && /^live/.test(String(p.action || ''))) {
+            var body = p.action === 'liveSync' ? { ok: true, noChange: true, seq: Number(p.since) || 0, readVer: p.readVer || '', online: { teacherOnline: false, studentCount: 0, names: [], seenSeq: 0 }, typing: [], serverTime: Date.now(), nextPollMs: 300000, notifications: [], unread: 0 }
+              : { ok: false, code: 'moved', error: 'The Live Classroom is now on your group page (Teaching Sessions).' };
+            return Promise.resolve(new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } }));
+          }
+        }
+        return nf(u, opt);
+      };
+    }
+    css();
+    if (!url || (cached && Date.now() - Number(cached.at || 0) < 300000)) return;
+    try {
+      fetch(url, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ module: 'portal', action: 'portalModuleFlags' }) })
+        .then(function (r) { return r.json(); }).then(function (r) {
+          if (!r || !r.ok) return;
+          HIDE = r.hideLiveAttendance !== false;
+          try { localStorage.setItem(FKEY, JSON.stringify({ hide: HIDE, at: Date.now() })); } catch (e) { }
+          css(); check();
+        }).catch(function () { });
+    } catch (e) { }
+  }
+  function css() {
+    var st = document.getElementById('pf-hide');
+    if (!HIDE) { if (st) st.remove(); var n = document.getElementById('pf-moved'); if (n) n.remove(); return; }
+    if (st) return;
+    st = document.createElement('style'); st.id = 'pf-hide';
+    st.textContent = '[data-view="live"],[data-view="attendance"],a[href^="#/live"],a[href^="#/attendance"],.pf-hidden-tab{display:none!important}' +
+      '.pf-moved{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99999;max-width:min(560px,calc(100% - 24px));background:#0f2a4a;color:#fff;border-radius:12px;padding:12px 16px;box-shadow:0 8px 24px rgba(0,0,0,.25);font:500 .92rem/1.45 system-ui,sans-serif}' +
+      '.pf-moved a{color:#ffd166;font-weight:700}.pf-moved button{margin-left:10px;background:none;border:0;color:#fff;font-size:1.1rem;cursor:pointer}';
+    (document.head || document.documentElement).appendChild(st);
+  }
+  /** An address of the hidden pages (old link, QR code, bookmark) → the module's start page + a short notice. */
+  function check() {
+    if (!HIDE) return;
+    var hsh = String(location.hash || ''), teacher = !!(window.NEO_BOOT && window.NEO_BOOT.role === 'teacher');
+    Array.prototype.forEach.call(document.querySelectorAll('.portal-tabs button.tab'), function (b) { if (/^\s*📋\s*Attendance\s*$/.test(b.textContent)) b.classList.add('pf-hidden-tab'); });
+    var hit = /^#\/?(live|attendance)(\/|$|=)/.test(hsh) || /^#\/?(live|att)=/.test(hsh) || (teacher && /^#\/?teacher\/attendance/.test(hsh));
+    if (!hit) return;
+    location.replace(teacher ? '#/teacher' : '#/learn');
+    if (document.getElementById('pf-moved')) return;
+    var g = (function () { try { var m = /[?&]g=([A-Za-z0-9_-]{1,24})/.exec(location.search); return m ? m[1] : ''; } catch (e) { return ''; } })();
+    var home = /^https:\/\/[^\s"'<>]+$/.test(HOME) ? HOME + (teacher ? '#/teacher' : (g ? '?g=' + encodeURIComponent(g) : '')) : '';
+    var n = document.createElement('div'); n.id = 'pf-moved'; n.className = 'pf-moved'; n.setAttribute('role', 'status');
+    n.appendChild(document.createTextNode(teacher ? 'Live Classroom and Attendance are now in the Teacher Dashboard → 🎓 Teaching Sessions. ' : 'Live Classroom and Attendance are now on your group page → 🎓 Teaching Sessions. '));
+    if (home) { var a = document.createElement('a'); a.href = home; a.textContent = teacher ? 'Open the Teacher Dashboard' : 'Open my group page'; n.appendChild(a); }
+    var x = document.createElement('button'); x.type = 'button'; x.setAttribute('aria-label', 'Close'); x.textContent = '\u2715'; x.onclick = function () { n.remove(); }; n.appendChild(x);
+    (document.body || document.documentElement).appendChild(n);
+    setTimeout(function () { if (n.parentNode) n.remove(); }, 15000);
+  }
+  window.addEventListener('hashchange', check);
   function fnv(v) { var s = JSON.stringify(v === undefined ? null : v), h = 0x811c9dc5; for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return ('0000000' + h.toString(16)).slice(-8); }
   /** IDs (+ fingerprints) of the packaged course — never its content. */
   function manifest() {
@@ -120,8 +188,10 @@
   function init() {
     if (!document.getElementById('pf-css')) { var st = document.createElement('style'); st.id = 'pf-css'; st.textContent = CSS; document.head.appendChild(st); }
     addHeader(); addBoot();
-    var mo = new MutationObserver(function () { if (!document.body.classList.contains('neo-locked')) { mo.disconnect(); applyAll(); return; } addBoot(); });
+    var mo = new MutationObserver(function () { if (!document.body.classList.contains('neo-locked')) { mo.disconnect(); applyAll(); check(); return; } addBoot(); });
     mo.observe(document.body, { childList: true, subtree: true });
+    new MutationObserver(function () { if (HIDE && document.querySelector('.portal-tabs button.tab:not(.pf-hidden-tab)')) check(); }).observe(document.body, { childList: true, subtree: true });
+    check();
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();

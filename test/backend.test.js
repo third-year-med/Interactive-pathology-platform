@@ -1517,7 +1517,7 @@ test('teaching sessions: Admin sees every group; a teacher only the modules assi
   // only the Admin changes the settings
   assert.strictEqual(S.tt('tsSettings', S.ahmed.tok, { threshold: 50 }).code, 'forbidden');
   const st = S.ts('tsSettings', { timeZone: 'Asia/Aden', threshold: 80 }); assert.ok(st.ok, JSON.stringify(st));
-  assert.deepStrictEqual(st.settings, { timeZone: 'Asia/Aden', threshold: 80 });
+  assert.deepStrictEqual(st.settings, { timeZone: 'Asia/Aden', threshold: 80, hideModuleLive: true });
   assert.strictEqual(S.ts('tsSettings', { threshold: 0 }).ok, false);
 });
 
@@ -1834,4 +1834,36 @@ test('group classroom: closed for the candidates of a combined exam (close all t
   assert.strictEqual(S.lcall(b1, 'liveSync', { full: true }).code, 'examlock');
   assert.strictEqual(S.call({ module: 'portal', action: 'liveOpen', g: 'razi-a-26', sessions: b1.gs }).code, 'examlock');
   assert.ok(S.lopen('ahmed', PW).ok);
+});
+
+/* ---------------- Teaching Sessions step 4 (2.10) ---------------- */
+test('module Live/Attendance switch: hidden by default, public flag for the module pages, Admin switches it back', function () {
+  const S = tsSetup();
+  assert.deepStrictEqual(S.call({ module: 'portal', action: 'portalModuleFlags' }), { ok: true, hideLiveAttendance: true });
+  assert.strictEqual(S.tt('tsSettings', S.ahmed.tok, { hideModuleLive: false }).code, 'forbidden');
+  assert.strictEqual(S.ts('tsSettings', { hideModuleLive: false }).settings.hideModuleLive, false);
+  assert.strictEqual(S.call({ module: 'portal', action: 'portalModuleFlags' }).hideLiveAttendance, false);
+  assert.strictEqual(S.ts('tsSettings', { hideModuleLive: true }).settings.hideModuleLive, true);
+  assert.strictEqual(S.ts('tsSettings', { threshold: 70 }).settings.hideModuleLive, true, 'unchanged when not sent');
+});
+
+test('Results & attendance use the Teaching Sessions statuses: late, excused (not counted against), absent; open lecture not counted', function () {
+  const S = tsSetup(), X = S.b.ctx, st = 'cellinjury-razi-a-26';
+  const run = function (title, marks, keepOpen) {
+    const s = S.ts('tsStart', { session: S.lect({ title: title, startAt: Date.now() }) }); assert.ok(s.ok, JSON.stringify(s));
+    Object.keys(marks).forEach(function (id) { assert.ok(S.ts('tsMark', { tsId: s.session.tsId, studentId: id, mark: marks[id] }).ok); });
+    if (!keepOpen) assert.ok(S.ts('tsClose', { tsId: s.session.tsId }).ok);
+    return s;
+  };
+  run('L1', { ahmed: 'present', b1: 'late' });
+  run('L2', { ahmed: 'present', b1: 'excused' });
+  run('L3 (open)', { ahmed: 'present' }, true);
+  const r = S.dir('reportDelivery', { deliveryId: S.ci.deliveryId }); assert.ok(r.ok, JSON.stringify(r));
+  const by = {}; r.students.forEach(function (x) { by[x.studentId] = x; });
+  assert.deepStrictEqual([by.ahmed.attendedPct, by.ahmed.late, by.ahmed.excused], [100, 0, 0]);
+  assert.deepStrictEqual([by.b1.attended, by.b1.attendedPct, by.b1.late, by.b1.excused], [1, 100, 1, 1]);
+  assert.deepStrictEqual([by.b2.attendedPct, by.b2.absent], [0, 2]);
+  const L3 = r.sessions.filter(function (z) { return z.title === 'L3 (open)'; })[0];
+  assert.strictEqual(by.b2.status[L3.sessionId], 'waiting'); assert.strictEqual(by.b1.status[r.sessions[0].sessionId], 'late');
+  assert.ok(r.sessions.every(function (z) { return z.teaching; }));
 });
