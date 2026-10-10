@@ -17,7 +17,7 @@ in this repository, so every new session starts from it. State as of **2026-10-0
 | `pathology-exams` | The Official Exams app — one `index.html` (`?m=<storage>`, `?g=<link code>`) | `…/pathology-exams/` |
 
 **Cancelled (2026-10-10):** the Vulva and Vagina modules (`Vulvar-pathology`, `vaginal-pathology`, their separate
-`Gyn.gs` Apps Script backend). The user is deleting those repositories; do not build on them or link to them.
+`Gyn.gs` Apps Script backend). Both repositories were deleted by the user on 2026-10-10; do not build on them or link to them.
 `Gyn-pathology` is **kept for now** (not part of the platform) — do not change or delete it unless the user asks.
 The tests still use the name `vulva` for a simulated second backend; that is only a test fixture.
 
