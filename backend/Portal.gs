@@ -65,6 +65,10 @@
  *   tsMark {tsId, studentId, mark: present|late|excused|clear|remove, recordId?}   the teacher's corrections
  *   tsSettings        Admin: platform time zone and attendance warning threshold
  *   Sheet TeachingSessions (created on first use). Attendance itself stays in AttendanceSessions/AttendanceRecords.
+ *   Group page (2.8, PUBLIC actions — the student proves who they are with a session of one of the group's modules):
+ *   portalGroupSessions {g, sessions}  the live lecture, upcoming lectures, the student's own attendance (never others')
+ *   portalGroupCheckIn {g, sessions, code}  check-in with the code on the screen (a rotating code just replaced still
+ *                     works for 20 s); 10 wrong codes → 10 minutes' wait
  *
  * Self-check: platformCheck()  run it in the Apps Script editor (▶) before every Deploy — reports a missing Portal line in
  *                     route_, missing speed lines, missing/invalid content keys, unknown module keys; never prints a key
@@ -176,7 +180,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.7';
+var PORTAL_VERSION = '2.8';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -244,6 +248,8 @@ function portalHook_(module, p) {
     case 'rosterImport': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return rosterImport_(p); }); });
     case 'portalGroupSetPassword': return portalGroupSetPassword_(p);
     case 'portalGroupRefresh': return portalGroupRefresh_(p);
+    case 'portalGroupSessions': return tsStudentSessions_(p);   // 2.8: the group page's 🎓 Teaching Sessions card
+    case 'portalGroupCheckIn': return tsStudentCheckIn_(p);
     case 'teacherLogin': return teacherLogin_(p);
     case 'contentStatus': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentStatus_(); }); });
     case 'contentMigrate': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentMigrate_(p); }); });
@@ -484,7 +490,8 @@ var DIR_HEADERS = {
   PortalGrants: ['userId', 'deliveryId', 'backendModule', 'tokenHash', 'sessionHash', 'createdAt', 'expiresAt'],
   ContentVersions: ['moduleId', 'version', 'label', 'build', 'publishedAt', 'publishedBy', 'notes', 'fingerprint', 'itemCount', 'status'],
   TeachingSessions: ['tsId', 'groupId', 'deliveryId', 'moduleId', 'backendModule', 'title', 'chapter', 'academicYear', 'startAt', 'durationMin', 'lateAfterMin', 'rotate',
-    'materialsUrl', 'teacher', 'status', 'attSessionId', 'startedAt', 'endedAt', 'marksJson', 'codeAt', 'createdBy', 'createdAt', 'updatedAt']
+    'materialsUrl', 'teacher', 'status', 'attSessionId', 'startedAt', 'endedAt', 'marksJson', 'codeAt', 'createdBy', 'createdAt', 'updatedAt',
+    'prevCode', 'prevCodeUntil']
 };
 var DIR_TEXT = {
   Institutions: ['institutionId', 'name', 'shortName'],
@@ -498,7 +505,7 @@ var DIR_TEXT = {
   PortalSessions: ['tokenHash', 'userId', 'role'],
   PortalGrants: ['userId', 'deliveryId', 'backendModule', 'tokenHash', 'sessionHash'],
   ContentVersions: ['moduleId', 'label', 'build', 'publishedBy', 'notes', 'fingerprint', 'status'],
-  TeachingSessions: ['tsId', 'groupId', 'deliveryId', 'moduleId', 'backendModule', 'title', 'chapter', 'academicYear', 'materialsUrl', 'teacher', 'status', 'attSessionId', 'marksJson', 'createdBy']
+  TeachingSessions: ['tsId', 'groupId', 'deliveryId', 'moduleId', 'backendModule', 'title', 'chapter', 'academicYear', 'materialsUrl', 'teacher', 'status', 'attSessionId', 'marksJson', 'createdBy', 'prevCode']
 };
 var DIR_KINDS = {
   institution: { sheet: 'Institutions', key: 'institutionId', prefix: 'INS' },
@@ -2254,6 +2261,8 @@ function examListForget_(S) { var M = cvBaseOf_(S); CacheService.getScriptCache(
  * Access: the Admin (any group) or a personal teacher (only the deliveries assigned to them).
  * ====================================================================== */
 var TS_ROTATE_MS = 45000;                       // a rotating code changes every 45 seconds while the session is live
+var TS_GRACE_MS = 20000;                        // …and the code it replaced is still accepted for 20 s on the group page
+var TS_FAIL_MAX = 10, TS_FAIL_WINDOW_S = 600;  // per student and group: 10 wrong codes → wait 10 minutes
 var TS_STATUSES = { scheduled: 1, live: 1, ended: 1, cancelled: 1 };
 var TS_MARKS = { present: 1, late: 1, excused: 1 };
 var TS_ACTIONS = { tsGroups: 1, tsList: 1, tsSave: 1, tsStart: 1, tsState: 1, tsClose: 1, tsCancel: 1, tsDelete: 1, tsMark: 1, tsSettings: 1 };
@@ -2471,8 +2480,9 @@ function tsState_(who, p) {
       var due = (Number(r.codeAt) || 0) + TS_ROTATE_MS, c = CacheService.getScriptCache();
       if (now >= due && !c.get('tsrot:' + r.tsId)) {
         c.put('tsrot:' + r.tsId, '1', 20);   // two open teacher screens renew the code only once
-        var g2 = actionRegenerateAttendanceCode_(r.backendModule, { sessionId: r.attSessionId });
-        if (g2 && g2.ok) { code = g2.code; rosterWrite_(function () { var fr = tsFind_(who, r.tsId).row; tsWrite_(fr, { codeAt: now }); }); due = now + TS_ROTATE_MS; }
+        var old = code, g2 = actionRegenerateAttendanceCode_(r.backendModule, { sessionId: r.attSessionId });
+        // the previous code still works for TS_GRACE_MS on the group page (a student who was typing it)
+        if (g2 && g2.ok) { code = g2.code; rosterWrite_(function () { var fr = tsFind_(who, r.tsId).row; tsWrite_(fr, { codeAt: now, prevCode: old, prevCodeUntil: now + TS_GRACE_MS }); }); due = now + TS_ROTATE_MS; }
       }
       next = Math.max(0, due - now);
     }
@@ -2543,6 +2553,72 @@ function tsMark_(who, p) {
     tsWrite_(fr, { marksJson: JSON.stringify(mk) });
   });
   return tsState_(who, { tsId: p.tsId });
+}
+
+/* ---------------- Teaching Sessions on the group page (2.8, step 2) ----------------
+ * The student proves who they are with a session of one of the group's modules (exactly as portalGroupRefresh), and
+ * must be an active member of the group. They see the group's live lecture, the upcoming ones and their own attendance —
+ * never anyone else's — and check in with the code on the screen (a rotating code that has just changed is still accepted
+ * for 20 s). The check-in is the module's own attendance record (participant "acct:<Student ID>", the same as a check-in
+ * inside the module, so the two never count twice). */
+function tsStudent_(p) {
+  var G = portalGroup_(p.g); if (!G) return { error: PORTAL_NOGROUP };
+  var have = p.sessions && typeof p.sessions === 'object' ? p.sessions : {}, st = null;
+  G.modules.some(function (m) { var t = have[m.moduleKey]; if (t && !st) st = studentFromSession_(m._storage, String(t)); return !!st; });
+  var mem = st && rosterMember_(G.group.groupId, st.username, true);
+  if (!mem) return { error: { ok: false, code: 'studentauth', error: 'Please sign in again.' } };
+  var mods = {}; G.modules.forEach(function (m) { if (m.moduleKey !== EXAM_MODULE) mods[m._storage] = m; });
+  return { G: G, st: st, mem: mem, mods: mods };
+}
+function tsStudentRows_(S) { return tsRows_().filter(function (r) { return r.groupId === S.G.group.groupId && S.mods[r.backendModule]; }); }
+function tsStuLecture_(r, m) {
+  return { title: r.title, module: m.title, icon: m.icon, chapter: r.chapter, teacher: r.teacher, startAt: Number(r.startAt) || 0, durationMin: Number(r.durationMin) || 0,
+    materialsUrl: r.materialsUrl || '', moduleUrl: m.url || '', moduleKey: m.moduleKey };
+}
+function tsStudentSessions_(p) {
+  var S = tsStudent_(p); if (S.error) return S.error;
+  var now = Date.now(), rows = tsStudentRows_(S), att = {}, mine = {};
+  rpRows_(SHEETS.ATT_SESSIONS).forEach(function (a) { if (S.mods[a.module]) att[a.module + '|' + a.sessionId] = a; });
+  var recs = {}; rpRows_(SHEETS.ATT_RECORDS).forEach(function (q) { (recs[q.sessionId] = recs[q.sessionId] || []).push(q); });
+  var members = tsMembers_(S.G.group.groupId), live = [], upcoming = [], recent = [], sum = { present: 0, late: 0, excused: 0, absent: 0, counted: 0 };
+  rows.forEach(function (r) {
+    var a = r.attSessionId ? att[r.backendModule + '|' + r.attSessionId] || null : null, status = tsStatus_(r, a), m = S.mods[r.backendModule];
+    if (status === 'scheduled') { if (Number(r.startAt) >= now - 3 * 3600e3) upcoming.push(tsStuLecture_(r, m)); return; }
+    if (status === 'cancelled') { if (Number(r.startAt) >= now - 7 * 864e5) upcoming.push(Object.assign(tsStuLecture_(r, m), { cancelled: true })); return; }
+    if (!r.attSessionId) return;
+    var reg = tsRegister_(r, members, recs[r.attSessionId] || [], status === 'ended');
+    var me = reg.students.filter(function (x) { return x.studentId === S.st.username; })[0], my = me ? me.status : (status === 'ended' ? 'absent' : 'waiting');
+    var o = Object.assign(tsStuLecture_(r, m), { me: my, at: me ? me.at : 0 });
+    if (status === 'live') { o.tsId = r.tsId; o.registered = !!findStudent_(r.backendModule, S.st.username); live.push(o); }
+    else { o.endedAt = Number(r.endedAt) || (a ? Number(a.endedAt) || 0 : 0); recent.push(o); sum[my] = (sum[my] || 0) + 1; if (my !== 'excused') sum.counted++; }
+  });
+  upcoming.sort(function (a, b) { return a.startAt - b.startAt; });
+  recent.sort(function (a, b) { return b.startAt - a.startAt; });
+  var set = tsSettings_(), attended = sum.present + sum.late, pct = sum.counted ? Math.round(attended / sum.counted * 100) : null;
+  return { ok: true, serverTime: now, settings: set, live: live, upcoming: upcoming.slice(0, 8), recent: recent.slice(0, 6),
+    mine: { attended: attended, late: sum.late, excused: sum.excused, absent: sum.absent, counted: sum.counted, pct: pct, warn: pct != null && pct < set.threshold } };
+}
+function tsStudentCheckIn_(p) {
+  var S = tsStudent_(p); if (S.error) return S.error;
+  var code = normAttCode_(p.code), now = Date.now(), c = CacheService.getScriptCache(), fk = 'tsfail:' + S.G.group.groupId + ':' + S.st.username, fails = Number(c.get(fk) || 0);
+  if (fails >= TS_FAIL_MAX) return { ok: false, code: 'locked', error: 'Too many wrong codes. Please wait 10 minutes, or ask your teacher to mark you present.' };
+  if (code.length < 4) return { ok: false, code: 'badcode', error: 'Type the attendance code shown on the screen.' };
+  var hit = null;
+  tsStudentRows_(S).some(function (r) {
+    if (r.status !== 'live' || !r.attSessionId) return false;
+    var a = findModuleAttSession_(r.backendModule, r.attSessionId); if (!a || a.status !== 'active') return false;
+    if (normAttCode_(a.code) === code || (r.prevCode && normAttCode_(r.prevCode) === code && now <= Number(r.prevCodeUntil))) { hit = { r: r, a: a }; return true; }
+    return false;
+  });
+  if (!hit) { c.put(fk, String(fails + 1), TS_FAIL_WINDOW_S); return { ok: false, code: 'badcode', error: 'That code is not valid. Check the code on the screen and try again — it may have just changed.' }; }
+  var acc = findStudent_(hit.r.backendModule, S.st.username);
+  if (!acc || !isTrue_(acc.active)) return { ok: false, code: 'notregistered', error: 'You are not registered for the module of this lecture (' + S.mods[hit.r.backendModule].title + '). Please tell your teacher.' };
+  var rec = recordAttendance_(hit.a, { name: acc.name, studentId: acc.username, email: acc.email || '', participantId: 'acct:' + acc.username });
+  if (!rec || !rec.ok) return rec || { ok: false, error: 'Your attendance could not be recorded. Please try again.' };
+  c.remove(fk);
+  var ref = Math.max(Number(hit.r.startAt) || 0, Number(hit.r.startedAt) || 0), late = (Number(hit.r.lateAfterMin) || 0) * 60000, at = Number(rec.scannedAt) || now;
+  var mk = tsJson_(hit.r.marksJson, {})[acc.username];
+  return { ok: true, alreadyRecorded: !!rec.alreadyRecorded, at: at, status: mk === 'present' || mk === 'late' ? mk : late > 0 && at > ref + late ? 'late' : 'present', title: hit.r.title, module: S.mods[hit.r.backendModule].title };
 }
 
 /* ======================================================================

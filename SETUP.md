@@ -265,7 +265,7 @@ shown; never the code) → sign in with the access code, student ID and password
 Drive permission: the first picture upload needs Drive access. If you see "Access denied: DriveApp", open the Apps
 Script editor, choose **authorizeDriveAccess** in the function list and press ▶ once.
 
-## Teaching Sessions (Portal.gs 2.7)
+## Teaching Sessions (Portal.gs 2.8)
 
 **Modules contain learning content; Teaching Sessions contain teaching events.** Teacher Dashboard → **🎓 Teaching
 Sessions** (the Admin: every group; a personal teacher: only the modules assigned to them). Choose the **group** at the top.
@@ -274,8 +274,8 @@ Sessions** (the Admin: every group; a personal teacher: only the modules assigne
   teacher, a **lecture-materials link** (optional, `https://…`), and **🔄 Rotating attendance code** (on by default).
 - **▶ Open attendance** (on an upcoming lecture) or **▶ Start a lecture now** — the live screen shows the code in large
   letters (**⛶ Full screen** for the projector). With a rotating code it changes every 45 seconds, so a code sent to
-  an absent friend stops working. Students type the code in the module's **Attendance** (for now; the group-page
-  check-in comes in step 2). The list updates every 5 seconds. Only one lecture per group can be live at a time.
+  an absent friend stops working. Students type the code on their **group page** (or in the module's Attendance).
+  The list updates every 5 seconds. Only one lecture per group can be live at a time.
 - **■ Close attendance** — students who did not check in become **Absent**. You can still correct anyone, also later
   (📋 Register in the history): **Present** (adds a real check-in), **Mark late / Mark present**, **Excused**,
   **Remove check-in** (e.g. someone who checked in from outside the room).
@@ -288,6 +288,14 @@ Sessions** (the Admin: every group; a personal teacher: only the modules assigne
   absent and the percentage over the ended lectures; students below the warning threshold are marked ⚠ (CSV too).
 - **⚙ Change** (Admin): the platform **time zone** (e.g. `Asia/Aden`) — every date and time is entered and shown in it,
   on every device — and the **warning threshold** (75 % by default).
+
+**Students (group page, after signing in):** a **🎓 Teaching Sessions** card shows
+- **🔴 Live now** — the lecture with a box for the **attendance code** → **✓ Check in** (it moves to the top of the page
+  while a lecture is live). A rotating code that has just changed is still accepted for 20 seconds. 10 wrong codes →
+  10 minutes' wait. A student is told if they are not registered for that lecture's module;
+- **📅 Upcoming lectures** (date and time in the platform time zone, cancelled ones marked, lecture-materials links);
+- **📋 My attendance** — their own percentage and their recent lectures with their status (never anyone else's).
+The card refreshes by itself while a lecture is live or starts within 30 minutes (and with **↻ Refresh**).
 
 The attendance of a lecture is the module's own attendance (the same as the module's Attendance tab, its Google
 Drive copy, and **Results & attendance**), so nothing changes for the modules. The schedule and the teacher's marks

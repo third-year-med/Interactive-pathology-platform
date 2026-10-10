@@ -227,3 +227,12 @@ code.pw{font-size:14px;font-weight:700;letter-spacing:.03em}
 .ts-reg tr.ts-absent td,.ts-warn td{background:var(--bad-soft)}
 .ts-reg tr.ts-late td{background:var(--warn-soft)}
 .ts-reg tr.ts-excused td{background:var(--ready-soft)}
+/* Teaching Sessions on the group page (2.8) */
+.ts-stu{margin:22px 0 6px}
+.ts-now{border-left:5px solid var(--bad);margin-bottom:12px}
+.ts-now-h{color:var(--bad);margin-bottom:4px}
+.ts-ci-f{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 10px;margin-top:10px}
+.ts-ci-f label{display:flex;flex-direction:column;font-size:13px;color:var(--muted)}
+.ts-ci-code{font:700 24px/1.2 ui-monospace,Consolas,monospace;letter-spacing:.12em;text-transform:uppercase;padding:8px 10px;border:1px solid var(--line);border-radius:10px;width:min(14ch,100%)}
+.ts-ci-f .err{flex-basis:100%;margin:0}
+.ts-ok{font-size:17px;margin:10px 0 4px;color:var(--good)}

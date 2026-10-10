@@ -1671,4 +1671,36 @@ test('Teaching Sessions: Admin schedules a lecture, opens attendance (rotating c
   main.call({ module: 'portal', action: 'teacherSetActive', token: t, userId: cr.teacher.userId, active: false });
 });
 
+test('Teaching Sessions on the group page: the student sees the live lecture, checks in with the code, sees upcoming lectures and own attendance', { skip: SKIP }, async function () {
+  groupFixture();
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const A = function (action, o) { const r = main.call(Object.assign({ module: 'portal', action: action, token: t }, o || {})); assert.ok(r.ok, JSON.stringify(r)); return r; };
+  const dir = A('dirGet'), g = dir.groups.filter(function (x) { return x.linkCode === 'tr-a'; })[0];
+  const d = dir.deliveries.filter(function (x) { return x.groupId === g.groupId && x.moduleId === 'cellinjury'; })[0];
+  A('tsSave', { session: { groupId: g.groupId, deliveryId: d.deliveryId, title: 'Lecture 9 — Necrosis', chapter: 'Chapter 2', startAt: Date.now() + 2 * 864e5, materialsUrl: 'https://example.org/necrosis.pdf' } });
+  const live = A('tsStart', { session: { groupId: g.groupId, deliveryId: d.deliveryId, title: 'Lecture 8 — Apoptosis', startAt: Date.now(), rotate: false } });
+  const p = await page({ width: 390, height: 844 });
+  await p.goto(url + '?g=tr-a');
+  await signIn(p, 'ahmed', PW);
+  await p.waitForSelector('#ts-stu .ts-now');
+  assert.match(await p.textContent('#ts-stu .ts-now'), /Live now[\s\S]*Lecture 8 — Apoptosis[\s\S]*Cell Injury/);
+  assert.match(await p.textContent('#ts-stu'), /Upcoming lectures[\s\S]*Lecture 9 — Necrosis[\s\S]*Chapter 2[\s\S]*Lecture materials/);
+  await p.fill('#ts-stu .ts-ci-code', 'WRONG1'); await p.click('#ts-stu .ts-ci-f button');
+  await p.waitForFunction(function () { return /not valid/.test(document.querySelector('#ts-stu .ts-ci-f .err').textContent); });
+  await p.fill('#ts-stu .ts-ci-code', live.code.toLowerCase()); await p.click('#ts-stu .ts-ci-f button');
+  await p.waitForSelector('#ts-stu .ts-ok');
+  assert.match(await p.textContent('#ts-stu .ts-ok'), /You are checked in/);
+  if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'sessions-student.png'), fullPage: false });
+  assert.ok(await p.evaluate(function () { return document.documentElement.scrollWidth - window.innerWidth; }) <= 1, 'fits a phone');
+  // the teacher's live screen shows the check-in
+  const st = A('tsState', { tsId: live.session.tsId });
+  assert.strictEqual(st.students.filter(function (x) { return x.studentId === 'ahmed'; })[0].status, 'present');
+  // after closing: My attendance
+  A('tsClose', { tsId: live.session.tsId });
+  await p.click('#ts-stu [data-a=r]');
+  await p.waitForFunction(function () { return /My attendance[\s\S]*100%/.test(document.querySelector('#ts-stu').textContent) && !document.querySelector('#ts-stu .ts-now'); });
+  await p.context().close();
+});
+
 test('no JavaScript errors', { skip: SKIP }, function () { assert.deepStrictEqual(errors, []); });

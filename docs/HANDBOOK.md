@@ -100,8 +100,10 @@ lateAfterMin; absent = active roster member without a check-in after close; excu
 marksJson; a manual Present writes a real AttendanceRecords row via `recordAttendance_`). Rotating code = Code.gs
 `actionRegenerateAttendanceCode_` every 45 s, driven by the teacher screen's `tsState` polling. Platform settings:
 `ts:tz` (time zone, default the script's) and `ts:threshold` (75). The user is still in a trial period (no students
-yet, as of 2026-10-10). Plan: 1 teacher panel (done) → 2 group-page card for students (Upcoming, check-in with the
-code from the group page — with a short grace for the previous rotating code — Live now) → 3 one Live Classroom per
+yet, as of 2026-10-10). Plan: 1 teacher panel (done, 2.7) → 2 group-page card for students (done, 2.8:
+`portalGroupSessions` / `portalGroupCheckIn`, identity = a session of one of the group's modules + active membership,
+as `portalGroupRefresh`; previous rotating code accepted 20 s via TS columns prevCode/prevCodeUntil; 10 wrong codes →
+10 min) → 3 one Live Classroom per
 group → 4 hide Live/Attendance buttons in module pages (reversible) + reports use the Teaching Sessions statuses
 (excused). Then: repeating schedule, exam lock pauses the group chat.
 
@@ -231,8 +233,8 @@ The user is a pathologist, not a developer. They follow steps literally and send
 
 ## 10. Current state (2026-10-07)
 
-- **Portal.gs 2.7 (2026-10-10): Teaching Sessions step 1** (teacher panel, see §3). Code.core.gs test fixture now
-  includes the verbatim attendance engine of Code.gs (Drive copy stubbed). Tests: 68 backend, 44 e2e.
+- **Portal.gs 2.8 (2026-10-10): Teaching Sessions steps 1–2** (teacher panel; group-page card with check-in, see §3).
+  Code.core.gs test fixture includes the verbatim attendance engine of Code.gs (Drive copy stubbed). Tests: 71 backend, 45 e2e.
 - Portal.gs **2.6** (2275 lines, with platformCheck) deployed by the user on 2026-10-10; in the repo (Official Exams: places/hand-off, public exam list, combined exams, bank transfers,
   picture questions, combined-exam teaching lock, per-module results); the user had **2.5** deployed before this.
 - Exam app `third-year-med/pathology-exams` (single `index.html`): `?m=<storage>` manager/student, `?g=<code>` front

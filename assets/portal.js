@@ -154,12 +154,80 @@
     if (s) side.appendChild(h('<div class="card welcome"><div class="small muted">Signed in as</div><div class="wname">' + esc(s.student.name || s.student.username) + '</div><div class="small muted">Student ID ' + esc(s.student.username) + '</div><p>You can open <b>' + mine + '</b> of the ' + avail + ' available module' + (avail === 1 ? '' : 's') + '.</p><p class="small muted">Modules not registered for your account stay locked — ask your teacher if one is missing.</p></div>'));
     else side.appendChild(signInForm());
     main.appendChild(hero);
+    if (s && GINFO) main.appendChild(lecturesSection(s));
     main.appendChild(h('<div class="sec-head"><h2>' + (GINFO ? 'Modules for ' + esc(GINFO.group.name) : 'Pathology modules') + '</h2><div class="legend"><span class="pill available">● Available</span><span class="pill ready">◆ Completed – not yet released</span><span class="pill soon">○ Coming soon</span>' + (MODULES.some(function (m) { return m.status === 'closed'; }) ? '<span class="pill locked">■ Closed</span>' : '') + '</div></div>'));
     var grid = h('<div class="grid" aria-label="Pathology modules"></div>');
     MODULES.forEach(function (m) { grid.appendChild(card(m, s)); });
     if (!MODULES.length) grid.appendChild(h('<p class="muted">No modules yet.</p>'));
     main.appendChild(grid);
     if (s && GINFO) refreshNewModules(s);
+  }
+  /* ---------------- Group page: 🎓 Teaching Sessions card (2.8) — live lecture + check-in, upcoming, my attendance ---------------- */
+  function stuTokens(s) { var o = {}, mods = (s && s.modules) || {}; Object.keys(mods).forEach(function (k) { if (mods[k] && mods[k].access && mods[k].token) o[k] = mods[k].token; }); return o; }
+  function lecturesSection(s) {
+    var sec = h('<section class="t-sec ts-stu" id="ts-stu" hidden><div class="sec-head"><h2>🎓 Teaching Sessions</h2><button class="btn small" type="button" data-a="r">↻ Refresh</button></div><div class="ts-stu-body"></div></section>');
+    var body = $('.ts-stu-body', sec), timer = null;
+    $('[data-a=r]', sec).onclick = function () { load(); };
+    function call(action, o) { return post(CFG.backendUrl, Object.assign({ module: 'portal', action: action, g: GINFO.group.linkCode, sessions: stuTokens(session()) }, o || {})); }
+    function load() {
+      if (timer) { clearTimeout(timer); timer = null; }
+      if (!sec.isConnected && sec.dataset.drawn) return;
+      call('portalGroupSessions').then(function (r) {
+        if (!r.ok) {
+          if (r.code === 'badaction' || r.code === 'network' || r.code === 'badjson') { sec.hidden = true; return; }   // an older backend: no card
+          sec.hidden = false; body.innerHTML = '<p class="small muted">' + esc(r.code === 'studentauth' ? 'Sign out and sign in again to see your lectures.' : r.error) + '</p>'; return;
+        }
+        sec.hidden = false; sec.dataset.drawn = '1';
+        draw(r);
+        var hero = sec.parentNode && $('.hero', sec.parentNode);   // a live lecture comes first (no scrolling to check in), otherwise after the welcome
+        if (hero) { if (r.live.length) { if (sec.nextElementSibling !== hero) hero.before(sec); } else if (hero.nextElementSibling !== sec) hero.after(sec); }
+        var soon = r.upcoming.some(function (x) { return !x.cancelled && x.startAt - r.serverTime < 30 * 60e3; });
+        if (r.live.length || soon) timer = setTimeout(function () { if (sec.isConnected && !document.hidden) load(); else if (sec.isConnected) timer = setTimeout(load, 30000); }, r.live.length ? 30000 : 60000);
+      });
+    }
+    function draw(r) {
+      var tz = r.settings.timeZone, M = r.mine;
+      body.innerHTML = '';
+      var link = function (x) { return x.materialsUrl ? ' <a class="small" href="' + esc(x.materialsUrl) + '" target="_blank" rel="noopener noreferrer">📎 Lecture materials</a>' : ''; };
+      var what = function (x) { return '<b>' + esc(x.title) + '</b><div class="small muted">' + esc(x.icon + ' ' + x.module) + (x.chapter ? ' · ' + esc(x.chapter) : '') + (x.teacher ? ' · ' + esc(x.teacher) : '') + '</div>'; };
+      r.live.forEach(function (x) {
+        var done = x.me === 'present' || x.me === 'late';
+        var el = h('<div class="card ts-now"><div class="ts-now-h">🔴 <b>Live now</b></div>' + what(x) + '<div class="ts-ci"></div><div>' + link(x) + '</div></div>');
+        var ci = $('.ts-ci', el);
+        if (done) ci.innerHTML = '<p class="ts-ok">' + (x.me === 'late' ? '🕒 You are checked in — <b>late</b>' : '✅ You are checked in') + ' <span class="small muted">at ' + esc(tzShow(x.at, tz, true)) + '</span></p>';
+        else if (!x.registered) ci.innerHTML = '<p class="small warn-t">You are not registered for the module of this lecture. Please tell your teacher.</p>';
+        else {
+          var f = h('<form class="ts-ci-f" novalidate><label>Attendance code<input class="ts-ci-code" maxlength="10" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="e.g. K7MP2X"></label><button class="btn primary" type="submit">✓ Check in</button><p class="err small" role="alert"></p></form>');
+          f.onsubmit = function (e) {
+            e.preventDefault();
+            var inp = $('.ts-ci-code', f), b = $('button', f), err = $('.err', f), code = inp.value.trim();
+            if (!code) { err.textContent = 'Type the code shown on the screen.'; return; }
+            b.disabled = true; err.textContent = '';
+            call('portalGroupCheckIn', { code: code }).then(function (z) {
+              b.disabled = false;
+              if (!z.ok) { err.textContent = z.code === 'studentauth' ? 'Sign out and sign in again, then check in.' : z.error; inp.select(); return; }
+              toast(z.alreadyRecorded ? 'You were already checked in.' : z.status === 'late' ? 'Checked in — late.' : 'Checked in. Thank you!');
+              load();
+            });
+          };
+          ci.appendChild(f);
+        }
+        body.appendChild(el);
+      });
+      var up = h('<div class="ts-block"><h3>📅 Upcoming lectures</h3><div class="dir-list"></div></div>');
+      if (!r.upcoming.length) $('.dir-list', up).appendChild(h('<p class="muted small">No lectures scheduled.</p>'));
+      r.upcoming.forEach(function (x) {
+        $('.dir-list', up).appendChild(h('<div class="dir-row' + (x.cancelled ? ' off' : '') + '"><div class="dir-main">' + what(x) + '<div class="small">' + esc(tzShow(x.startAt, tz)) + (x.cancelled ? ' · <b>Cancelled</b>' : ' · ' + x.durationMin + ' min') + link(x) + '</div></div></div>'));
+      });
+      body.appendChild(up);
+      if (M.counted || r.recent.length) {
+        var L = { present: '✅ Present', late: '🕒 Late', excused: '📝 Excused', absent: '❌ Absent' };
+        body.appendChild(h('<div class="ts-block"><h3>📋 My attendance</h3><p class="ts-mine' + (M.warn ? ' warn-t' : '') + '">' + (M.pct == null ? 'No lectures counted yet.' : '<b>' + M.pct + '%</b> — ' + M.attended + ' of ' + M.counted + ' lecture(s) attended' + (M.late ? ' (' + M.late + ' late)' : '') + (M.excused ? ' · ' + M.excused + ' excused' : '') + (M.absent ? ' · ' + M.absent + ' absent' : '') + (M.warn ? ' · ⚠ below ' + r.settings.threshold + '% — please talk to your teacher' : '')) + '</p>' +
+          (r.recent.length ? '<div class="dir-list">' + r.recent.map(function (x) { return '<div class="dir-row"><div class="dir-main">' + what(x) + '<div class="small">' + esc(tzShow(x.startAt, tz)) + ' · ' + (L[x.me] || esc(x.me)) + link(x) + '</div></div></div>'; }).join('') + '</div>' : '') + '</div>'));
+      }
+    }
+    load();
+    return sec;
   }
   /** Group page: a module delivered or opened after the student signed in is checked again (once per page load), using the
    *  student's existing session as proof — no need to sign out and in. */
@@ -683,12 +751,12 @@
     function fail(r) {
       if (r.code === 'auth') { sdel(TKEY); toast('Your session has ended — please sign in again.'); route(); return true; }
       if (r.code === 'mustchange') { teacherPwForm(true); return true; }
-      toast(r.code === 'badaction' ? 'Update Portal.gs on the backend (version 2.7).' : r.error || 'Something went wrong.'); return false;
+      toast(r.code === 'badaction' ? 'Update Portal.gs on the backend (version 2.8).' : r.error || 'Something went wrong.'); return false;
     }
     function stop() { if (poll) { clearTimeout(poll); poll = null; } liveId = ''; }
     function start() {
       call('tsGroups').then(function (r) {
-        if (!r.ok) { body.innerHTML = '<p class="small ' + (r.code === 'badaction' ? 'muted' : 'err') + '">' + esc(r.code === 'badaction' ? 'Update Portal.gs on the backend (version 2.7) to run Teaching Sessions from here.' : r.error) + '</p>'; return; }
+        if (!r.ok) { body.innerHTML = '<p class="small ' + (r.code === 'badaction' ? 'muted' : 'err') + '">' + esc(r.code === 'badaction' ? 'Update Portal.gs on the backend (version 2.8) to run Teaching Sessions from here.' : r.error) + '</p>'; return; }
         G = r;
         if (!G.groups.length) { body.innerHTML = '<p class="muted small">' + (admin ? 'No group has teaching modules yet (Platform directory → Groups and Deliveries).' : 'No group or module is assigned to you yet.') + '</p>'; return; }
         try { groupId = sessionStorage.getItem('pp_ts_group') || ''; } catch (e) { }
@@ -853,7 +921,7 @@
           '<button class="btn" type="button" data-a="hide">✕ Close panel</button></div>'));
         $('[data-a=hide]', w).onclick = function () { stop(); box.innerHTML = ''; };
         if (isLive) {
-          var cb = h('<div class="ts-codebox"><div class="small">Attendance code — students type it in the module <b>' + esc(s.module) + '</b> (Attendance)</div><div class="ts-code">' + esc(r.code) + '</div>' +
+          var cb = h('<div class="ts-codebox"><div class="small">Attendance code — students type it on their <b>group page</b> (🎓 Teaching Sessions) or in the module <b>' + esc(s.module) + '</b> (Attendance)</div><div class="ts-code">' + esc(r.code) + '</div>' +
             (s.rotate ? '<div class="small ts-rot">🔄 New code in <b class="ts-cd">' + Math.ceil(r.rotateInMs / 1000) + '</b> s</div>' : '<div class="small muted">Fixed code for this lecture</div>') +
             '<div class="roster-tools"><button class="btn" type="button" data-a="fs">⛶ Full screen (projector)</button><button class="btn danger" type="button" data-a="close">■ Close attendance</button></div></div>');
           $('[data-a=fs]', cb).onclick = function () { try { (cb.requestFullscreen || cb.webkitRequestFullscreen).call(cb); } catch (e) { toast('Full screen is not available in this browser.'); } };

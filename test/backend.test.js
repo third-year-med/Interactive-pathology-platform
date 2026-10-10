@@ -1657,3 +1657,80 @@ test('teaching sessions: attendance opened late — students checking in at once
   const t0 = Date.now(), m = S.ts('tsStart', { tsId: n.tsId }); assert.ok(m.ok);
   assert.ok(m.session.startAt >= t0 && m.session.startAt <= Date.now());
 });
+
+/* ---------------- Teaching Sessions on the group page (2.8, step 2) ---------------- */
+function grpSessions(S, id, pw) {
+  const r = S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: id, password: pw }); assert.ok(r.ok, JSON.stringify(r));
+  const o = {}; Object.keys(r.modules).forEach(function (k) { if (r.modules[k].access) o[k] = r.modules[k].token; }); return o;
+}
+test('group page lectures: only a signed-in member of THIS group; own attendance only; live, upcoming, cancelled', function () {
+  const S = tsSetup();
+  S.ts('tsSave', { session: S.lect({ title: 'Next week', startAt: Date.now() + 7 * 864e5, materialsUrl: 'https://example.org/n.pdf' }) });
+  const c = S.ts('tsSave', { session: S.lect({ title: 'Cancelled one', startAt: Date.now() + 864e5 }) }).session; S.ts('tsCancel', { tsId: c.tsId });
+  const L = S.ts('tsStart', { session: S.lect({ title: 'Now', startAt: Date.now() }) }); assert.ok(L.ok);
+  const ses = grpSessions(S, 'b1', 'basma-pass-1');
+  const r = S.call({ module: 'portal', action: 'portalGroupSessions', g: 'razi-a-26', sessions: ses }); assert.ok(r.ok, JSON.stringify(r));
+  assert.strictEqual(r.live.length, 1); assert.strictEqual(r.live[0].title, 'Now'); assert.strictEqual(r.live[0].me, 'waiting'); assert.strictEqual(r.live[0].registered, true);
+  assert.deepStrictEqual(r.upcoming.map(function (x) { return [x.title, !!x.cancelled]; }), [['Cancelled one', true], ['Next week', false]]);
+  assert.strictEqual(r.upcoming[1].materialsUrl, 'https://example.org/n.pdf');
+  const txt = JSON.stringify(r);
+  assert.ok(!/ahmed|Bilal|"code"|attSessionId|marksJson|prevCode/.test(txt), 'no other student, no code, no internals: ' + txt);
+  // no session / a forged token / the other group's link: refused
+  assert.strictEqual(S.call({ module: 'portal', action: 'portalGroupSessions', g: 'razi-a-26', sessions: {} }).code, 'studentauth');
+  assert.strictEqual(S.call({ module: 'portal', action: 'portalGroupSessions', g: 'razi-a-26', sessions: { cellinjury: 'x'.repeat(64) } }).code, 'studentauth');
+  assert.strictEqual(S.call({ module: 'portal', action: 'portalGroupSessions', g: 'misrata-a-26', sessions: ses }).code, 'studentauth');
+  // a deactivated membership: refused at once
+  assert.ok(S.dir('rosterSetActive', { groupId: S.ra.groupId, studentId: 'b1', active: false }).ok);
+  assert.strictEqual(S.call({ module: 'portal', action: 'portalGroupSessions', g: 'razi-a-26', sessions: ses }).code, 'studentauth');
+});
+
+test('group page check-in: right code → present (or late); twice → already; wrong codes limited; the rotated code works 20 s more', function () {
+  const S = tsSetup(), X = S.b.ctx;
+  const L = S.ts('tsStart', { session: S.lect({ title: 'Now', startAt: Date.now(), rotate: true }) }); assert.ok(L.ok);
+  const ses = grpSessions(S, 'b1', 'basma-pass-1'), ci = function (code, se) { return S.call({ module: 'portal', action: 'portalGroupCheckIn', g: 'razi-a-26', sessions: se || ses, code: code }); };
+  assert.strictEqual(ci('ZZZZZZ').code, 'badcode');
+  let r = ci(' ' + L.code.toLowerCase().slice(0, 3) + '-' + L.code.slice(3) + ' '); assert.ok(r.ok, JSON.stringify(r));
+  assert.strictEqual(r.status, 'present'); assert.strictEqual(r.alreadyRecorded, false); assert.strictEqual(r.title, 'Now');
+  assert.strictEqual(ci(L.code).alreadyRecorded, true);
+  // the teacher sees b1, recorded as the module's own attendance (acct:b1 — a check-in inside the module would not count twice)
+  const st = S.ts('tsState', { tsId: L.session.tsId }); assert.strictEqual(stuOf(st, 'b1').status, 'present');
+  assert.strictEqual(X.rpRows_('AttendanceRecords').filter(function (q) { return q.participantId === 'acct:b1'; }).length, 1);
+  const mod = S.call({ module: 'cellinjury-razi-a-26', action: 'submitAttendanceByCode', stoken: login(S, 'cellinjury-razi-a-26', 'b1', 'basma-pass-1').token, code: L.code });
+  assert.ok(mod.ok && mod.alreadyRecorded, JSON.stringify(mod));
+  // rotation: the old code still works for 20 s on the group page, then not
+  const row = X.dirAll_('TeachingSessions')[0];
+  X.updateRow_('TeachingSessions', row._row, Object.assign(X.dirPublic_(row), { codeAt: Date.now() - 46000 }));
+  const nc = S.ts('tsState', { tsId: L.session.tsId }).code; assert.notStrictEqual(nc, L.code);
+  const s2 = grpSessions(S, 'ahmed', PW);
+  r = ci(L.code, s2); assert.ok(r.ok, 'grace: ' + JSON.stringify(r));
+  const r2 = X.dirAll_('TeachingSessions')[0];
+  X.updateRow_('TeachingSessions', r2._row, Object.assign(X.dirPublic_(r2), { prevCodeUntil: Date.now() - 1 }));
+  const s3 = grpSessions(S, 'b2', 'bilal-pass-1');
+  assert.strictEqual(ci(L.code, s3).code, 'badcode');
+  assert.ok(ci(nc, s3).ok);
+  // 10 wrong codes → wait
+  const s4 = grpSessions(S, 'ahmed', PW);
+  for (let i = 0; i < 10; i++) ci('WRONG' + i, s4);
+  assert.strictEqual(ci(nc, s4).code, 'locked');
+  // after closing: the code no longer works; the student sees their status and %
+  S.ts('tsClose', { tsId: L.session.tsId });
+  assert.strictEqual(ci(nc, grpSessions(S, 'b2', 'bilal-pass-1')).code, 'badcode');
+  const me = S.call({ module: 'portal', action: 'portalGroupSessions', g: 'razi-a-26', sessions: ses });
+  assert.strictEqual(me.live.length, 0); assert.strictEqual(me.recent[0].me, 'present');
+  assert.deepStrictEqual([me.mine.attended, me.mine.counted, me.mine.pct, me.mine.warn], [1, 1, 100, false]);
+});
+
+test('group page check-in: late after the limit; a student without an account in that module is told so', function () {
+  const S = tsSetup(), X = S.b.ctx;
+  const L = S.ts('tsStart', { session: S.lect({ title: 'Now', startAt: Date.now() }) }); assert.ok(L.ok);
+  const row = X.dirAll_('TeachingSessions')[0];
+  X.updateRow_('TeachingSessions', row._row, Object.assign(X.dirPublic_(row), { startAt: Date.now() - 20 * 60e3, startedAt: Date.now() - 20 * 60e3 }));
+  const ses = grpSessions(S, 'b1', 'basma-pass-1');
+  const r = S.call({ module: 'portal', action: 'portalGroupCheckIn', g: 'razi-a-26', sessions: ses, code: L.code }); assert.strictEqual(r.status, 'late');
+  // b2's Cell Injury account deactivated by the module teacher → cannot check in there
+  const tok = S.call({ module: 'cellinjury-razi-a-26', action: 'login', password: 'teacher-cellinjury-razi-a-26' }).token;
+  const s2 = grpSessions(S, 'b2', 'bilal-pass-1');
+  assert.ok(S.call({ module: 'cellinjury-razi-a-26', action: 'setStudentActive', token: tok, username: 'b2', active: false }).ok);
+  const x = S.call({ module: 'portal', action: 'portalGroupCheckIn', g: 'razi-a-26', sessions: s2, code: L.code });
+  assert.strictEqual(x.code, 'notregistered', JSON.stringify(x));
+});
