@@ -368,6 +368,7 @@
     MODULES.forEach(function (m) { grid.appendChild(teacherCard(m)); });
     if (!MODULES.length) grid.appendChild(h('<p class="muted">No modules yet — add one under Teacher Management.</p>'));
     main.appendChild(tm);
+    main.appendChild(sessionsSection(function (action, o) { return post(CFG.backendUrl, Object.assign({ module: 'portal', action: action, token: tok }, o || {})); }, true));
     main.appendChild(examsSection(function (action, o) { return post(CFG.backendUrl, Object.assign({ module: 'portal', action: action, token: tok }, o || {})); }, true));
     var mg = h('<section class="t-sec" id="t-manage"><div class="sec-head"><h2>Teacher Management</h2><span class="small muted">Front-page modules, statuses and links</span></div><div class="t-box"><p class="muted">Loading…</p></div></section>');
     main.appendChild(mg);
@@ -462,6 +463,7 @@
         ds.forEach(function (d) { $('.t-grid', sec).appendChild(myCard(d)); });
         box.appendChild(sec);
       });
+      box.appendChild(sessionsSection(function (action, o) { var cur = tteach(); return post(CFG.backendUrl, Object.assign({ module: 'portal', action: action, ttoken: cur && cur.ttoken }, o || {})); }, false));
       box.appendChild(examsSection(function (action, o) { var cur = tteach(); return post(CFG.backendUrl, Object.assign({ module: 'portal', action: action, ttoken: cur && cur.ttoken }, o || {})); }, false));
     });
   }
@@ -647,6 +649,257 @@
       });
     };
     paint();
+    return sec;
+  }
+  /* ---------------- 🎓 Teaching Sessions (2.7): the lectures of a group — schedule, live attendance, history ---------------- */
+  var TS_ST = { present: ['✅', 'Present'], late: ['🕒', 'Late'], excused: ['📝', 'Excused'], absent: ['❌', 'Absent'], waiting: ['⏳', 'Not yet'] };
+  function tzOk(tz) { try { new Intl.DateTimeFormat('en-GB', { timeZone: tz }); return tz; } catch (e) { return 'UTC'; } }
+  function tzParts(t, tz) {
+    var o = {}; new Intl.DateTimeFormat('en-GB', { timeZone: tzOk(tz), year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+      .formatToParts(new Date(Number(t))).forEach(function (p) { o[p.type] = p.value; });
+    return o;
+  }
+  /** "2026-10-12T10:00" (a datetime-local value) ⇄ a moment, both read in the PLATFORM time zone (not the browser's). */
+  function tzInput(t, tz) { var o = tzParts(t, tz); return o.year + '-' + o.month + '-' + o.day + 'T' + o.hour + ':' + o.minute; }
+  function tzFromInput(v, tz) {
+    var m = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d)/.exec(v || ''); if (!m) return null;
+    var guess = Date.UTC(+m[1], m[2] - 1, +m[3], +m[4], +m[5]);
+    var off = function (t) { var o = tzParts(t, tz); return Date.UTC(+o.year, o.month - 1, +o.day, +o.hour, +o.minute) - t; };
+    var t = guess - off(guess); return guess - off(t);
+  }
+  function tzShow(t, tz, timeOnly) {
+    if (!t) return '—';
+    try { return new Intl.DateTimeFormat('en-GB', timeOnly ? { timeZone: tzOk(tz), hour: '2-digit', minute: '2-digit', hourCycle: 'h23' } : { timeZone: tzOk(tz), weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(Number(t))); }
+    catch (e) { return new Date(Number(t)).toISOString().slice(0, 16).replace('T', ' '); }
+  }
+  function csvDownload(name, head, rows) {
+    var q = function (v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+    var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + [head].concat(rows).map(function (r) { return r.map(q).join(','); }).join('\r\n')], { type: 'text/csv;charset=utf-8' }));
+    a.download = name; document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  }
+  function sessionsSection(call, admin) {
+    var sec = h('<section class="t-sec" id="t-sessions"><div class="sec-head"><h2>🎓 Teaching Sessions</h2><span class="small muted">' + (admin ? 'Every group' : 'Your groups') + ' · lectures, live attendance, history</span></div><div class="ts-body"><p class="muted small">Loading…</p></div></section>');
+    var body = $('.ts-body', sec), G = null, groupId = '', poll = null, liveId = '';
+    function fail(r) {
+      if (r.code === 'auth') { sdel(TKEY); toast('Your session has ended — please sign in again.'); route(); return true; }
+      if (r.code === 'mustchange') { teacherPwForm(true); return true; }
+      toast(r.code === 'badaction' ? 'Update Portal.gs on the backend (version 2.7).' : r.error || 'Something went wrong.'); return false;
+    }
+    function stop() { if (poll) { clearTimeout(poll); poll = null; } liveId = ''; }
+    function start() {
+      call('tsGroups').then(function (r) {
+        if (!r.ok) { body.innerHTML = '<p class="small ' + (r.code === 'badaction' ? 'muted' : 'err') + '">' + esc(r.code === 'badaction' ? 'Update Portal.gs on the backend (version 2.7) to run Teaching Sessions from here.' : r.error) + '</p>'; return; }
+        G = r;
+        if (!G.groups.length) { body.innerHTML = '<p class="muted small">' + (admin ? 'No group has teaching modules yet (Platform directory → Groups and Deliveries).' : 'No group or module is assigned to you yet.') + '</p>'; return; }
+        try { groupId = sessionStorage.getItem('pp_ts_group') || ''; } catch (e) { }
+        if (!G.groups.some(function (g) { return g.groupId === groupId; })) groupId = G.groups[0].groupId;
+        paint();
+      });
+    }
+    function grp() { return G.groups.filter(function (g) { return g.groupId === groupId; })[0]; }
+    function tz() { return (G && G.settings && G.settings.timeZone) || 'UTC'; }
+    function paint() {
+      var want = liveId; stop();
+      var g = grp(), set = G.settings;
+      body.innerHTML = '';
+      var top = h('<div class="ts-top"><label class="ts-g">Group <select>' + G.groups.map(function (x) { return '<option value="' + esc(x.groupId) + '"' + (x.groupId === groupId ? ' selected' : '') + '>' + esc(x.label) + '</option>'; }).join('') + '</select></label>' +
+        '<span class="small muted">Times: <b>' + esc(set.timeZone) + '</b> · warning below <b>' + set.threshold + '%</b>' + (admin ? ' <button class="btn linkish" type="button" data-a="set">⚙ Change</button>' : '') + '</span></div>');
+      $('select', top).onchange = function () { groupId = this.value; try { sessionStorage.setItem('pp_ts_group', groupId); } catch (e) { } paint(); };
+      var sb = $('[data-a=set]', top); if (sb) sb.onclick = function () { settingsForm(top); };
+      body.appendChild(top);
+      var bar = h('<div class="roster-tools"><button class="btn primary" type="button" data-a="new">📅 Schedule a lecture</button><button class="btn" type="button" data-a="now">▶ Start a lecture now</button></div>');
+      body.appendChild(bar);
+      var formBox = h('<div class="ts-form-box"></div>'); body.appendChild(formBox);
+      $('[data-a=new]', bar).onclick = function () { lectureForm(formBox, null, false); };
+      $('[data-a=now]', bar).onclick = function () { lectureForm(formBox, null, true); };
+      var liveBox = h('<div class="ts-live-box"></div>'); body.appendChild(liveBox);
+      var lists = h('<div class="ts-lists"><p class="muted small">Loading the lectures…</p></div>'); body.appendChild(lists);
+      call('tsList', { groupId: g.groupId }).then(function (r) {
+        if (!r.ok) { lists.innerHTML = ''; fail(r); return; }
+        G.settings = r.settings;
+        drawLists(lists, liveBox, formBox, r, want);
+      });
+    }
+    function settingsForm(anchor) {
+      var cur = $('.ts-set', body); if (cur) { cur.remove(); return; }
+      var f = h('<form class="dir-form rowed ts-set" novalidate><label>Time zone of the platform<input data-k="tz" value="' + esc(G.settings.timeZone) + '" placeholder="e.g. Asia/Aden"></label>' +
+        '<label>Attendance warning below (%)<input data-k="th" type="number" min="1" max="100" value="' + G.settings.threshold + '"></label><div class="dir-act"><button class="btn primary" type="submit">Save</button></div>' +
+        '<p class="small muted" style="flex-basis:100%">Every date and time on the platform is shown and entered in this time zone, on every device. Students below the threshold are marked ⚠.</p></form>');
+      f.onsubmit = function (e) {
+        e.preventDefault(); var b = $('button', f); b.disabled = true;
+        call('tsSettings', { timeZone: $('[data-k=tz]', f).value.trim(), threshold: $('[data-k=th]', f).value }).then(function (r) { b.disabled = false; if (!r.ok) return fail(r); G.settings = r.settings; toast('Saved.'); paint(); });
+      };
+      anchor.after(f);
+    }
+    function lectureForm(box, s, now) {
+      if (box.firstChild && box.dataset.for === (s ? s.tsId : now ? 'now' : 'new')) { box.innerHTML = ''; box.dataset.for = ''; return; }
+      box.innerHTML = ''; box.dataset.for = s ? s.tsId : now ? 'now' : 'new';
+      var g = grp(), started = s && s.status !== 'scheduled';
+      var mods = g.modules.filter(function (m) { return m.active || (s && s.deliveryId === m.deliveryId); });
+      if (!mods.length) { box.appendChild(h('<p class="err small">No active module in this group.</p>')); return; }
+      var when = s ? s.startAt : (function () { var t = Date.now(); return now ? t : Math.ceil(t / 3600e3) * 3600e3; })();
+      var f = h('<form class="dir-form rowed ts-form" novalidate><h3 style="flex-basis:100%;margin:0">' + (s ? 'Edit lecture' : now ? 'Start a lecture now' : 'Schedule a lecture') + ' <span class="small muted">· ' + esc(g.label) + '</span></h3>' +
+        '<label style="flex-basis:100%">Lecture title<input data-k="title" maxlength="120" placeholder="e.g. Lecture 3 — Acute inflammation" value="' + esc(s ? s.title : '') + '"></label>' +
+        '<label>Module<select data-k="deliveryId"' + (started ? ' disabled' : '') + '>' + mods.map(function (m) { return '<option value="' + esc(m.deliveryId) + '"' + (s && s.deliveryId === m.deliveryId ? ' selected' : '') + '>' + esc(m.icon + ' ' + m.title) + '</option>'; }).join('') + '</select></label>' +
+        '<label>Chapter / topic<input data-k="chapter" maxlength="120" value="' + esc(s ? s.chapter : '') + '" placeholder="optional"></label>' +
+        '<label>Date and time (' + esc(tz()) + ')<input data-k="when" type="datetime-local" value="' + esc(tzInput(when, tz())) + '"></label>' +
+        '<label>Duration (minutes)<input data-k="dur" type="number" min="10" max="600" value="' + (s ? s.durationMin : 90) + '"></label>' +
+        '<label>Late after (minutes, 0 = never)<input data-k="late" type="number" min="0" max="180" value="' + (s ? s.lateAfterMin : 15) + '"></label>' +
+        '<label>Teacher<input data-k="teacher" maxlength="80" value="' + esc(s ? s.teacher : G.teacherName || '') + '" placeholder="e.g. Dr. Wesam"></label>' +
+        '<label style="flex-basis:100%">Lecture materials (link, optional)<input data-k="mat" maxlength="300" placeholder="https://… (e.g. the module chapter)" value="' + esc(s ? s.materialsUrl : '') + '"></label>' +
+        '<label class="chk" style="flex-basis:100%"><input type="checkbox" data-k="rot"' + (s ? (s.rotate ? ' checked' : '') : ' checked') + '> 🔄 Rotating attendance code — changes every 45 seconds, so a code sent to an absent friend no longer works</label>' +
+        '<p class="err small" role="alert" style="flex-basis:100%"></p>' +
+        '<div class="dir-act"><button class="btn primary" type="submit">' + (s ? 'Save changes' : now ? '▶ Start and open attendance' : 'Save lecture') + '</button><button class="btn" type="button" data-a="x">Cancel</button></div></form>');
+      $('[data-a=x]', f).onclick = function () { box.innerHTML = ''; box.dataset.for = ''; };
+      f.onsubmit = function (e) {
+        e.preventDefault();
+        var v = function (k) { return $('[data-k=' + k + ']', f); }, err = $('.err', f), b = $('button[type=submit]', f);
+        var at = tzFromInput(v('when').value, tz());
+        if (!at) { err.textContent = 'Choose the date and time.'; return; }
+        var x = { groupId: g.groupId, deliveryId: v('deliveryId').value, title: v('title').value.trim(), chapter: v('chapter').value.trim(), startAt: at, durationMin: v('dur').value, lateAfterMin: v('late').value,
+          teacher: v('teacher').value.trim(), materialsUrl: v('mat').value.trim(), rotate: v('rot').checked };
+        if (s) x.tsId = s.tsId;
+        b.disabled = true; err.textContent = '';
+        (now ? call('tsStart', { session: x }) : call('tsSave', { session: x })).then(function (r) {
+          b.disabled = false;
+          if (!r.ok) { if (r.code === 'auth' || r.code === 'mustchange') return fail(r); err.textContent = r.error; return; }
+          box.innerHTML = ''; box.dataset.for = '';
+          toast(now ? 'Attendance is open — show the code to the students.' : s ? 'Saved.' : 'Lecture scheduled.');
+          if (now) liveId = r.session.tsId;
+          paint();
+        });
+      };
+      box.appendChild(f); f.scrollIntoView({ block: 'nearest' }); try { $('[data-k=title]', f).focus(); } catch (e) { }
+    }
+    function counts(c, members) {
+      if (!c) return '<span class="muted">—</span>';
+      return '<span class="ts-c">✅ ' + c.present + '</span> <span class="ts-c">🕒 ' + c.late + '</span> <span class="ts-c">📝 ' + c.excused + '</span>' + (c.absent ? ' <span class="ts-c">❌ ' + c.absent + '</span>' : '') + (c.waiting ? ' <span class="ts-c muted">⏳ ' + c.waiting + '</span>' : '') +
+        ' <span class="small muted">of ' + members + '</span>';
+    }
+    function drawLists(host, liveBox, formBox, r, want) {
+      host.innerHTML = '';
+      var S = r.sessions, live = S.filter(function (s) { return s.status === 'live'; });
+      var up = S.filter(function (s) { return s.status === 'scheduled'; }).sort(function (a, b) { return a.startAt - b.startAt; });
+      var hist = S.filter(function (s) { return s.status === 'ended' || s.status === 'cancelled'; });
+      var mat = function (s) { return s.materialsUrl ? ' <a class="small" href="' + esc(s.materialsUrl) + '" target="_blank" rel="noopener noreferrer">📎 Materials</a>' : ''; };
+      var what = function (s) { return '<b>' + esc(s.title) + '</b><div class="small muted">' + esc(s.icon + ' ' + s.module) + (s.chapter ? ' · ' + esc(s.chapter) : '') + (s.teacher ? ' · ' + esc(s.teacher) : '') + '</div>'; };
+      // 🔴 live now
+      if (live.length) {
+        var lv = h('<div class="ts-block"><h3>🔴 Live now</h3><div class="dir-list"></div></div>');
+        live.forEach(function (s) {
+          var row = h('<div class="dir-row ts-live"><div class="dir-main">' + what(s) + '<div class="small">Started ' + esc(tzShow(s.startedAt, tz(), true)) + ' · ' + counts(s.counts, s.members) + '</div></div><div class="dir-btns"><button class="btn primary" type="button" data-a="open">Open live screen</button></div></div>');
+          $('[data-a=open]', row).onclick = function () { liveScreen(liveBox, s.tsId); };
+          $('.dir-list', lv).appendChild(row);
+        });
+        host.appendChild(lv);
+      }
+      // 📅 upcoming
+      var ub = h('<div class="ts-block"><h3>📅 Upcoming lectures</h3><div class="dir-list"></div></div>');
+      if (!up.length) $('.dir-list', ub).appendChild(h('<p class="muted small">None scheduled.</p>'));
+      up.forEach(function (s) {
+        var row = h('<div class="dir-row"><div class="dir-main">' + what(s) + '<div class="small">' + esc(tzShow(s.startAt, tz())) + ' · ' + s.durationMin + ' min' + (s.rotate ? ' · 🔄 rotating code' : '') + mat(s) + '</div></div>' +
+          '<div class="dir-btns"><button class="btn primary" type="button" data-a="go">▶ Open attendance</button><button class="btn" type="button" data-a="ed">Edit</button><button class="btn" type="button" data-a="cx">Cancel lecture</button><button class="btn danger" type="button" data-a="del">Delete</button></div></div>');
+        $('[data-a=go]', row).onclick = function () { var b = this; b.disabled = true; call('tsStart', { tsId: s.tsId }).then(function (x) { b.disabled = false; if (!x.ok) return fail(x); liveId = s.tsId; paint(); }); };
+        $('[data-a=ed]', row).onclick = function () { lectureForm(formBox, s, false); };
+        $('[data-a=cx]', row).onclick = function () { if (!window.confirm('Cancel “' + s.title + '”? It stays in the history as cancelled and does not count for attendance.')) return; call('tsCancel', { tsId: s.tsId }).then(function (x) { if (!x.ok) return fail(x); paint(); }); };
+        $('[data-a=del]', row).onclick = function () { if (!window.confirm('Delete “' + s.title + '” from the schedule? (No attendance exists for it yet.)')) return; call('tsDelete', { tsId: s.tsId }).then(function (x) { if (!x.ok) return fail(x); paint(); }); };
+        $('.dir-list', ub).appendChild(row);
+      });
+      host.appendChild(ub);
+      // 🗂️ history
+      var hb = h('<div class="ts-block"><h3>🗂️ Session history</h3>' + (hist.length ? '<div class="roster-tools"><button class="btn" type="button" data-a="csv">⬇ Download history (CSV)</button></div>' : '') + '<div class="dir-list"></div></div>');
+      if (!hist.length) $('.dir-list', hb).appendChild(h('<p class="muted small">No lectures yet.</p>'));
+      hist.forEach(function (s) {
+        var off = s.status === 'cancelled';
+        var row = h('<div class="dir-row' + (off ? ' off' : '') + '"><div class="dir-main">' + what(s) + '<div class="small">' + esc(tzShow(s.startAt || s.startedAt, tz())) + ' · ' + (off ? '<b>Cancelled</b> — does not count' : counts(s.counts, s.members)) + mat(s) + '</div></div>' +
+          '<div class="dir-btns">' + (off ? '<button class="btn" type="button" data-a="re">Restore</button><button class="btn danger" type="button" data-a="del">Delete</button>' : '<button class="btn" type="button" data-a="reg">📋 Register</button><button class="btn" type="button" data-a="ed">Edit details</button>') + '</div></div>');
+        var reg = $('[data-a=reg]', row); if (reg) reg.onclick = function () { liveScreen(liveBox, s.tsId); };
+        var ed = $('[data-a=ed]', row); if (ed) ed.onclick = function () { lectureForm(formBox, s, false); };
+        var re = $('[data-a=re]', row); if (re) re.onclick = function () { call('tsCancel', { tsId: s.tsId, undo: true }).then(function (x) { if (!x.ok) return fail(x); paint(); }); };
+        var del = $('[data-a=del]', row); if (del) del.onclick = function () { if (!window.confirm('Delete the cancelled lecture “' + s.title + '”?')) return; call('tsDelete', { tsId: s.tsId }).then(function (x) { if (!x.ok) return fail(x); paint(); }); };
+        $('.dir-list', hb).appendChild(row);
+      });
+      var hc = $('[data-a=csv]', hb);
+      if (hc) hc.onclick = function () {
+        csvDownload('teaching-sessions-' + grp().linkCode + '.csv', ['Date and time (' + tz() + ')', 'Lecture', 'Module', 'Chapter', 'Teacher', 'Status', 'Present', 'Late', 'Excused', 'Absent', 'Students', 'Materials'],
+          hist.slice().reverse().map(function (s) { var c = s.counts || {}; return [tzShow(s.startAt || s.startedAt, tz()), s.title, s.module, s.chapter, s.teacher, s.status, c.present, c.late, c.excused, c.absent, s.members, s.materialsUrl]; }));
+      };
+      host.appendChild(hb);
+      // 📋 students
+      var th = r.settings.threshold, ended = hist.filter(function (s) { return s.status === 'ended'; }).length;
+      var st = r.students.slice().sort(function (a, b) { return (a.pct == null ? 101 : a.pct) - (b.pct == null ? 101 : b.pct) || a.studentId.localeCompare(b.studentId); });
+      var warnN = st.filter(function (x) { return x.warn; }).length;
+      var sb = h('<div class="ts-block"><h3>📋 Attendance by student</h3><p class="small muted">Over ' + ended + ' ended lecture(s). Late counts as attended; excused lectures and cancelled lectures do not count. ' + (warnN ? '<b class="warn-t">⚠ ' + warnN + ' student(s) below ' + th + '%.</b>' : '') + '</p>' +
+        (st.length ? '<div class="roster-tools"><button class="btn" type="button" data-a="csv">⬇ Download (CSV)</button></div><div class="tbl-wrap"><table class="dir-tbl"><thead><tr><th>Student ID</th><th>Name</th><th>Attended</th><th>Late</th><th>Excused</th><th>Absent</th><th>Attendance</th></tr></thead><tbody>' +
+          st.map(function (x) { return '<tr' + (x.warn ? ' class="ts-warn"' : '') + '><td>' + esc(x.studentId) + '</td><td>' + esc(x.name) + '</td><td>' + x.attended + '</td><td>' + x.late + '</td><td>' + x.excused + '</td><td>' + x.absent + '</td><td><b>' + (x.pct == null ? '—' : x.pct + '%') + '</b>' + (x.warn ? ' ⚠' : '') + '</td></tr>'; }).join('') +
+          '</tbody></table></div>' : '<p class="muted small">No students in this group yet (Platform directory → Students).</p>') + '</div>');
+      var sc = $('[data-a=csv]', sb);
+      if (sc) sc.onclick = function () { csvDownload('attendance-by-student-' + grp().linkCode + '.csv', ['Student ID', 'Name', 'Attended', 'Late', 'Excused', 'Absent', 'Lectures counted', 'Attendance %', 'Below ' + th + '%'], st.map(function (x) { return [x.studentId, x.name, x.attended, x.late, x.excused, x.absent, x.counted, x.pct, x.warn ? 'yes' : '']; })); };
+      host.appendChild(sb);
+      if (want && S.some(function (s) { return s.tsId === want && (s.status === 'live' || s.status === 'ended'); })) liveScreen(liveBox, want);   // just started / just closed
+    }
+    /** The live screen (attendance open) or the register of an ended lecture: code, check-ins, the teacher's marks. */
+    function liveScreen(box, tsId) {
+      stop(); liveId = tsId;
+      box.innerHTML = '<div class="note ts-screen"><p class="muted small">Loading…</p></div>';
+      var w = $('.ts-screen', box), last = null;
+      function load() { return call('tsState', { tsId: tsId }).then(function (r) { if (liveId !== tsId) return; if (!r.ok) { fail(r); box.innerHTML = ''; return; } last = r; draw(r); schedule(r); }); }
+      function schedule(r) { if (poll) clearTimeout(poll); poll = r.session.status === 'live' ? setTimeout(load, 5000) : null; }
+      function act(o, b) { if (b) b.disabled = true; call('tsMark', Object.assign({ tsId: tsId }, o)).then(function (r) { if (b) b.disabled = false; if (!r.ok) return fail(r); last = r; draw(r); schedule(r); }); }
+      function draw(r) {
+        var s = r.session, isLive = s.status === 'live', all = r.students.concat(r.unlisted || []);
+        w.innerHTML = '';
+        w.appendChild(h('<div class="ts-sh"><div>' + '<b>' + esc(s.title) + '</b><div class="small muted">' + esc(s.icon + ' ' + s.module) + (s.chapter ? ' · ' + esc(s.chapter) : '') + ' · ' + esc(tzShow(s.startAt, tz())) + (s.lateAfterMin ? ' · late after ' + s.lateAfterMin + ' min' : ' · no “late”') + '</div></div>' +
+          '<button class="btn" type="button" data-a="hide">✕ Close panel</button></div>'));
+        $('[data-a=hide]', w).onclick = function () { stop(); box.innerHTML = ''; };
+        if (isLive) {
+          var cb = h('<div class="ts-codebox"><div class="small">Attendance code — students type it in the module <b>' + esc(s.module) + '</b> (Attendance)</div><div class="ts-code">' + esc(r.code) + '</div>' +
+            (s.rotate ? '<div class="small ts-rot">🔄 New code in <b class="ts-cd">' + Math.ceil(r.rotateInMs / 1000) + '</b> s</div>' : '<div class="small muted">Fixed code for this lecture</div>') +
+            '<div class="roster-tools"><button class="btn" type="button" data-a="fs">⛶ Full screen (projector)</button><button class="btn danger" type="button" data-a="close">■ Close attendance</button></div></div>');
+          $('[data-a=fs]', cb).onclick = function () { try { (cb.requestFullscreen || cb.webkitRequestFullscreen).call(cb); } catch (e) { toast('Full screen is not available in this browser.'); } };
+          $('[data-a=close]', cb).onclick = function () {
+            if (!window.confirm('Close attendance for “' + s.title + '”? Students who have not checked in will be marked absent (you can still correct them).')) return;
+            var b = this; b.disabled = true;
+            call('tsClose', { tsId: tsId }).then(function (x) { b.disabled = false; if (!x.ok) return fail(x); try { if (document.fullscreenElement) document.exitFullscreen(); } catch (e) { } toast('Attendance closed.'); liveId = tsId; paint(); });
+          };
+          if (s.rotate) { var cd = $('.ts-cd', cb), left = Math.ceil(r.rotateInMs / 1000), iv = setInterval(function () { if (!cd.isConnected) return clearInterval(iv); left = Math.max(0, left - 1); cd.textContent = left; }, 1000); }
+          w.appendChild(cb);
+        }
+        w.appendChild(h('<p class="small">' + counts(s.counts, s.members) + (isLive ? ' <span class="muted">· updates every 5 seconds</span>' : '') + '</p>'));
+        var t = h('<div class="tbl-wrap"><table class="dir-tbl ts-reg"><thead><tr><th>Student</th><th>Status</th><th>Checked in</th><th>Change</th></tr></thead><tbody></tbody></table></div>');
+        var order = { waiting: 0, absent: 1, late: 2, excused: 3, present: 4 };
+        all.slice().sort(function (a, b) { return order[a.status] - order[b.status] || String(a.name).localeCompare(String(b.name)); }).forEach(function (x) {
+          var L = TS_ST[x.status] || ['', x.status], btns = [];
+          if (!x.unlisted) {
+            if (x.recordId) { btns.push(x.status === 'late' ? ['present', 'Mark present'] : ['late', 'Mark late']); if (x.marked) btns.push(['clear', 'Undo mark']); btns.push(['remove', 'Remove check-in']); }
+            else { btns.push(['present', 'Present']); btns.push(x.status === 'excused' ? ['clear', 'Not excused'] : ['excused', 'Excused']); }
+          } else btns.push(['remove', 'Remove check-in']);
+          var tr = h('<tr class="ts-' + esc(x.status) + '"><td>' + esc(x.name || x.studentId) + ' <span class="small muted">' + esc(x.studentId) + '</span>' + (x.unlisted ? ' <span class="small warn-t">not in the group list</span>' : '') + '</td>' +
+            '<td>' + L[0] + ' ' + esc(L[1]) + (x.marked ? ' <span class="small muted">(teacher)</span>' : '') + '</td><td>' + (x.at ? esc(tzShow(x.at, tz(), true)) : '—') + '</td><td class="ts-btns"></td></tr>');
+          btns.forEach(function (bn) {
+            var b = h('<button class="btn small" type="button">' + esc(bn[1]) + '</button>');
+            b.onclick = function () {
+              if (bn[0] === 'remove' && !window.confirm('Remove the check-in of ' + (x.name || x.studentId) + '?')) return;
+              act({ studentId: x.unlisted ? '' : x.studentId, mark: bn[0], recordId: x.recordId }, b);
+            };
+            $('.ts-btns', tr).appendChild(b);
+          });
+          $('tbody', t).appendChild(tr);
+        });
+        if (!all.length) $('tbody', t).appendChild(h('<tr><td colspan="4" class="muted small">No students in this group yet.</td></tr>'));
+        w.appendChild(t);
+        if (!isLive) {
+          var c = h('<div class="roster-tools"><button class="btn" type="button" data-a="csv">⬇ Register (CSV)</button></div>');
+          $('[data-a=csv]', c).onclick = function () {
+            csvDownload('register-' + grp().linkCode + '-' + tzInput(s.startAt, tz()).slice(0, 10) + '.csv', ['Student ID', 'Name', 'Status', 'Checked in (' + tz() + ')', 'Marked by teacher', 'Lecture', 'Module', 'Date'],
+              all.map(function (x) { return [x.studentId, x.name, (TS_ST[x.status] || ['', x.status])[1], x.at ? tzShow(x.at, tz(), true) : '', x.marked ? 'yes' : '', s.title, s.module, tzShow(s.startAt, tz())]; }));
+          };
+          w.appendChild(c);
+        }
+      }
+      load(); box.scrollIntoView({ block: 'nearest' });
+    }
+    start();
     return sec;
   }
   /* ---------------- Group local changes: read-only preview of one item ---------------- */

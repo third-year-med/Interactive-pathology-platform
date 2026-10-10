@@ -1584,4 +1584,91 @@ test('Official Exams: "Copy to a group" gives a normal-link exam to Razi Group A
   main.call({ module: 'cellinjury-tr-a', action: 'examUpsert', token: og.token, exam: Object.assign({}, e, { status: 'closed' }) });
 });
 
+test('Teaching Sessions: Admin schedules a lecture, opens attendance (rotating code on screen), a student checks in, marks, close, history, CSV; a teacher sees only own modules', { skip: SKIP }, async function () {
+  groupFixture();
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  let p = await page();
+  await p.goto(url + '#/teacher');
+  await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+  await p.waitForSelector('#t-sessions .ts-top select');
+  const gid = await p.$eval('#t-sessions .ts-top select', function (s) { return Array.prototype.filter.call(s.options, function (o) { return /Test Razi · Group A/.test(o.textContent); })[0].value; });
+  await p.selectOption('#t-sessions .ts-top select', gid);
+  await p.waitForSelector('#t-sessions .ts-lists .ts-block');
+  // the platform time zone: Admin sets it (every date is shown and entered in it)
+  await p.click('#t-sessions [data-a=set]');
+  await p.fill('#t-sessions .ts-set [data-k=tz]', 'Asia/Aden'); await p.click('#t-sessions .ts-set button[type=submit]');
+  await p.waitForFunction(function () { return /Asia\/Aden/.test(document.querySelector('#t-sessions .ts-top').textContent); });
+  await p.waitForSelector('#t-sessions .ts-lists .ts-block');
+  // schedule a lecture for tomorrow 10:00 Aden time
+  await p.click('#t-sessions [data-a=new]');
+  await p.fill('#t-sessions .ts-form [data-k=title]', 'Lecture 1 — Cell adaptation');
+  await p.fill('#t-sessions .ts-form [data-k=chapter]', 'Chapter 1');
+  const day = new Date(Date.now() + 864e5).toISOString().slice(0, 10);
+  await p.fill('#t-sessions .ts-form [data-k=when]', day + 'T10:00');
+  await p.fill('#t-sessions .ts-form [data-k=mat]', 'https://third-year-med.github.io/cell-injury-teaching-platform/');
+  await p.click('#t-sessions .ts-form button[type=submit]');
+  await p.waitForFunction(function () { return /Lecture 1 — Cell adaptation/.test(document.querySelector('#t-sessions .ts-lists').textContent); });
+  const up = await p.textContent('#t-sessions .ts-block:has(h3:text("Upcoming"))');
+  assert.match(up, /Lecture 1 — Cell adaptation[\s\S]*Cell Injury[\s\S]*Chapter 1[\s\S]*10:00[\s\S]*90 min · 🔄 rotating code[\s\S]*Materials/);
+  const saved = main.ctx.dirAll_('TeachingSessions').filter(function (x) { return x.title === 'Lecture 1 — Cell adaptation'; })[0];
+  assert.strictEqual(new Date(Number(saved.startAt)).toISOString(), day + 'T07:00:00.000Z', '10:00 in Aden = 07:00 UTC');
+  // open attendance → live screen with the code
+  await p.click('#t-sessions .ts-block:has(h3:text("Upcoming")) [data-a=go]');
+  await p.waitForSelector('#t-sessions .ts-code');
+  const code = (await p.textContent('#t-sessions .ts-code')).trim();
+  assert.match(code, /^[A-Z0-9]{6}$/);
+  assert.match(await p.textContent('#t-sessions .ts-codebox'), /New code in \d+ s/);
+  if (process.env.SHOTS) await (await p.$('#t-sessions')).screenshot({ path: path.join(process.env.SHOTS, 'sessions-live.png') });
+  // a student checks in inside the module with the code → appears within 5 s
+  const ses = main.call({ module: 'cellinjury-tr-a', action: 'studentLogin', username: 'ahmed', password: PW });
+  assert.ok(main.call({ module: 'cellinjury-tr-a', action: 'submitAttendanceByCode', stoken: ses.token, code: code }).ok);
+  await p.waitForFunction(function () { var r = Array.prototype.filter.call(document.querySelectorAll('#t-sessions .ts-reg tr'), function (x) { return /Student Ahmed/.test(x.textContent); })[0]; return r && /Present/.test(r.textContent); }, null, { timeout: 8000 });
+  // close attendance → the register stays open; nobody is "Not yet" any more
+  await p.click('#t-sessions [data-a=close]');
+  await p.waitForFunction(function () { var s = document.querySelector('#t-sessions .ts-screen'); return s && !document.querySelector('#t-sessions .ts-code') && /Register \(CSV\)/.test(s.textContent); });
+  assert.ok(!/Not yet/.test(await p.textContent('#t-sessions .ts-reg')));
+  const hist = await p.textContent('#t-sessions .ts-block:has(h3:text("history"))');
+  assert.match(hist, /Lecture 1 — Cell adaptation[\s\S]*✅ 1/);
+  // students table + CSV
+  assert.match(await p.textContent('#t-sessions .ts-block:has(h3:text("by student"))'), /ahmed[\s\S]*Student Ahmed[\s\S]*100%/);
+  const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#t-sessions .ts-block:has(h3:text("history")) [data-a=csv]')]);
+  assert.strictEqual(dl.suggestedFilename(), 'teaching-sessions-tr-a.csv');
+  assert.match(fs.readFileSync(await dl.path(), 'utf8'), /Date and time \(Asia\/Aden\),Lecture,Module[\s\S]*Lecture 1 — Cell adaptation,Cell Injury & Cell Death,Chapter 1,[^,]*,ended,1,0,0,/);
+  // the attendance is the module's own (Results & attendance sees it)
+  assert.ok(main.ctx.rpRows_('AttendanceSessions').some(function (r) { return r.module === 'cellinjury-tr-a' && r.sessionTitle === 'Lecture 1 — Cell adaptation' && r.status === 'closed'; }));
+  await p.context().close();
+  // a personal teacher with only Inflammation of Group A: sees the group, not the Cell Injury lecture
+  const dir = main.call({ module: 'portal', action: 'dirGet', token: t });
+  const d = dir.deliveries.filter(function (x) { return x.groupId === gid && x.moduleId === 'inflhealing'; })[0];
+  const un = 'ts.teacher', cr = main.call({ module: 'portal', action: 'teacherSave', token: t, create: true, record: { username: un, name: 'Dr. Sessions', password: 'ts-teacher-1' } });
+  assert.ok(cr.ok, JSON.stringify(cr));
+  assert.ok(main.call({ module: 'portal', action: 'teacherAssign', token: t, userId: cr.teacher.userId, deliveryIds: [d.deliveryId] }).ok);
+  const lg = main.call({ module: 'portal', action: 'teacherLogin', username: un, password: 'ts-teacher-1' });
+  assert.ok(main.call({ module: 'portal', action: 'teacherChangePassword', ttoken: lg.ttoken, oldPassword: 'ts-teacher-1', newPassword: 'ts-teacher-2' }).ok);
+  p = await page();
+  await p.goto(url + '#/teacher');
+  await p.fill('#t-u', un); await p.fill('#t-p', 'ts-teacher-2'); await p.click('form.card button[type=submit]');
+  await p.waitForSelector('#t-sessions .ts-lists .ts-block');
+  assert.deepStrictEqual(await p.$$eval('#t-sessions .ts-top select option', function (o) { return o.map(function (x) { return x.textContent; }); }), ['Test Razi · Group A (2026-27)']);
+  assert.ok(!/Cell adaptation/.test(await p.textContent('#t-sessions')), 'not the other module\'s lecture');
+  assert.strictEqual(await p.$('#t-sessions [data-a=set]'), null, 'no settings for a teacher');
+  // start a lecture now (fixed code), then the module list offers only Inflammation
+  await p.click('#t-sessions [data-a=now]');
+  assert.deepStrictEqual(await p.$$eval('#t-sessions .ts-form [data-k=deliveryId] option', function (o) { return o.map(function (x) { return x.textContent; }); }), ['🔥 Inflammation & Healing']);
+  assert.strictEqual(await p.inputValue('#t-sessions .ts-form [data-k=teacher]'), 'Dr. Sessions');
+  await p.fill('#t-sessions .ts-form [data-k=title]', 'Lecture 2 — Acute inflammation');
+  await p.uncheck('#t-sessions .ts-form [data-k=rot]');
+  await p.click('#t-sessions .ts-form button[type=submit]');
+  await p.waitForSelector('#t-sessions .ts-code');
+  assert.match(await p.textContent('#t-sessions .ts-codebox'), /Fixed code/);
+  // excuse the student (not checked in), then close
+  await p.click('#t-sessions .ts-reg tr:has-text("Student Ahmed") button:text("Excused")');
+  await p.waitForFunction(function () { var r = Array.prototype.filter.call(document.querySelectorAll('#t-sessions .ts-reg tr'), function (x) { return /Student Ahmed/.test(x.textContent); })[0]; return r && /Excused/.test(r.textContent); });
+  await p.click('#t-sessions [data-a=close]');
+  await p.waitForFunction(function () { return /📝 1/.test((document.querySelector('#t-sessions .ts-lists') || {}).textContent || ''); });
+  await p.context().close();
+  main.call({ module: 'portal', action: 'teacherSetActive', token: t, userId: cr.teacher.userId, active: false });
+});
+
 test('no JavaScript errors', { skip: SKIP }, function () { assert.deepStrictEqual(errors, []); });

@@ -1,7 +1,7 @@
 /* TEST FIXTURE — verbatim excerpts of the platform's shared Code.gs (v1.7): configuration, entry point, routing,
  * sheet plumbing, teacher authentication, student accounts, content CRUD helpers and the exam-window lock that the
- * sign-in gate consults. Engines not needed by the Gynecology module (Live Classroom, study sync, assessments,
- * attendance, practicals, exam app) are left out; the router only reaches them for other actions.
+ * sign-in gate consults, and the attendance engine (Teaching Sessions). Engines not needed (Live Classroom, study sync,
+ * assessments, practicals, exam app) are left out; the router only reaches them for other actions.
  * NOT FOR DEPLOYMENT: deploy your own Code.gs unchanged. Content keys and default passwords here are test values. */
 
 var VERSION = '1.7';
@@ -113,6 +113,15 @@ function route_(p) {
     case 'uploadImage': return authed_(module, p, function () { return actionUploadImage_(p); });
     case 'delete': return authed_(module, p, function () { return actionDelete_(module, p); });
     case 'getAllContent': return actionGetAllContent_(module, p);
+    case 'startAttendanceSession': return authed_(module, p, function () { return actionStartAttendance_(module, p); });
+    case 'closeAttendanceSession': return authed_(module, p, function () { return actionCloseAttendance_(module, p); });
+    case 'getAttendanceTeacherState': return authed_(module, p, function () { return actionGetAttendanceTeacherState_(module, p); });
+    case 'regenerateAttendanceCode': return authed_(module, p, function () { return actionRegenerateAttendanceCode_(module, p); });
+    case 'deleteAttendanceRecord': return authed_(module, p, function () { return actionDeleteAttendanceRecord_(module, p); });
+    case 'listAttendanceSessions': return authed_(module, p, function () { return actionListAttendanceSessions_(module, p); });
+    case 'getAttendanceSessionReport': return authed_(module, p, function () { return actionGetAttendanceSessionReport_(module, p); });
+    case 'submitAttendance': return actionSubmitAttendance_(module, p);
+    case 'submitAttendanceByCode': return actionSubmitAttendanceByCode_(module, p);
     case 'privList': return authed_(module, p, function () { return actionPrivList_(module, p); });
     case 'examBankList': case 'examBankSave': case 'examBankDelete': case 'examList': case 'examUpsert': case 'examRemove':
     case 'examResults': case 'examAttemptDetail': case 'examResetAttempt': case 'examReleaseSession':
@@ -686,3 +695,267 @@ function actionPrivList_(module, p) {
   var rows = readAll_(SHEETS.CONTENT).filter(function (r) { return r.module === module && r.collection === coll; });
   return { ok: true, items: rows.map(function (r) { return { id: String(r.id), updatedAt: Number(r.updatedAt), deleted: !!r.deleted, data: r.deleted ? null : unpackJson_(r) }; }) };
 }
+
+/* ---- Attendance (verbatim from Code.gs v1.7; only the Drive copy is replaced by the stub at the end) ---- */
+/* ---------------------------------------------------------------------- *
+ * Session-based QR Attendance
+ * ---------------------------------------------------------------------- */
+var ATT_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+function genAttendanceCode_() {
+  for (var attempt = 0; attempt < 20; attempt++) {
+    var code = '';
+    for (var i = 0; i < 6; i++) code += ATT_CODE_ALPHABET.charAt(Math.floor(Math.random() * ATT_CODE_ALPHABET.length));
+    var clash = readAll_(SHEETS.ATT_SESSIONS).some(function (r) { return r.code === code && r.status === 'active'; });
+    if (!clash) return code;
+  }
+  return Utilities.getUuid().slice(0, 6).toUpperCase();
+}
+function findAttSessionRow_(sessionId) {
+  var rows = readAll_(SHEETS.ATT_SESSIONS);
+  for (var i = 0; i < rows.length; i++) if (rows[i].sessionId === sessionId) return rows[i];
+  return null;
+}
+function findAttSessionByToken_(module, token) {
+  var rows = readAll_(SHEETS.ATT_SESSIONS);
+  for (var i = 0; i < rows.length; i++) if (rows[i].module === module && rows[i].token === token) return rows[i];
+  return null;
+}
+function saveAttSession_(row) { updateRow_(SHEETS.ATT_SESSIONS, row._row, row); }
+function attRecordPublic_(r) {
+  return { recordId: String(r.recordId || ''), name: r.studentName, studentId: r.studentId, email: r.email, scannedAt: r.scannedAt, status: r.status || 'present' };
+}
+/** A session row, only if it belongs to THIS module (group) — every teacher action on a session goes through this. */
+function findModuleAttSession_(module, sessionId) {
+  var row = findAttSessionRow_(String(sessionId || ''));
+  return row && row.module === module ? row : null;
+}
+function attSessionPublic_(row) {
+  return {
+    sessionId: row.sessionId, code: row.code, academicYear: row.academicYear, course: row.course, chapter: row.chapter,
+    sessionTitle: row.sessionTitle, teacher: row.teacher, status: row.status, createdAt: row.createdAt, endedAt: row.endedAt,
+    driveStatus: row.driveStatus || '', driveUrl: row.driveUrl || '', driveError: row.driveError || ''
+  };
+}
+
+function actionStartAttendance_(module, p) {
+  var sessionTitle = String(p.sessionTitle || '').trim();
+  if (!sessionTitle) return { ok: false, error: 'A session title is required (e.g. "Session 2 — Acute Inflammation").' };
+  var lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try {
+    var sessionId = Utilities.getUuid();
+    var row = {
+      module: module, sessionId: sessionId, code: genAttendanceCode_(), token: randomHex_(20),
+      academicYear: String(p.academicYear || '').trim(), course: String(p.course || '').trim() || 'Pathology',
+      chapter: String(p.chapter || '').trim(), sessionTitle: sessionTitle, teacher: String(p.teacher || '').trim(),
+      status: 'active', createdAt: Date.now(), endedAt: '', driveStatus: '', driveUrl: '', driveError: ''
+    };
+    appendRow_(SHEETS.ATT_SESSIONS, row);
+    return { ok: true, sessionId: sessionId, code: row.code, token: row.token };
+  } finally { lock.releaseLock(); }
+}
+
+function actionCloseAttendance_(module, p) {
+  var row = findModuleAttSession_(module, p.sessionId);
+  if (!row) return { ok: false, error: 'Session not found.', code: 'notfound' };
+  if (row.status !== 'closed') { row.status = 'closed'; row.endedAt = Date.now(); }
+  var records = readAll_(SHEETS.ATT_RECORDS).filter(function (r) { return r.sessionId === p.sessionId; });
+  var sync = trySyncAttendanceToDrive_(row, records);
+  row.driveStatus = sync.status; row.driveUrl = sync.url || row.driveUrl || ''; row.driveError = sync.error || '';
+  saveAttSession_(row);
+  return {
+    ok: true,
+    report: {
+      session: attSessionPublic_(row),
+      records: records.map(attRecordPublic_)
+    }
+  };
+}
+
+function actionRetrySyncAttendance_(module, p) {
+  var row = findModuleAttSession_(module, p.sessionId);
+  if (!row) return { ok: false, error: 'Session not found.', code: 'notfound' };
+  var records = readAll_(SHEETS.ATT_RECORDS).filter(function (r) { return r.sessionId === p.sessionId; });
+  var sync = trySyncAttendanceToDrive_(row, records);
+  row.driveStatus = sync.status; row.driveUrl = sync.url || row.driveUrl || ''; row.driveError = sync.error || '';
+  saveAttSession_(row);
+  return { ok: sync.status === 'synced', driveStatus: row.driveStatus, driveUrl: row.driveUrl, error: sync.error || '' };
+}
+
+function actionGetAttendanceTeacherState_(module, p) {
+  var row = findModuleAttSession_(module, p.sessionId);
+  if (!row) return { ok: false, error: 'Session not found.', code: 'notfound' };
+  var records = readAll_(SHEETS.ATT_RECORDS).filter(function (r) { return r.sessionId === p.sessionId; })
+    .sort(function (a, b) { return Number(a.scannedAt) - Number(b.scannedAt); });
+  var session = attSessionPublic_(row);
+  session.token = row.token;
+  return {
+    ok: true, session: session,
+    records: records.map(attRecordPublic_)
+  };
+}
+
+function actionListAttendanceSessions_(module, p) {
+  var rows = readAll_(SHEETS.ATT_SESSIONS).filter(function (r) { return r.module === module; })
+    .sort(function (a, b) { return Number(b.createdAt) - Number(a.createdAt); });
+  var counts = {};
+  readAll_(SHEETS.ATT_RECORDS).forEach(function (r) { counts[r.sessionId] = (counts[r.sessionId] || 0) + 1; });
+  return { ok: true, sessions: rows.map(function (r) { return Object.assign(attSessionPublic_(r), { present: counts[r.sessionId] || 0 }); }) };
+}
+
+/** Teacher-only: permanently deletes ONE closed attendance session of THIS module (group) — its session row and
+ *  every check-in record belonging to it. Other sessions/modules are never touched. The Drive report copy, if any,
+ *  is moved to the Drive trash (recoverable there for 30 days), never permanently deleted. Active sessions must be
+ *  closed first, so a class that is still checking in can never lose its records mid-session. */
+function actionDeleteAttendanceSession_(module, p) {
+  var sid = String(p.sessionId || '');
+  if (!sid) return { ok: false, error: 'No session was specified. Nothing was deleted.' };
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    var row = findAttSessionRow_(sid);
+    if (!row || row.module !== module) return { ok: false, code: 'notfound', error: 'This session was not found — it may already have been deleted.' };
+    if (row.status === 'active') return { ok: false, code: 'active', error: 'This session is still open. Close attendance first, then delete it.' };
+    var recs = readAll_(SHEETS.ATT_RECORDS).filter(function (r) { return r.sessionId === sid; });
+    for (var i = recs.length - 1; i >= 0; i--) deleteRow_(SHEETS.ATT_RECORDS, recs[i]._row); // bottom-up keeps row numbers valid
+    deleteRow_(SHEETS.ATT_SESSIONS, row._row);
+    var driveTrashed = false;
+    var m = /\/d\/([A-Za-z0-9_\-]{10,})/.exec(String(row.driveUrl || ''));
+    if (m) { try { DriveApp.getFileById(m[1]).setTrashed(true); driveTrashed = true; } catch (e) { console.error('attendance delete: could not trash Drive copy: ' + (e && e.message || e)); } }
+    console.log('attendance session deleted · module ' + module + ' · ' + sid + ' · “' + row.sessionTitle + '” · ' + recs.length + ' records');
+    return { ok: true, deletedRecords: recs.length, driveTrashed: driveTrashed };
+  } finally { lock.releaseLock(); }
+}
+
+function actionGetAttendanceSessionReport_(module, p) {
+  var row = findModuleAttSession_(module, p.sessionId);
+  if (!row) return { ok: false, error: 'Session not found.', code: 'notfound' };
+  var records = readAll_(SHEETS.ATT_RECORDS).filter(function (r) { return r.sessionId === p.sessionId; })
+    .sort(function (a, b) { return Number(a.scannedAt) - Number(b.scannedAt); });
+  return {
+    ok: true, session: attSessionPublic_(row),
+    records: records.map(attRecordPublic_)
+  };
+}
+
+function actionGetAttendanceSettings_() {
+  return {
+    ok: true,
+    settings: { university: getSetting_('att:university') || '', faculty: getSetting_('att:faculty') || '', department: getSetting_('att:department') || '' }
+  };
+}
+function actionSetAttendanceSettings_(p) {
+  var s = p.settings || {};
+  setSetting_('att:university', String(s.university || ''));
+  setSetting_('att:faculty', String(s.faculty || ''));
+  setSetting_('att:department', String(s.department || ''));
+  return { ok: true };
+}
+
+function actionGetAttendanceInfo_(module, p) {
+  var row = findAttSessionByToken_(module, String(p.token || ''));
+  if (!row) return { ok: false, error: 'This attendance link is not valid. Ask your teacher for the current QR code or code.', code: 'notfound' };
+  if (row.status !== 'active') return { ok: false, error: 'This attendance session has been closed. Ask your teacher for the current QR code.', code: 'closed' };
+  return { ok: true, session: attSessionPublic_(row) };
+}
+
+function actionSubmitAttendance_(module, p) {
+  var row = findAttSessionByToken_(module, String(p.token || ''));
+  if (!row) return { ok: false, error: 'This attendance link is not valid. Ask your teacher for the current QR code or code.', code: 'notfound' };
+  if (row.status !== 'active') return { ok: false, error: 'This attendance session has been closed. Your attendance was not recorded — ask your teacher for the current QR code.', code: 'closed' };
+  return recordAttendance_(row, p);
+}
+
+/* Attendance code (typed by the student). Codes are generated here on the server, 6 characters from an alphabet
+ * without O/0/I/1/L, are unique among open sessions, and are looked up ONLY among this module's (group's) OPEN
+ * sessions — so a closed session's code, or a code the teacher has regenerated, can never record attendance. */
+function normAttCode_(c) { return String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+function findActiveAttSessionByCode_(module, code) {
+  if (!code) return null;
+  var rows = readAll_(SHEETS.ATT_SESSIONS);
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    if (r.module === module && r.status === 'active' && normAttCode_(r.code) === code) return r;
+  }
+  return null;
+}
+function actionSubmitAttendanceByCode_(module, p) {
+  var code = normAttCode_(p.code);
+  if (code.length < 4) return { ok: false, code: 'badcode', error: 'Please enter the attendance code shown by your teacher.' };
+  var row = findActiveAttSessionByCode_(module, code);
+  if (!row) return { ok: false, code: 'badcode', error: 'That attendance code is not valid. It may have been changed or the session may have ended — check the code on the screen and try again.' };
+  var r = recordAttendance_(row, p);
+  if (r.ok) r.session = attSessionPublic_(row);
+  return r;
+}
+/** Teacher-only: replace an OPEN session's code with a brand-new one. The old code stops working immediately. */
+function actionRegenerateAttendanceCode_(module, p) {
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    var row = findModuleAttSession_(module, p.sessionId);
+    if (!row) return { ok: false, code: 'notfound', error: 'Session not found.' };
+    if (row.status !== 'active') return { ok: false, code: 'closed', error: 'This session is closed — start a new session to get a new code.' };
+    var old = row.code;
+    row.code = genAttendanceCode_(); // unique among open sessions, so it can never equal the code it replaces
+    saveAttSession_(row);
+    console.log('attendance code regenerated · module ' + module + ' · ' + row.sessionId + ' · ' + old + ' → ' + row.code);
+    return { ok: true, code: row.code };
+  } finally { lock.releaseLock(); }
+}
+/** Teacher-only: remove ONE student's check-in from ONE session of THIS module. Open or closed sessions both work;
+ *  for a closed session that already has a Drive copy, that copy is re-synced so it matches the database. */
+function actionDeleteAttendanceRecord_(module, p) {
+  var sid = String(p.sessionId || ''), rid = String(p.recordId || '');
+  if (!sid || !rid) return { ok: false, error: 'No attendance record was specified. Nothing was removed.' };
+  var row, rec;
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    row = findModuleAttSession_(module, sid);
+    if (!row) return { ok: false, code: 'notfound', error: 'This attendance session was not found.' };
+    rec = readAll_(SHEETS.ATT_RECORDS).filter(function (r) { return r.sessionId === sid && String(r.recordId) === rid; })[0];
+    if (!rec) return { ok: false, code: 'notfound', error: 'This attendance record was not found — it may already have been removed.' };
+    deleteRow_(SHEETS.ATT_RECORDS, rec._row);
+  } finally { lock.releaseLock(); }
+  console.log('attendance record removed · module ' + module + ' · session ' + sid + ' · "' + rec.studentName + '" (' + rid + ')');
+  var out = { ok: true, removed: attRecordPublic_(rec) };
+  if (row.status !== 'active' && row.driveUrl) {
+    var fresh = findModuleAttSession_(module, sid) || row;
+    var records = readAll_(SHEETS.ATT_RECORDS).filter(function (r) { return r.sessionId === sid; });
+    var sync = trySyncAttendanceToDrive_(fresh, records);
+    fresh.driveStatus = sync.status; fresh.driveUrl = sync.url || fresh.driveUrl || ''; fresh.driveError = sync.error || '';
+    saveAttSession_(fresh);
+    out.driveStatus = fresh.driveStatus; out.driveError = fresh.driveError;
+  }
+  return out;
+}
+
+/** Records one student's attendance in an OPEN session (shared by the QR-link and the typed-code check-in). */
+function recordAttendance_(row, p) {
+  var name = String(p.name || '').trim();
+  if (!name) return { ok: false, error: 'Please enter your name.' };
+  var lock = LockService.getScriptLock(); lock.waitLock(30000);
+  try {
+    var records = readAll_(SHEETS.ATT_RECORDS).filter(function (r) { return r.sessionId === row.sessionId; });
+    var participantId = String(p.participantId || '').trim();
+    if (participantId) {
+      var mine = records.filter(function (r) { return r.participantId === participantId; })[0];
+      if (mine) { mine.studentName = name; mine.studentId = p.studentId || mine.studentId; mine.email = p.email || mine.email; updateRow_(SHEETS.ATT_RECORDS, mine._row, mine); return { ok: true, alreadyRecorded: true, scannedAt: mine.scannedAt }; }
+    }
+    var norm = function (s) { return String(s || '').trim().toLowerCase(); };
+    var dup = records.filter(function (r) {
+      return norm(r.studentName) === norm(name) && (!p.studentId || !r.studentId || norm(r.studentId) === norm(p.studentId));
+    })[0];
+    if (dup) return { ok: true, alreadyRecorded: true, scannedAt: dup.scannedAt };
+    var now = Date.now();
+    var rec = {
+      sessionId: row.sessionId, recordId: Utilities.getUuid(), participantId: participantId || Utilities.getUuid(),
+      studentName: name, studentId: String(p.studentId || '').trim(), email: String(p.email || '').trim(),
+      status: 'present', scannedAt: now, createdAt: now
+    };
+    appendRow_(SHEETS.ATT_RECORDS, rec);
+    return { ok: true, alreadyRecorded: false, scannedAt: now, participantId: rec.participantId };
+  } finally { lock.releaseLock(); }
+}
+
+
+/* TEST STUB (not from Code.gs): the Drive copy of an attendance report — counts calls instead of creating a Google Sheet. */
+var ATT_DRIVE_SYNCS = 0;
+function trySyncAttendanceToDrive_(row, records) { ATT_DRIVE_SYNCS++; return { status: 'synced', url: 'https://docs.google.com/spreadsheets/d/TESTFILE' + row.sessionId.slice(0, 8) + '/edit' }; }

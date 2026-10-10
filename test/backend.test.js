@@ -1439,6 +1439,7 @@ test('platformCheck: reports a missing Portal line, missing/invalid content keys
   const a = S.b.eval('platformCheck()');
   assert.ok(a.ok, a.text);
   assert.match(a.text, /No problems found/);
+  assert.match(a.text, /Teaching Sessions: the attendance functions of Code\.gs are present/);
   assert.ok(!/AAECAwQFBgcICQoL/.test(a.text), 'no key in the report');
   // a module with student sign-in but no key, and a broken key
   S.b.eval("STUDENT_AUTH_MODULES.cardio = true; CONTENT_KEYS.vulva = 'short'; CONTENT_KEYS.vagina = '__VAGINA_CONTENT_KEY__';");
@@ -1484,4 +1485,175 @@ test('platformCheck: a module link that opens another module\'s page, or two mod
   assert.ok(S.dir('dirSave', { kind: 'module', record: { moduleId: 'intropath', title: 'Introduction to Pathology', url: 'https://third-year-med.github.io/intro-typo/', storagePrefix: 'ip_' } }).ok);
   const c = S.b.eval('platformCheck()');
   assert.ok(c.errors.some(function (e) { return /does not open \(HTTP 404\)/.test(e); }), c.text);
+});
+
+/* ---------------- Teaching Sessions (2.7, step 1) ---------------- */
+function tsSetup() {
+  const S = teachersSetup(), D = S.dl;
+  // Al-Razi Group A: ahmed (imported) + b1, b2 — every member has an account in both modules of the group
+  assert.ok(S.dir('rosterAdd', { groupId: S.ra.groupId, students: [{ studentId: 'b1', name: 'Basma One', email: 'basma@uni.ly', password: 'basma-pass-1' }, { studentId: 'b2', name: 'Bilal Two', password: 'bilal-pass-1' }], mustChange: false }).ok);
+  S.ci = D['cellinjury-razi-a-26']; S.ih = D['inflhealing-razi-a-26'];
+  S.ts = function (action, o) { return S.dir(action, o); };
+  S.tt = function (action, tok, o) { return S.t(action, tok, o); };
+  S.lect = function (o) { return Object.assign({ groupId: S.ra.groupId, deliveryId: S.ci.deliveryId, title: 'Lecture 1 — Cell injury', chapter: 'Chapter 1', startAt: Date.now() + 3600e3, durationMin: 90, lateAfterMin: 15 }, o || {}); };
+  return S;
+}
+function stuOf(st, id) { return st.students.filter(function (x) { return x.studentId === id; })[0]; }
+
+test('teaching sessions: Admin sees every group; a teacher only the modules assigned to them; Official Exams are not teaching', function () {
+  const S = tsSetup();
+  const a = S.ts('tsGroups'); assert.ok(a.ok, JSON.stringify(a));
+  assert.strictEqual(a.groups.length, 2); assert.strictEqual(a.settings.threshold, 75); assert.ok(a.settings.timeZone);
+  const t = S.tt('tsGroups', S.ahmed.tok); assert.ok(t.ok);
+  assert.deepStrictEqual(t.groups.map(function (g) { return g.groupId; }), [S.ra.groupId]);
+  assert.deepStrictEqual(t.groups[0].modules.map(function (m) { return m.storage; }).sort(), ['cellinjury-razi-a-26', 'inflhealing-razi-a-26']);
+  // Dr. Sara has no module of Al-Razi A: cannot list or schedule there
+  assert.strictEqual(S.tt('tsList', S.sara.tok, { groupId: S.ra.groupId }).code, 'forbidden');
+  assert.strictEqual(S.tt('tsSave', S.sara.tok, { session: S.lect() }).code, 'forbidden');
+  // nobody signed in / a student session: refused
+  assert.strictEqual(S.call({ module: 'portal', action: 'tsGroups' }).ok, false);
+  assert.strictEqual(S.call({ module: 'portal', action: 'tsGroups', ttoken: 'x'.repeat(40) }).code, 'auth');
+  // only the Admin changes the settings
+  assert.strictEqual(S.tt('tsSettings', S.ahmed.tok, { threshold: 50 }).code, 'forbidden');
+  const st = S.ts('tsSettings', { timeZone: 'Asia/Aden', threshold: 80 }); assert.ok(st.ok, JSON.stringify(st));
+  assert.deepStrictEqual(st.settings, { timeZone: 'Asia/Aden', threshold: 80 });
+  assert.strictEqual(S.ts('tsSettings', { threshold: 0 }).ok, false);
+});
+
+test('teaching sessions: schedule, edit, cancel/restore, delete; input is checked', function () {
+  const S = tsSetup();
+  assert.match(S.ts('tsSave', { session: S.lect({ title: '' }) }).error, /title/);
+  assert.match(S.ts('tsSave', { session: S.lect({ deliveryId: S.dl['cellinjury-misrata-a-26'].deliveryId }) }).error, /module/);
+  assert.match(S.ts('tsSave', { session: S.lect({ startAt: '' }) }).error, /date/);
+  assert.match(S.ts('tsSave', { session: S.lect({ materialsUrl: 'javascript:alert(1)' }) }).error, /https/);
+  assert.match(S.ts('tsSave', { session: S.lect({ lateAfterMin: 500 }) }).error, /Late after/);
+  const s = S.tt('tsSave', S.ahmed.tok, { session: S.lect({ materialsUrl: 'https://example.org/ch1.pdf', rotate: true }) }); assert.ok(s.ok, JSON.stringify(s));
+  assert.strictEqual(s.session.status, 'scheduled'); assert.strictEqual(s.session.teacher, 'Dr. Ahmed'); assert.strictEqual(s.session.academicYear, '2026-27');
+  assert.strictEqual(s.session.rotate, true); assert.strictEqual(s.session.storage, 'cellinjury-razi-a-26');
+  const e = S.ts('tsSave', { session: Object.assign(S.lect({ title: 'Lecture 1 — Cell injury (room 3)', deliveryId: S.ih.deliveryId }), { tsId: s.session.tsId }) }); assert.ok(e.ok, JSON.stringify(e));
+  assert.strictEqual(e.session.moduleId, 'inflhealing'); assert.strictEqual(e.session.title, 'Lecture 1 — Cell injury (room 3)');
+  assert.ok(S.ts('tsCancel', { tsId: s.session.tsId }).ok);
+  let l = S.ts('tsList', { groupId: S.ra.groupId }); assert.strictEqual(l.sessions[0].status, 'cancelled');
+  assert.match(S.ts('tsStart', { tsId: s.session.tsId }).error, /cancelled/);
+  assert.ok(S.ts('tsCancel', { tsId: s.session.tsId, undo: true }).ok);
+  assert.ok(S.ts('tsDelete', { tsId: s.session.tsId }).ok);
+  l = S.ts('tsList', { groupId: S.ra.groupId }); assert.strictEqual(l.sessions.length, 0);
+  // nothing was written to attendance by scheduling
+  assert.strictEqual(S.b.ctx.rpRows_('AttendanceSessions').length, 0);
+});
+
+test('teaching sessions: start opens the module\'s own attendance; students check in; present / late / absent / excused; close', function () {
+  const S = tsSetup(), X = S.b.ctx, st = 'cellinjury-razi-a-26';
+  // the lecture started 30 min ago, late after 15 min
+  const s = S.ts('tsSave', { session: S.lect({ startAt: Date.now() - 30 * 60e3 }) }).session;
+  const live = S.tt('tsStart', S.ahmed.tok, { tsId: s.tsId }); assert.ok(live.ok, JSON.stringify(live));
+  assert.strictEqual(live.session.status, 'live'); assert.match(live.code, /^[A-Z0-9]{6}$/);
+  // the attendance session is a normal Code.gs session of the delivery's storage (module page + reports see it)
+  const att = X.rpRows_('AttendanceSessions'); assert.strictEqual(att.length, 1);
+  assert.strictEqual(att[0].module, st); assert.strictEqual(att[0].sessionTitle, 'Lecture 1 — Cell injury'); assert.strictEqual(att[0].status, 'active');
+  assert.strictEqual(att[0].course, 'Cell Injury & Cell Death'); assert.strictEqual(att[0].academicYear, '2026-27');
+  // attendance was opened at the start (lateness counts from the later of the scheduled start and the opening)
+  const tr = X.dirAll_('TeachingSessions')[0];
+  X.updateRow_('TeachingSessions', tr._row, Object.assign(X.dirPublic_(tr), { startedAt: Date.now() - 30 * 60e3 }));
+  // only one live lecture per group
+  const s2 = S.ts('tsSave', { session: S.lect({ deliveryId: S.ih.deliveryId, title: 'Lecture 2' }) }).session;
+  assert.strictEqual(S.ts('tsStart', { tsId: s2.tsId }).code, 'busy');
+  // ahmed checks in on the module page with the code (signed in) → late (more than 15 min after the start)
+  const ses = login(S, st, 'ahmed', PW); assert.ok(ses.ok);
+  const ci = S.call({ module: st, action: 'submitAttendanceByCode', stoken: ses.token, code: live.code.toLowerCase() }); assert.ok(ci.ok, JSON.stringify(ci));
+  // b1 checks in "on time" (record time moved to the start)
+  const ses2 = login(S, st, 'b1', 'basma-pass-1'); assert.ok(S.call({ module: st, action: 'submitAttendanceByCode', stoken: ses2.token, code: live.code }).ok);
+  const rec = X.rpRows_('AttendanceRecords').filter(function (r) { return r.studentId === 'b1'; })[0];
+  X.updateRow_('AttendanceRecords', rec._row, Object.assign({}, rec, { scannedAt: Date.now() - 29 * 60e3 }));
+  let v = S.ts('tsState', { tsId: s.tsId }); assert.ok(v.ok);
+  assert.strictEqual(stuOf(v, 'ahmed').status, 'late'); assert.strictEqual(stuOf(v, 'b1').status, 'present'); assert.strictEqual(stuOf(v, 'b2').status, 'waiting');
+  assert.deepStrictEqual(v.session.counts, { present: 1, late: 1, excused: 0, absent: 0, waiting: 1 });
+  // the teacher: ahmed was late because of the teacher → present; b2 excused
+  v = S.ts('tsMark', { tsId: s.tsId, studentId: 'ahmed', mark: 'present' }); assert.strictEqual(stuOf(v, 'ahmed').status, 'present');
+  v = S.ts('tsMark', { tsId: s.tsId, studentId: 'b2', mark: 'excused' }); assert.strictEqual(stuOf(v, 'b2').status, 'excused');
+  v = S.ts('tsMark', { tsId: s.tsId, studentId: 'b2', mark: 'clear' }); assert.strictEqual(stuOf(v, 'b2').status, 'waiting');
+  assert.strictEqual(S.ts('tsMark', { tsId: s.tsId, studentId: 'nobody', mark: 'present' }).ok, false);
+  // close → b2 absent; the Code.gs session is closed (Drive copy made by Code.gs)
+  const c = S.tt('tsClose', S.ahmed.tok, { tsId: s.tsId }); assert.ok(c.ok, JSON.stringify(c));
+  assert.strictEqual(c.session.status, 'ended'); assert.strictEqual(stuOf(c, 'b2').status, 'absent');
+  assert.strictEqual(X.rpRows_('AttendanceSessions')[0].status, 'closed');
+  assert.strictEqual(S.call({ module: st, action: 'submitAttendanceByCode', stoken: login(S, st, 'b2', 'bilal-pass-1').token, code: live.code }).code, 'badcode');
+  // after the lecture: b2 forgot the phone → marked present (a real check-in is added, so the module + reports agree)
+  v = S.ts('tsMark', { tsId: s.tsId, studentId: 'b2', mark: 'present' }); assert.strictEqual(stuOf(v, 'b2').status, 'present');
+  assert.strictEqual(X.rpRows_('AttendanceRecords').length, 3);
+  // removing a check-in (e.g. checked in from outside the room)
+  v = S.ts('tsMark', { tsId: s.tsId, studentId: 'b2', mark: 'remove', recordId: stuOf(v, 'b2').recordId }); assert.strictEqual(stuOf(v, 'b2').status, 'absent');
+  // Results & attendance (Step 10) sees the same attendance
+  const rep = S.dir('reportDelivery', { deliveryId: S.ci.deliveryId }); assert.strictEqual(rep.sessions.length, 1); assert.strictEqual(rep.sessions[0].present, 2);
+  // a started lecture cannot be deleted or cancelled
+  assert.strictEqual(S.ts('tsDelete', { tsId: s.tsId }).ok, false); assert.strictEqual(S.ts('tsCancel', { tsId: s.tsId }).ok, false);
+});
+
+test('teaching sessions: a rotating code changes every 45 s (the old code stops working); a fixed code does not', function () {
+  const S = tsSetup(), X = S.b.ctx, st = 'cellinjury-razi-a-26';
+  const s = S.ts('tsSave', { session: S.lect({ rotate: true, startAt: Date.now() }) }).session;
+  const a = S.ts('tsStart', { tsId: s.tsId }); assert.ok(a.ok); assert.ok(a.rotateInMs > 0 && a.rotateInMs <= 45000);
+  assert.strictEqual(S.ts('tsState', { tsId: s.tsId }).code, a.code);   // not yet due
+  const row = X.dirAll_('TeachingSessions')[0];
+  X.updateRow_('TeachingSessions', row._row, Object.assign(X.dirPublic_(row), { codeAt: Date.now() - 46000 }));
+  const b = S.ts('tsState', { tsId: s.tsId }); assert.notStrictEqual(b.code, a.code);
+  const ses = login(S, st, 'ahmed', PW);
+  assert.strictEqual(S.call({ module: st, action: 'submitAttendanceByCode', stoken: ses.token, code: a.code }).code, 'badcode');
+  assert.ok(S.call({ module: st, action: 'submitAttendanceByCode', stoken: ses.token, code: b.code }).ok);
+  // fixed code
+  S.ts('tsClose', { tsId: s.tsId });
+  const f = S.ts('tsStart', { session: S.lect({ title: 'Lecture 2', rotate: false }) }); assert.ok(f.ok, JSON.stringify(f));
+  assert.strictEqual(f.rotateInMs, 0);
+  const r2 = X.dirAll_('TeachingSessions').filter(function (x) { return x.tsId === f.session.tsId; })[0];
+  X.updateRow_('TeachingSessions', r2._row, Object.assign(X.dirPublic_(r2), { codeAt: Date.now() - 600000 }));
+  assert.strictEqual(S.ts('tsState', { tsId: f.session.tsId }).code, f.code);
+});
+
+test('teaching sessions: student attendance % over ended lectures — excused and cancelled do not count; warning below the threshold', function () {
+  const S = tsSetup();
+  const run = function (title, marks) {
+    const s = S.ts('tsStart', { session: S.lect({ title: title, startAt: Date.now() }) }); assert.ok(s.ok, JSON.stringify(s));
+    Object.keys(marks).forEach(function (id) { assert.ok(S.ts('tsMark', { tsId: s.session.tsId, studentId: id, mark: marks[id] }).ok); });
+    assert.ok(S.ts('tsClose', { tsId: s.session.tsId }).ok);
+  };
+  run('L1', { ahmed: 'present', b1: 'present' });
+  run('L2', { ahmed: 'late', b1: 'excused' });
+  run('L3', { ahmed: 'present' });
+  run('L4', {});
+  const c = S.ts('tsSave', { session: S.lect({ title: 'L5 (cancelled)' }) }).session; S.ts('tsCancel', { tsId: c.tsId });
+  S.ts('tsSave', { session: S.lect({ title: 'L6 (upcoming)' }) });
+  const l = S.ts('tsList', { groupId: S.ra.groupId }); assert.ok(l.ok);
+  assert.strictEqual(l.sessions.length, 6);
+  const by = {}; l.students.forEach(function (x) { by[x.studentId] = x; });
+  assert.deepStrictEqual([by.ahmed.attended, by.ahmed.late, by.ahmed.counted, by.ahmed.pct, by.ahmed.warn], [3, 1, 4, 75, false]);
+  assert.deepStrictEqual([by.b1.attended, by.b1.excused, by.b1.counted, by.b1.pct, by.b1.warn], [1, 1, 3, 33, true]);
+  assert.deepStrictEqual([by.b2.attended, by.b2.absent, by.b2.pct, by.b2.warn], [0, 4, 0, true]);
+  // a teacher with only one of the group's modules sees only that module's lectures
+  assert.ok(S.dir('teacherAssign', { userId: S.sara.teacher.userId, deliveryIds: [S.dl['cellinjury-misrata-a-26'].deliveryId, S.ih.deliveryId] }).ok);
+  assert.strictEqual(S.tt('tsList', S.sara.tok, { groupId: S.ra.groupId }).sessions.length, 0);
+});
+
+test('teaching sessions: a lecture closed inside the module page counts as ended', function () {
+  const S = tsSetup(), X = S.b.ctx;
+  const s = S.ts('tsStart', { session: S.lect({ startAt: Date.now() }) }); assert.ok(s.ok);
+  const att = X.rpRows_('AttendanceSessions')[0];
+  const tok = S.call({ module: 'cellinjury-razi-a-26', action: 'login', password: 'teacher-cellinjury-razi-a-26' }).token;
+  assert.ok(S.call({ module: 'cellinjury-razi-a-26', action: 'closeAttendanceSession', token: tok, sessionId: att.sessionId }).ok);
+  const l = S.ts('tsList', { groupId: S.ra.groupId }); assert.strictEqual(l.sessions[0].status, 'ended');
+  // a new lecture can start
+  assert.ok(S.ts('tsStart', { session: S.lect({ title: 'Lecture 2', startAt: Date.now() }) }).ok);
+});
+
+test('teaching sessions: attendance opened late — students checking in at once are not late', function () {
+  const S = tsSetup(), st = 'cellinjury-razi-a-26';
+  const s = S.ts('tsSave', { session: S.lect({ startAt: Date.now() - 40 * 60e3 }) }).session;
+  const live = S.ts('tsStart', { tsId: s.tsId }); assert.ok(live.ok);
+  assert.ok(S.call({ module: st, action: 'submitAttendanceByCode', stoken: login(S, st, 'ahmed', PW).token, code: live.code }).ok);
+  assert.strictEqual(stuOf(S.ts('tsState', { tsId: s.tsId }), 'ahmed').status, 'present');
+  assert.strictEqual(S.ts('tsState', { tsId: s.tsId }).session.startAt, s.startAt, 'scheduled time kept');
+  // a lecture scheduled for next week but given today takes today's time
+  S.ts('tsClose', { tsId: s.tsId });
+  const n = S.ts('tsSave', { session: S.lect({ title: 'Moved lecture', startAt: Date.now() + 7 * 864e5 }) }).session;
+  const t0 = Date.now(), m = S.ts('tsStart', { tsId: n.tsId }); assert.ok(m.ok);
+  assert.ok(m.session.startAt >= t0 && m.session.startAt <= Date.now());
 });

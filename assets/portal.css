@@ -207,3 +207,23 @@ code.pw{font-size:14px;font-weight:700;letter-spacing:.03em}
 .ex-gh{margin-bottom:6px}.ex-gh a{margin-left:8px}
 .ex-row{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:6px 0;border-top:1px solid var(--line,#eef1f4)}
 .ex-row:first-child{border-top:0}.ex-row.off{opacity:.6}
+/* Teaching Sessions (2.7) */
+.ts-top{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;margin-bottom:6px}
+.ts-g select{margin-left:6px;padding:6px 8px;border:1px solid var(--line);border-radius:9px;max-width:100%}
+.btn.linkish{padding:2px 8px;font-size:13px}
+.btn.small{padding:4px 9px;font-size:13px;border-radius:8px}
+.ts-block{margin-top:18px}.ts-block h3{margin:0 0 6px;font-size:16px;color:var(--navy)}
+.ts-live{border-left:4px solid var(--bad)}
+.ts-c{white-space:nowrap;margin-right:4px}
+.ts-screen{margin-top:12px}
+.ts-sh{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap}
+.ts-codebox{text-align:center;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin:12px 0}
+.ts-code{font:700 clamp(40px,10vw,84px)/1.1 ui-monospace,Consolas,monospace;letter-spacing:.14em;color:var(--navy);margin:6px 0}
+.ts-codebox:fullscreen{display:flex;flex-direction:column;justify-content:center;background:#fff}
+.ts-codebox:fullscreen .ts-code{font-size:22vw}
+.ts-codebox:fullscreen .roster-tools{justify-content:center}
+.ts-rot{color:var(--teal-2)}
+.ts-reg td{vertical-align:middle}.ts-btns{display:flex;flex-wrap:wrap;gap:4px}
+.ts-reg tr.ts-absent td,.ts-warn td{background:var(--bad-soft)}
+.ts-reg tr.ts-late td{background:var(--warn-soft)}
+.ts-reg tr.ts-excused td{background:var(--ready-soft)}

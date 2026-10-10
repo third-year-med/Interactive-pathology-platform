@@ -265,6 +265,34 @@ shown; never the code) → sign in with the access code, student ID and password
 Drive permission: the first picture upload needs Drive access. If you see "Access denied: DriveApp", open the Apps
 Script editor, choose **authorizeDriveAccess** in the function list and press ▶ once.
 
+## Teaching Sessions (Portal.gs 2.7)
+
+**Modules contain learning content; Teaching Sessions contain teaching events.** Teacher Dashboard → **🎓 Teaching
+Sessions** (the Admin: every group; a personal teacher: only the modules assigned to them). Choose the **group** at the top.
+
+- **📅 Schedule a lecture** — title, module, chapter, date and time, duration, *Late after* (minutes; 0 = never late),
+  teacher, a **lecture-materials link** (optional, `https://…`), and **🔄 Rotating attendance code** (on by default).
+- **▶ Open attendance** (on an upcoming lecture) or **▶ Start a lecture now** — the live screen shows the code in large
+  letters (**⛶ Full screen** for the projector). With a rotating code it changes every 45 seconds, so a code sent to
+  an absent friend stops working. Students type the code in the module's **Attendance** (for now; the group-page
+  check-in comes in step 2). The list updates every 5 seconds. Only one lecture per group can be live at a time.
+- **■ Close attendance** — students who did not check in become **Absent**. You can still correct anyone, also later
+  (📋 Register in the history): **Present** (adds a real check-in), **Mark late / Mark present**, **Excused**,
+  **Remove check-in** (e.g. someone who checked in from outside the room).
+- **Statuses:** ✅ Present · 🕒 Late (checked in more than *Late after* minutes after the start — counted from the
+  scheduled time, or from when you opened attendance if that was later) · 📝 Excused (does not count against the
+  student) · ❌ Absent. A lecture opened long before or after its scheduled time takes the real time.
+- **Cancel lecture** — it stays in the history as *Cancelled* and never counts; **Restore** undoes it. Only scheduled or
+  cancelled lectures can be deleted; a lecture whose attendance was opened is always kept.
+- **🗂️ Session history** (CSV) and **📋 Attendance by student**: attended (late counts as attended), late, excused,
+  absent and the percentage over the ended lectures; students below the warning threshold are marked ⚠ (CSV too).
+- **⚙ Change** (Admin): the platform **time zone** (e.g. `Asia/Aden`) — every date and time is entered and shown in it,
+  on every device — and the **warning threshold** (75 % by default).
+
+The attendance of a lecture is the module's own attendance (the same as the module's Attendance tab, its Google
+Drive copy, and **Results & attendance**), so nothing changes for the modules. The schedule and the teacher's marks
+are kept in the new sheet **TeachingSessions** (created automatically the first time you save a lecture).
+
 ## Before every Deploy: run the self-check
 
 Apps Script → at the top, choose the function **platformCheck** → **▶ Run** → open the **Execution log**.

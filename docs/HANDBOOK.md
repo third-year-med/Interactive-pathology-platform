@@ -91,6 +91,20 @@ The tests still use the name `vulva` for a simulated second backend; that is onl
 and personal teachers (📊 button: own deliveries); per-student table, attendance register, CSV. Students are matched to
 the roster by Student ID, then email, then unique name; unmatched records are listed under "Also found".
 
+**Teaching Sessions (2.7, step 1 of 4 — approved plan 2026-10-10):** "Modules contain learning content; Teaching
+Sessions contain teaching events." Sheet `TeachingSessions` (one row per lecture: group, delivery, schedule, lateAfterMin,
+rotate, materialsUrl, status scheduled/live/ended/cancelled, attSessionId, marksJson). Opening attendance calls Code.gs's
+own `actionStartAttendance_` on the **delivery's storage**, so attendance stays per storage (module page, Drive copy,
+Step 10 reports unchanged). Student statuses are COMPUTED (present/late from scannedAt vs max(startAt, startedAt) +
+lateAfterMin; absent = active roster member without a check-in after close; excused/present/late overrides in
+marksJson; a manual Present writes a real AttendanceRecords row via `recordAttendance_`). Rotating code = Code.gs
+`actionRegenerateAttendanceCode_` every 45 s, driven by the teacher screen's `tsState` polling. Platform settings:
+`ts:tz` (time zone, default the script's) and `ts:threshold` (75). The user is still in a trial period (no students
+yet, as of 2026-10-10). Plan: 1 teacher panel (done) → 2 group-page card for students (Upcoming, check-in with the
+code from the group page — with a short grace for the previous rotating code — Live now) → 3 one Live Classroom per
+group → 4 hide Live/Attendance buttons in module pages (reversible) + reports use the Teaching Sessions statuses
+(excused). Then: repeating schedule, exam lock pauses the group chat.
+
 **Speed (2.5):** `portalHook_` answers `getAllContent` from memory when nothing changed for that storage (markers
 `cvw:<storage>` in CacheService, set by every request that may write Content; unknown requests count as writes; a
 60-second grace covers writes in progress; `content:changed` forces full refreshes). Every request is logged as
@@ -217,6 +231,8 @@ The user is a pathologist, not a developer. They follow steps literally and send
 
 ## 10. Current state (2026-10-07)
 
+- **Portal.gs 2.7 (2026-10-10): Teaching Sessions step 1** (teacher panel, see §3). Code.core.gs test fixture now
+  includes the verbatim attendance engine of Code.gs (Drive copy stubbed). Tests: 68 backend, 44 e2e.
 - Portal.gs **2.6** (2275 lines, with platformCheck) deployed by the user on 2026-10-10; in the repo (Official Exams: places/hand-off, public exam list, combined exams, bank transfers,
   picture questions, combined-exam teaching lock, per-module results); the user had **2.5** deployed before this.
 - Exam app `third-year-med/pathology-exams` (single `index.html`): `?m=<storage>` manager/student, `?g=<code>` front
