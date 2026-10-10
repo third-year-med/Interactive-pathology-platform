@@ -207,7 +207,7 @@ The user is a pathologist, not a developer. They follow steps literally and send
 
 ## 10. Current state (2026-10-07)
 
-- Portal.gs **2.6** in the repo (Official Exams: places/hand-off, public exam list, combined exams, bank transfers,
+- Portal.gs **2.6** (2275 lines, with platformCheck) deployed by the user on 2026-10-10; in the repo (Official Exams: places/hand-off, public exam list, combined exams, bank transfers,
   picture questions, combined-exam teaching lock, per-module results); the user had **2.5** deployed before this.
 - Exam app `third-year-med/pathology-exams` (single `index.html`): `?m=<storage>` manager/student, `?g=<code>` front
   page. Examiner sessions come from the Teacher Dashboard (`examOpen`) in `sessionStorage['xm_<storage>_tt']`
@@ -217,7 +217,10 @@ The user is a pathologist, not a developer. They follow steps literally and send
 - Teaching ↔ exam transfers go through Portal (`examCopySources`, `examCourseExtras`, `examCopyFrom`, `examTeachWrite`);
   the caller is a personal teacher when its module token has a PortalGrants row, otherwise the Admin.
 - Modules: Cell Injury (build "2026-09-24 11:46 UTC", master v1.1, versioned content ON) and Inflammation (build
-  "initial", master v1.0, ON). Groups include `cellinjury-B`, `cellinjury-C` (not registered), `cellinjury-razi-a-26`.
+  "initial", master v1.0, ON).
+  Introduction to Pathology (`intropath`, prefix `ip_`, repo third-year-med/introduction-to-pathology, Chapter 1 —
+  first card) added 2026-10-10: front-page card, directory module + deliveries, Code.gs entries, platform block; tested
+  by the user. Versioned content not yet migrated. Groups include `cellinjury-B`, `cellinjury-C` (not registered), `cellinjury-razi-a-26`.
 - The 10-step multi-university plan is complete; the packaged-release procedure, the Practical fixes and the 7 exam
   steps are done.
 - Tests: 60 backend, 43 e2e (with keys). The e2e exam test drives the real exam app; the harness fakes DriveApp
