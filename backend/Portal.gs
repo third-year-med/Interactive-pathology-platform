@@ -2240,7 +2240,9 @@ function platformCheck() {
     else okLines.push('Portal line in route_: present, in the right place.');
   }
   // 2. speed lines in authed_ (optional, but they were added once)
-  if (/tcache/.test(src(typeof authed_ === 'function' ? authed_ : null))) okLines.push('Speed lines in authed_: present.');
+  var au = src(typeof authed_ === 'function' ? authed_ : null), iPut = au.search(/tcache\.put\s*\(/), iFound = au.search(/found\s*=\s*rows\s*\[/);
+  if (iPut >= 0 && (iFound < 0 || iPut < iFound)) errors.push('In Code.gs → authed_, the speed line "tcache.put(…)" is in the WRONG place (before the session is looked up) — every teacher action fails with "Cannot read properties of undefined (reading \'expiresAt\')". Move it directly above the LAST line "return fn(token);" of authed_.');
+  else if (/tcache/.test(au)) okLines.push('Speed lines in authed_: present, in the right place.');
   else warnings.push('The speed lines in authed_ are missing (optional — teacher actions are slower without them). See SETUP.md → Speed → "Faster teacher actions".');
   // 3. every module with student sign-in has a valid content key (and the other way round)
   var sam = typeof STUDENT_AUTH_MODULES === 'object' && STUDENT_AUTH_MODULES ? STUDENT_AUTH_MODULES : {}, ck = typeof CONTENT_KEYS === 'object' && CONTENT_KEYS ? CONTENT_KEYS : {};

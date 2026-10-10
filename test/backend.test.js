@@ -1451,4 +1451,8 @@ test('platformCheck: reports a missing Portal line, missing/invalid content keys
   S.b.eval("route_ = function (p) { var module = p.module, action = p.action; if (!STUDENT_PUBLIC_ACTIONS[action] && studentAuthOn_(module)) { var gate = gateRequest_(module, p); if (gate) return gate; } return { ok: false, code: 'badaction' }; };");
   const c = S.b.eval('platformCheck()');
   assert.ok(c.errors.some(function (e) { return /Portal line is MISSING/.test(e); }), c.text);
+  // the speed line pasted too early in authed_ (2026-10-10)
+  S.b.eval("authed_ = function (module, p, fn) { var token = p.token; var tcache = CacheService.getScriptCache(), tkey = 'tok:' + module + ':' + token; tcache.put(tkey, '1', Math.floor((Number(found.expiresAt) - Date.now()) / 1000)); if (tcache.get(tkey)) return fn(token); var rows = readAll_(SHEETS.SESSIONS); var found = null; for (var i = 0; i < rows.length; i++) if (rows[i].token === token) { found = rows[i]; break; } return fn(token); };");
+  const d = S.b.eval('platformCheck()');
+  assert.ok(d.errors.some(function (e) { return /tcache\.put.*WRONG place/.test(e); }), d.text);
 });
