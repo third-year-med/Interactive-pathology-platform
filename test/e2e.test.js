@@ -673,9 +673,9 @@ const HOME = 'https://third-year-med.github.io/Interactive-pathology-platform/';
 const SERVE = {};
 const PNG1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 const EXAM_HTML = process.env.EXAM_HTML || '/home/user/pathology-exams/index.html';   // the real Official Exams app   // packaged-release test: '<repo>/preview/' or '<repo>/' → another file
-async function realPage(M, calls) {
+async function realPage(M, calls, ctxOpts) {
   if (M[3]) main.ctx.CONTENT_KEYS[M[0]] = M[3];
-  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const ctx = await browser.newContext(Object.assign({ viewport: { width: 1280, height: 900 } }, ctxOpts || {}));
   const p = await ctx.newPage();
   p.on('pageerror', function (e) { if (!/content key|decrypt/i.test(e.message)) errors.push(M[1] + ': ' + e.message); });
   p.on('dialog', function (d) { d.accept(); });
@@ -1833,6 +1833,179 @@ test('Teaching Sessions step 4: the teacher inside the real module — the Teach
   await p.evaluate(function () { location.hash = '#/teacher/attendance'; });
   await p.waitForSelector('#pf-moved');
   assert.match(await p.textContent('#pf-moved'), /Teacher Dashboard/);
+  await p.context().close();
+});
+
+/* Presentation Mode on the real module page: image enlarge control + lightbox (also inside native fullscreen),
+   swipe navigation for touch and mouse, and that none of it moves the slide by accident. */
+async function presentPage(M, ctxOpts) {
+  main.ctx.CONTENT_KEYS[M[0]] = M[3];
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: [M[0]] }).modules[M[0]];
+  const p = await realPage(M, [], ctxOpts);
+  await p.addInitScript(function (v) { localStorage.setItem('ci_backend_token_v1', v); }, JSON.stringify({ token: tt.token, expiresAt: tt.expiresAt }));
+  await p.goto('https://third-year-med.github.io/' + M[1] + '/#/present/slide/1');
+  await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+  await p.waitForSelector('#pres-stage .slide', { timeout: 15000 });
+  return p;
+}
+async function slideNo(p) { return parseInt((await p.textContent('.pres-toolbar .counter')).split('/')[0], 10); }
+async function gotoSlideWith(p, sel) {
+  for (let i = 0; i < 150 && !(await p.$(sel)); i++) { await p.click('.pres-toolbar button[aria-label="Next slide"]'); }
+  assert.ok(!!(await p.$(sel)), 'a slide with ' + sel);
+  await p.waitForTimeout(350);   // the slide-in animation
+}
+async function stageBox(p) { return p.$eval('.pres-stage-outer', function (e) { const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; }); }
+
+test('Presentation Mode (desktop): enlarge icon opens the viewer without moving the slide; viewer stays visible in fullscreen and closing keeps fullscreen; mouse swipe; keys and buttons', { skip: SKIP || ((!fs.existsSync(REAL[0][2]) || !REAL[0][3]) && 'module page or key not available') }, async function () {
+  const p = await presentPage(REAL[0]);
+  await gotoSlideWith(p, '#pres-stage .slide-img:not(.img-broken) .pz-zoom');
+  const n0 = await slideNo(p);
+  assert.ok(await p.isVisible('#pres-stage .slide-img .pz-zoom'), 'a visible enlarge button');
+  assert.match(await p.getAttribute('#pres-stage .slide-img .pz-zoom', 'aria-label'), /^Enlarge image/);
+  await p.click('#pres-stage .slide-img .pz-zoom');
+  await p.waitForSelector('.lightbox .lb-content img, .lightbox .lb-content .svg-host');
+  assert.strictEqual(await p.evaluate(function () { return document.activeElement && document.activeElement.getAttribute('aria-label'); }), 'Close image viewer', 'focus moves to Close');
+  await p.keyboard.press('ArrowRight'); await p.keyboard.press('PageDown'); await p.keyboard.press('End');
+  assert.strictEqual(await slideNo(p), n0, 'keys inside the viewer do not change the slide');
+  await p.mouse.move(640, 450); await p.mouse.wheel(0, -300);   // zoom in the viewer
+  assert.ok(!!(await p.$('.lightbox')), 'still open');
+  await p.click('.lightbox .lb-close');
+  assert.ok(!(await p.$('.lightbox')));
+  assert.strictEqual(await slideNo(p), n0, 'closing returns to the same slide');
+  assert.match(await p.evaluate(function () { return document.activeElement && document.activeElement.className; }), /pz-zoom/, 'focus back on the enlarge button');
+  // Space on the focused Close button closes the viewer — it does not advance the slide
+  await p.click('#pres-stage .slide-img .pz-zoom'); await p.waitForSelector('.lightbox');
+  await p.keyboard.press(' ');
+  assert.ok(!(await p.$('.lightbox'))); assert.strictEqual(await slideNo(p), n0);
+  // Escape closes the viewer only (and does not leave the presentation)
+  await p.click('#pres-stage .slide-img .pz-zoom'); await p.waitForSelector('.lightbox');
+  await p.keyboard.press('Escape');
+  assert.ok(!(await p.$('.lightbox'))); assert.strictEqual(await slideNo(p), n0);
+  assert.match(p.url(), /#\/present/);
+  // native fullscreen: the viewer is painted inside the fullscreen element; closing it keeps the presentation fullscreen
+  await p.keyboard.press('f');
+  await p.waitForFunction(function () { return document.fullscreenElement && document.fullscreenElement.id === 'pres-wrap'; });
+  await p.waitForTimeout(300);
+  await p.click('#pres-stage .slide-img .pz-zoom'); await p.waitForSelector('.lightbox');
+  const inFs = await p.evaluate(function () {
+    const lb = document.querySelector('.lightbox'), r = lb.getBoundingClientRect(), top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+    return { inside: document.fullscreenElement.contains(lb), onTop: lb.contains(top), fsButton: !!lb.querySelector('[aria-label="Full screen"]') };
+  });
+  assert.deepStrictEqual(inFs, { inside: true, onTop: true, fsButton: false });
+  await p.click('.lightbox .lb-close');
+  await p.waitForTimeout(300);
+  assert.strictEqual(await p.evaluate(function () { return document.fullscreenElement && document.fullscreenElement.id; }), 'pres-wrap', 'still fullscreen');
+  assert.ok(!!(await p.$('#pres-wrap.pres-fullscreen')));
+  assert.strictEqual(await slideNo(p), n0);
+  await p.keyboard.press('f');
+  await p.waitForFunction(function () { return !document.fullscreenElement; });
+  // mouse swipe: left = next, right = previous; short or vertical drags and drags that start on a button do nothing
+  const b = await stageBox(p), cy = b.y + b.h * 0.25, cx = b.x + b.w / 2;
+  const drag = async function (x0, y0, x1, y1) { await p.mouse.move(x0, y0); await p.mouse.down(); for (let i = 1; i <= 8; i++) await p.mouse.move(x0 + (x1 - x0) * i / 8, y0 + (y1 - y0) * i / 8); await p.mouse.up(); await p.waitForTimeout(250); };
+  await drag(cx + 150, cy, cx - 150, cy + 10);
+  assert.strictEqual(await slideNo(p), n0 + 1, 'mouse swipe left → next');
+  await drag(cx - 150, cy, cx + 150, cy);
+  assert.strictEqual(await slideNo(p), n0, 'mouse swipe right → previous');
+  await drag(cx, cy, cx - 40, cy);
+  assert.strictEqual(await slideNo(p), n0, 'too short');
+  await drag(cx, cy - 60, cx + 30, cy + 140);
+  assert.strictEqual(await slideNo(p), n0, 'vertical');
+  assert.ok(!(await p.$('.lightbox')), 'no drag opened the image viewer');
+  const zb = await p.$eval('#pres-stage .slide-img .pz-zoom', function (e) { const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+  await drag(zb.x, zb.y, zb.x - 200, zb.y);
+  assert.strictEqual(await slideNo(p), n0, 'a drag that starts on a control is not a swipe');
+  // keyboard and toolbar buttons still work
+  await p.keyboard.press('ArrowRight'); assert.strictEqual(await slideNo(p), n0 + 1);
+  await p.keyboard.press('ArrowLeft'); assert.strictEqual(await slideNo(p), n0);
+  await p.click('.pres-toolbar button[aria-label="Next slide"]'); assert.strictEqual(await slideNo(p), n0 + 1);
+  await p.click('.pres-toolbar button[aria-label="Previous slide"]'); assert.strictEqual(await slideNo(p), n0);
+  // gallery (Images) slides: the existing enlarge button now shows the icon and still opens the viewer
+  await gotoSlideWith(p, '#pres-stage .gal-media .pz-zoom');
+  const g0 = await slideNo(p);
+  await p.click('#pres-stage .gal-media');
+  await p.waitForSelector('.lightbox'); await p.click('.lightbox .lb-close');
+  assert.strictEqual(await slideNo(p), g0);
+  // edit mode: a drag selects/edits, it never changes the slide
+  await p.click('.pres-toolbar button:has-text("Edit slides")');
+  await p.waitForSelector('.pres-edit:not(.hidden)');
+  await drag(cx + 150, cy, cx - 150, cy);
+  assert.strictEqual(await slideNo(p), g0, 'no swipe in slide-edit mode');
+  await p.click('.pres-toolbar button:has-text("Editing slides")');
+  if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'present-desktop.png') });
+  await p.context().close();
+});
+
+test('Presentation Mode (iPad, touch): tap the enlarge icon → viewer with pinch-zoom and drag, swipes inside it never change the slide, Close returns to the same slide; swipe left/right navigates; short, vertical, two-finger and edge gestures do not', { skip: SKIP || ((!fs.existsSync(REAL[0][2]) || !REAL[0][3]) && 'module page or key not available') }, async function () {
+  const p = await presentPage(REAL[0], { viewport: { width: 1180, height: 820 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2,
+    userAgent: 'Mozilla/5.0 (iPad; CPU OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1' });
+  const cdp = await p.context().newCDPSession(p);
+  const touch = function (type, pts) { return cdp.send('Input.dispatchTouchEvent', { type: type, touchPoints: pts.map(function (q, i) { return { x: q[0], y: q[1], id: i + 1 }; }) }); };
+  const swipe = async function (x0, y0, x1, y1) {
+    await touch('touchStart', [[x0, y0]]);
+    for (let i = 1; i <= 10; i++) { await touch('touchMove', [[x0 + (x1 - x0) * i / 10, y0 + (y1 - y0) * i / 10]]); await p.waitForTimeout(12); }
+    await touch('touchEnd', []); await p.waitForTimeout(300);
+  };
+  const pinch = async function (cx, cy, d0, d1) {
+    await touch('touchStart', [[cx - d0 / 2, cy], [cx + d0 / 2, cy]]);
+    for (let i = 1; i <= 10; i++) { const d = d0 + (d1 - d0) * i / 10; await touch('touchMove', [[cx - d / 2, cy], [cx + d / 2, cy]]); await p.waitForTimeout(12); }
+    await touch('touchEnd', []); await p.waitForTimeout(250);
+  };
+  await gotoSlideWith(p, '#pres-stage .slide-img:not(.img-broken) .pz-zoom');
+  const n0 = await slideNo(p);
+  const b = await stageBox(p), cy = b.y + b.h * 0.3, cx = b.x + b.w / 2;
+  await swipe(cx + 160, cy, cx - 160, cy + 12);
+  assert.strictEqual(await slideNo(p), n0 + 1, 'swipe left → next');
+  await swipe(cx - 160, cy, cx + 160, cy);
+  assert.strictEqual(await slideNo(p), n0, 'swipe right → previous');
+  await swipe(cx, cy, cx - 30, cy);
+  assert.strictEqual(await slideNo(p), n0, 'too short to count');
+  await swipe(cx, cy - 80, cx + 25, cy + 150);
+  assert.strictEqual(await slideNo(p), n0, 'vertical movement (scroll) is not a swipe');
+  await pinch(cx, cy, 120, 320);
+  assert.strictEqual(await slideNo(p), n0, 'two fingers (pinch) are not a swipe');
+  await swipe(8, cy, 300, cy);
+  assert.strictEqual(await slideNo(p), n0, 'a gesture from the screen edge is left to the browser');
+  assert.ok(!(await p.$('.lightbox')), 'no gesture opened the image viewer');
+  assert.strictEqual(await p.evaluate(function () { return window.visualViewport ? window.visualViewport.scale : 1; }), 1, 'the page itself was not zoomed');
+  // tap the visible enlarge icon
+  await p.tap('#pres-stage .slide-img .pz-zoom');
+  await p.waitForSelector('.lightbox .lb-content img, .lightbox .lb-content .svg-host');
+  await p.waitForTimeout(200);
+  const scaleOf = function () { return p.$eval('.lightbox .lb-content', function (e) { const m = /scale\(([\d.]+)\)/.exec(e.style.transform); return m ? +m[1] : 1; }); };
+  const s0 = await scaleOf();
+  const lb = await p.$eval('.lightbox .lb-stage', function (e) { const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+  await pinch(lb.x, lb.y, 100, 300);
+  const s1 = await scaleOf();
+  assert.ok(s1 > s0 * 1.8, 'pinch zooms the image (' + s0 + ' → ' + s1 + ')');
+  const t0 = await p.$eval('.lightbox .lb-content', function (e) { return e.style.transform; });
+  await swipe(lb.x + 150, lb.y, lb.x - 150, lb.y);
+  assert.notStrictEqual(await p.$eval('.lightbox .lb-content', function (e) { return e.style.transform; }), t0, 'a one-finger drag pans the image');
+  assert.strictEqual(await slideNo(p), n0, 'dragging inside the viewer never changes the slide');
+  assert.strictEqual(await p.evaluate(function () { return window.visualViewport ? window.visualViewport.scale : 1; }), 1, 'the page behind was not zoomed');
+  await p.tap('.lightbox .lb-close');
+  await p.waitForTimeout(450);
+  assert.ok(!(await p.$('.lightbox')), 'closed');
+  assert.strictEqual(await slideNo(p), n0, 'back on the same slide');
+  // tapping the image itself also enlarges it, and a tap is never taken for a swipe
+  await p.tap('#pres-stage .slide-img img');
+  await p.waitForSelector('.lightbox'); await p.tap('.lightbox .lb-close'); await p.waitForTimeout(450);
+  assert.strictEqual(await slideNo(p), n0);
+  // a question slide: tapping the show-of-hands chip counts, it does not navigate; a swipe starting on the options is ignored
+  await gotoSlideWith(p, '#pres-stage .q-opts .tally');
+  const q0 = await slideNo(p);
+  await p.tap('#pres-stage .q-opts li:first-child .tally');
+  assert.match(await p.textContent('#pres-stage .q-opts li:first-child .tally'), /✋ [1-9]/);
+  const o = await p.$eval('#pres-stage .q-opts li:first-child', function (e) { const r = e.getBoundingClientRect(); return { x: r.x + r.width * 0.4, y: r.y + r.height / 2 }; });
+  await swipe(o.x + 120, o.y, o.x - 120, o.y);
+  assert.strictEqual(await slideNo(p), q0, 'a gesture starting on an answer option is not a swipe');
+  const q = await stageBox(p);
+  await swipe(q.x + q.w / 2 + 160, q.y + 30, q.x + q.w / 2 - 160, q.y + 30);
+  assert.strictEqual(await slideNo(p), q0 + 1, 'elsewhere on the question slide, swipe works');
+  // the gesture never left Presentation Mode (no browser back/forward)
+  assert.match(p.url(), /#\/present/);
+  if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'present-ipad.png') });
   await p.context().close();
 });
 
