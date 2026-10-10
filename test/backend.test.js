@@ -1456,3 +1456,32 @@ test('platformCheck: reports a missing Portal line, missing/invalid content keys
   const d = S.b.eval('platformCheck()');
   assert.ok(d.errors.some(function (e) { return /tcache\.put.*WRONG place/.test(e); }), d.text);
 });
+test('platformCheck: a module link that opens another module\'s page, or two modules with the same link, is reported', function () {
+  const S = examsSetup();
+  S.b.ctx.CONTENT_KEYS.vagina = Buffer.alloc(32, 3).toString('base64');
+  const pages = { 'cell-injury-teaching-platform': 'cellinjury', 'inflammation-healing': 'inflhealing', 'introduction-to-pathology': 'intropath' };
+  let fetched = 0;
+  S.b.ctx.UrlFetchApp = { fetch: function (url) {
+    fetched++;
+    const repo = String(url).replace(/^https:\/\/[^/]+\//, '').split('/')[0], key = pages[repo];
+    return { getResponseCode: function () { return key ? 200 : 404; }, getContentText: function () { return key ? '<script>window.NEO_CONFIG = {"backendUrl":"x","moduleKey":"' + key + '","storagePrefix":"x_"};</script>' : 'Not found'; } };
+  } };
+  const D = S.dir('dirGet');
+  // every directory module must point at its own page for a clean report
+  D.modules.filter(function (m) { return m.moduleId !== 'exams' && !pages[(m.url || '').replace(/^https:\/\/[^/]+\//, '').split('/')[0]]; })
+    .forEach(function (m) { assert.ok(S.dir('dirSetActive', { kind: 'module', id: m.moduleId, active: false }).ok); });
+  const a = S.b.eval('platformCheck()');
+  assert.ok(!a.errors.some(function (e) { return /link/i.test(e); }), a.text);
+  assert.match(a.text, /Links: no module shares a page with another; \d+ link\(s\) checked against their pages/);
+  assert.ok(fetched >= 2);
+  // the 2026-10-10 mistake: the Introduction card linked to the Cell Injury page
+  assert.ok(S.dir('dirSave', { kind: 'module', record: { moduleId: 'intropath', title: 'Introduction to Pathology', url: 'https://third-year-med.github.io/cell-injury-teaching-platform/', storagePrefix: 'ip_' } }).ok);
+  const b = S.b.eval('platformCheck()');
+  assert.ok(b.errors.some(function (e) { return /SAME link/.test(e) && /intropath/.test(e) && /cellinjury/.test(e); }), b.text);
+  assert.ok(b.errors.some(function (e) { return /opens the page of ANOTHER module \(cellinjury\)/.test(e); }), b.text);
+  assert.ok(b.warnings.some(function (e) { return /"intropath" has different links/.test(e); }), b.text);
+  // a link that does not open
+  assert.ok(S.dir('dirSave', { kind: 'module', record: { moduleId: 'intropath', title: 'Introduction to Pathology', url: 'https://third-year-med.github.io/intro-typo/', storagePrefix: 'ip_' } }).ok);
+  const c = S.b.eval('platformCheck()');
+  assert.ok(c.errors.some(function (e) { return /does not open \(HTTP 404\)/.test(e); }), c.text);
+});

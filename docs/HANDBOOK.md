@@ -133,8 +133,8 @@ Give **only the lines to add, and where**.
    | `var DEFAULT_QUIZ_PW` | `newkey: 'NEWKEY-2026',` |
    | `var DEFAULT_LIVE_PW` | `newkey: 'CLASSROOM-2026',` |
 4. **Self-check, then deploy**: Apps Script → function list → **platformCheck** → ▶ Run → Execution log must start
-   with ✅ (it checks the Portal line, the speed lines, every module's key, the front-page list and the directory;
-   it never prints a key). Then **Deploy → Manage deployments → Edit → New version → Deploy**.
+   with ✅ (it checks the Portal line, the speed lines, every module's key, the front-page list and the directory,
+   and opens every module link to confirm it is that module's page; it never prints a key). Then **Deploy → Manage deployments → Edit → New version → Deploy**.
    If anything breaks after a deploy: **Manage deployments → Edit → Version: the previous one → Deploy** first, fix after.
 5. **Front-page card** (the cards are DATA on the backend, not HTML): Teacher Dashboard → module list → ＋ Add a module
    (title, subtitle, icon, link, status Available; Advanced: module key, hand-off "Platform modules", storage prefix)
@@ -204,6 +204,9 @@ The user is a pathologist, not a developer. They follow steps literally and send
 - **2026-10-10 front page down**: a replaced Code.gs lost `if (typeof portalHook_ …)` in `route_` → every portal request
   fell through to `badaction` → "backend does not have the front-page file". The backend link (GET) still said
   "running (v1.7)", so a running backend proves nothing about the hook. → platformCheck, and never replace Code.gs.
+- **2026-10-10 wrong module link**: the Introduction card/directory module linked to the Cell Injury page → the page asked
+  for a password and refused the right one (it checked the Cell Injury account of the group). → platformCheck now opens
+  every linked page and compares its `moduleKey`, and reports two modules sharing one link.
 
 ## 9. How to work with the user
 

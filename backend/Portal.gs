@@ -2264,7 +2264,43 @@ function platformCheck() {
     });
     okLines.push('Front-page list: ' + portalRegistry_().map(function (m) { return m.title + (m.moduleKey ? ' (' + m.moduleKey + ')' : ''); }).join(', ') + '.');
   } catch (e) { warnings.push('Could not read the module lists: ' + (e && e.message || e)); }
-  // 5. the other parts the platform relies on
+  // 5. links: two modules never share a page, and each page really is that module (it names its own moduleKey)
+  try {
+    var norm = function (u) { return String(u || '').trim().toLowerCase().replace(/[?#].*$/, '').replace(/index\.html$/, '').replace(/\/+$/, ''); };
+    var links = [];   // {key, title, url, where}
+    portalRegistry_().forEach(function (m) { if (m.url && m.moduleKey && m.moduleKey !== EXAM_MODULE && !m.backend) links.push({ key: m.moduleKey, title: m.title, url: m.url, where: 'front-page card' }); });
+    if (dirReadable_()) dirAll_(DIR.MOD).forEach(function (m) { if (m.url && m.moduleId !== EXAM_MODULE && m.active) links.push({ key: m.moduleId, title: m.title, url: m.url, where: 'Platform directory module' }); });
+    var byUrl = {}, byKey = {};
+    links.forEach(function (l) { var u = norm(l.url); (byUrl[u] = byUrl[u] || {})[l.key] = l; (byKey[l.key] = byKey[l.key] || {})[u] = l; });
+    Object.keys(byUrl).forEach(function (u) {
+      var keys = Object.keys(byUrl[u]); if (keys.length < 2) return;
+      errors.push('Two different modules use the SAME link ' + u + '/ : ' + keys.map(function (k) { return '"' + byUrl[u][k].title + '" (' + k + ', ' + byUrl[u][k].where + ')'; }).join(' and ') + '. Correct the wrong one (Teacher Dashboard → module list, or Platform directory → Modules → Edit → Link).');
+    });
+    Object.keys(byKey).forEach(function (k) {
+      var us = Object.keys(byKey[k]); if (us.length < 2) return;
+      warnings.push('Module "' + k + '" has different links on the front-page card and in the Platform directory: ' + us.map(function (u) { return u + '/'; }).join(' vs ') + ' — make them the same.');
+    });
+    var pageKey = {}, checked = 0;   // each page is opened once; every card/module that links to it is compared with it
+    links.forEach(function (l) {
+      var u = norm(l.url);
+      if (!(u in pageKey)) {
+        var res = null;
+        try { res = UrlFetchApp.fetch(l.url, { muteHttpExceptions: true, followRedirects: true }); }
+        catch (e) { pageKey[u] = { err: 'Could not open the link of "' + l.title + '" (' + l.url + ') to check it: ' + (e && e.message || e), warn: true }; }
+        if (res) {
+          var code = res.getResponseCode();
+          if (code !== 200) pageKey[u] = { err: 'The link of "' + l.title + '" (' + l.where + ') does not open (HTTP ' + code + '): ' + l.url + ' — check the address and that GitHub Pages is on for that repository.' };
+          else { var mk = /"moduleKey"\s*:\s*"([a-z0-9]+)"/.exec(res.getContentText().slice(0, 400000)); pageKey[u] = { key: mk ? mk[1] : '' }; }
+        }
+        if (pageKey[u].err) { (pageKey[u].warn ? warnings : errors).push(pageKey[u].err); return; }
+      }
+      var pk = pageKey[u]; if (pk.err) return;
+      if (pk.key && pk.key !== l.key) errors.push('The link of "' + l.title + '" (' + l.where + ', module key ' + l.key + ') opens the page of ANOTHER module (' + pk.key + '): ' + l.url + ' — students will be asked for a password and refused. Correct the link.');
+      else checked++;
+    });
+    if (links.length) okLines.push('Links: no module shares a page with another; ' + checked + ' link(s) checked against their pages.');
+  } catch (e) { warnings.push('Could not check the module links: ' + (e && e.message || e)); }
+  // 6. the other parts the platform relies on
   if (typeof exRoute_ !== 'function') warnings.push('The Official Exams part of Code.gs (1.7) is missing — the exam app will not work.');
   if (typeof VERSION !== 'undefined') okLines.push('Code.gs version ' + VERSION + ', Portal.gs version ' + PORTAL_VERSION + '.');
   var text = (errors.length ? '❌ ' + errors.length + ' PROBLEM(S) — fix before you deploy:\n' + errors.map(function (x) { return '  ❌ ' + x; }).join('\n') + '\n' : '✅ No problems found — safe to deploy (Deploy → Manage deployments → Edit → New version → Deploy).\n')
