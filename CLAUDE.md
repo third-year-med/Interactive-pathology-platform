@@ -1,6 +1,6 @@
 # CLAUDE.md — Interactive Pathology Teaching Platform
 
-Read **`docs/HANDBOOK.md`** first: the decisions, architecture, the checklist for adding a module, the deployment steps
+Read **`docs/HANDBOOK.md`** first (new module: the user starts with the prompt in `docs/NEW-MODULE-PROMPT.md`): the decisions, architecture, the checklist for adding a module, the deployment steps
 the user follows, the testing workflow and the lessons learned. `docs/REBUILD.md` is the procedure for a new packaged
 build of a module; `SETUP.md` is the user-facing setup guide.
 
