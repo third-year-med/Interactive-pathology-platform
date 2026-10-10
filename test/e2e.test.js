@@ -155,7 +155,7 @@ test('teacher panel: status changes are shown at once, but never open a module w
   await p.waitForFunction(function () { return /Incorrect/.test(document.querySelector('form.card .err').textContent); });
   await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
   await p.waitForSelector('.modrow');
-  assert.match(await p.textContent('.modrow'), /1 active student account/);
+  assert.match(await p.textContent('#t-manage'), /Cell Injury & Cell Death\s*1 active student account/);
   const row = p.locator('.modrow', { hasText: 'Ready test module' });
   await row.locator('select[data-k=status]').selectOption('available');
   await p.click('.save');

@@ -169,6 +169,8 @@ var PORTAL_SETTING = 'portal:registry';
 
 /** The list shown on a fresh install — the teacher changes everything in the front page's teacher panel. */
 var PORTAL_DEFAULT = [
+  { id: 'intropath', title: 'Introduction to Pathology', subtitle: 'General pathology', icon: '🔬', color: '#1d4ed8', status: 'available',
+    url: 'https://third-year-med.github.io/introduction-to-pathology/', moduleKey: 'intropath', handoff: 'neo', storagePrefix: 'ip_', backend: '' },
   { id: 'cellinjury', title: 'Cell Injury & Cell Death', subtitle: 'General pathology', icon: '🧫', color: '#0e7c7b', status: 'available',
     url: 'https://third-year-med.github.io/cell-injury-teaching-platform/', moduleKey: 'cellinjury', handoff: 'neo', storagePrefix: 'ci_', backend: '' },
   { id: 'inflhealing', title: 'Inflammation & Healing', subtitle: 'General pathology', icon: '🔥', color: '#c2410c', status: 'available',

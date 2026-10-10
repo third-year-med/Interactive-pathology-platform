@@ -228,9 +228,9 @@ test('directory: Admin only; first use creates its own sheets and copies the cur
   const g = S.dir('dirGet');
   assert.ok(g.ok, JSON.stringify(g));
   ['Institutions', 'Groups', 'Modules', 'Deliveries', 'TeacherAssignments', 'ModuleContentRoles'].forEach(function (n) { assert.ok(S.b.sheets[n], n + ' created'); });
-  assert.deepStrictEqual(g.modules.map(function (m) { return m.moduleId; }), ['cellinjury', 'inflhealing']);
-  assert.strictEqual(g.modules[0].title, 'Cell Injury & Cell Death');
-  assert.strictEqual(S.dir('dirGet').modules.length, 2, 'copied once only');
+  assert.deepStrictEqual(g.modules.map(function (m) { return m.moduleId; }), ['intropath', 'cellinjury', 'inflhealing']);
+  assert.strictEqual(g.modules[1].title, 'Cell Injury & Cell Death');
+  assert.strictEqual(S.dir('dirGet').modules.length, 3, 'copied once only');
 });
 
 test('directory: the Al-Razi / Misrata example — same visible group name, separate ids, separate deliveries', function () {
@@ -254,7 +254,7 @@ test('directory: the Al-Razi / Misrata example — same visible group name, sepa
   assert.strictEqual(d(ra, 'cellinjury').ok, false, 'a module is delivered to a group once');
   const all = S.dir('dirGet');
   assert.strictEqual(all.institutions.length, 2); assert.strictEqual(all.groups.length, 2); assert.strictEqual(all.deliveries.length, 4);
-  assert.strictEqual(all.modules.length, 3, 'Cell Injury exists once, delivered twice');
+  assert.strictEqual(all.modules.length, 4, 'Cell Injury exists once, delivered twice');
 });
 
 test('directory: ids, link codes and delivery storage cannot change once data could depend on them', function () {
