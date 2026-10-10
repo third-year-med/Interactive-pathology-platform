@@ -265,7 +265,7 @@ shown; never the code) → sign in with the access code, student ID and password
 Drive permission: the first picture upload needs Drive access. If you see "Access denied: DriveApp", open the Apps
 Script editor, choose **authorizeDriveAccess** in the function list and press ▶ once.
 
-## Teaching Sessions (Portal.gs 2.8)
+## Teaching Sessions (Portal.gs 2.9)
 
 **Modules contain learning content; Teaching Sessions contain teaching events.** Teacher Dashboard → **🎓 Teaching
 Sessions** (the Admin: every group; a personal teacher: only the modules assigned to them). Choose the **group** at the top.
@@ -296,6 +296,22 @@ Sessions** (the Admin: every group; a personal teacher: only the modules assigne
 - **📅 Upcoming lectures** (date and time in the platform time zone, cancelled ones marked, lecture-materials links);
 - **📋 My attendance** — their own percentage and their recent lectures with their status (never anyone else's).
 The card refreshes by itself while a lecture is live or starts within 30 minutes (and with **↻ Refresh**).
+
+**💬 Group Live Classroom (one per group):** students press **💬 Live Classroom** on the Teaching Sessions card of their
+group page; teachers press **💬 Group Live Classroom** in Teacher Dashboard → 🎓 Teaching Sessions (the Admin: any group;
+a personal teacher: groups where at least one module is assigned to them). Everyone of the group meets in the same
+classroom, whichever module the lecture belongs to:
+- messages, **Reply**, reactions, **📎 Attach** files (up to 50 MB; pictures get a thumbnail; programs are blocked),
+  **Delete** (own messages; the teacher any), and for teachers **📢 Announcement** and **Pin** (pinned messages are
+  shown at the top);
+- when a lecture starts or ends (Teaching Sessions), the classroom gets an announcement with the lecture and its
+  **module**, and the live lecture is shown at the top of the classroom;
+- no classroom code: students enter with their group sign-in only; a student of another group, or anyone without a
+  sign-in, cannot read or write. During a combined exam with *Close ALL teaching modules*, the classroom is closed for
+  its candidates too.
+- Files are kept in your Google Drive folder "Live classroom files — live-<link code>" (private). If an upload says
+  Drive access is missing, run **authorizeDriveAccess** once in the Apps Script editor (▶).
+The modules' own Live Classrooms are not changed (they will be hidden in step 4).
 
 The attendance of a lecture is the module's own attendance (the same as the module's Attendance tab, its Google
 Drive copy, and **Results & attendance**), so nothing changes for the modules. The schedule and the teacher's marks

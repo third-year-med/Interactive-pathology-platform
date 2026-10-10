@@ -65,6 +65,10 @@
  *   tsMark {tsId, studentId, mark: present|late|excused|clear|remove, recordId?}   the teacher's corrections
  *   tsSettings        Admin: platform time zone and attendance warning threshold
  *   Sheet TeachingSessions (created on first use). Attendance itself stays in AttendanceSessions/AttendanceRecords.
+ *   Group Live Classroom (2.9): storage live-<link code>, Code.gs's Live Classroom engine unchanged.
+ *   liveOpen {g, sessions}        student (group sessions + active membership) → joined; secret-derived identity
+ *   liveTeacherOpen {groupId}     Admin / personal teacher with a module of the group → teacher session of the classroom
+ *   (live-… storage)              only Live Classroom actions; students must send their group sessions (gs) each time
  *   Group page (2.8, PUBLIC actions — the student proves who they are with a session of one of the group's modules):
  *   portalGroupSessions {g, sessions}  the live lecture, upcoming lectures, the student's own attendance (never others')
  *   portalGroupCheckIn {g, sessions, code}  check-in with the code on the screen (a rotating code just replaced still
@@ -180,7 +184,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.8';
+var PORTAL_VERSION = '2.9';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -205,6 +209,7 @@ function portalHook_(module, p) {
   if (String(module) !== PORTAL_MODULE) {
     var act = String(p.action || '');
     if (String(module).indexOf('@') >= 0) return { ok: false, code: 'badmodule', error: 'Unknown module.' };   // internal storages
+    if (liveIsStorage_(String(module))) return liveGate_(String(module), act, p);   // 2.9: a group's Live Classroom — only its own actions, students re-checked
     if (act === 'examUpsert' || act === 'examRemove' || act === 'examCopyExam') { examListForget_(String(module)); if (p.to) examListForget_(String(p.to)); }   // the exam front page shows changes at once
     if (EXAM_BANK_ACTIONS[act]) return examBankHook_(String(module), p);   // 2.6: copy questions between exam banks and teaching banks
     var gl = examGroupLockHook_(String(module), act, p); if (gl) return gl;   // 2.6: a combined exam of the group closes all its modules for candidates
@@ -250,6 +255,10 @@ function portalHook_(module, p) {
     case 'portalGroupRefresh': return portalGroupRefresh_(p);
     case 'portalGroupSessions': return tsStudentSessions_(p);   // 2.8: the group page's 🎓 Teaching Sessions card
     case 'portalGroupCheckIn': return tsStudentCheckIn_(p);
+    case 'liveOpen': return liveOpen_(p);   // 2.9: the group's Live Classroom (student)
+    case 'liveTeacherOpen':
+      if (p.ttoken) return tAuthed_(p, function (u, ses) { return isTrue_(u.mustChange) ? { ok: false, code: 'mustchange', error: 'Please choose your own password first.' } : liveTeacherOpen_(p, null, u, ses); });
+      return authed_(PORTAL_MODULE, p, function (tok) { if (!dirReadable_()) return dirErr_('The platform directory is empty.'); return liveTeacherOpen_(p, tok, null, null); });
     case 'teacherLogin': return teacherLogin_(p);
     case 'contentStatus': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentStatus_(); }); });
     case 'contentMigrate': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return contentMigrate_(p); }); });
@@ -626,6 +635,7 @@ function dirGroup_(r, rec, cur) {
 function dirModule_(r, rec, cur, id) {
   if (!cur) {
     if (!DIR_MODULE_ID_RE.test(id)) return 'The module id must be 2–30 lowercase letters/digits, no spaces or "-" (e.g. cellinjury). It is the module\'s key on the backend and cannot change later.';
+    if (id === LIVE_MODULE || id === PORTAL_MODULE) return 'The module id “' + id + '” is reserved by the platform — choose another one.';
     r.moduleId = id;
   }
   var title = dirStr_(rec.title, 80); if (!title) return 'Enter the module title.';
@@ -2468,6 +2478,7 @@ function tsStart_(who, p) {
     var at = Number(r.startAt) || 0, keep = at && at <= now + 3600e3 && at >= now - 12 * 3600e3;
     tsWrite_(r, { status: 'live', attSessionId: a.sessionId, startedAt: now, codeAt: now, startAt: keep ? at : now });
   });
+  livePostSystem_(f.row.groupId, '🔴 Lecture started: ' + f.row.title + ' — ' + (mod.title || f.row.moduleId) + (f.row.chapter ? ' · ' + f.row.chapter : '') + (f.row.teacher ? ' (' + f.row.teacher + ')' : '') + '. Check in with the attendance code on your group page.', 'ts-' + tsId + '-start');
   return tsState_(who, { tsId: tsId });
 }
 /** The live screen: the current code (a rotating code is renewed when due), the check-ins and who has not checked in yet. */
@@ -2500,6 +2511,7 @@ function tsClose_(who, p) {
   if (att && att.status === 'active') { var c = actionCloseAttendance_(f.row.backendModule, { sessionId: f.row.attSessionId }); if (!c || !c.ok) return c || dirErr_('Attendance could not be closed.'); }
   var now = Date.now();
   rosterWrite_(function () { var r = tsFind_(who, p.tsId).row; tsWrite_(r, { status: 'ended', endedAt: now }); });
+  livePostSystem_(f.row.groupId, '■ Lecture ended: ' + f.row.title + ' — ' + f.mod.title + '. Attendance is closed.', 'ts-' + p.tsId + '-end');
   return tsState_(who, { tsId: p.tsId });
 }
 /** Cancel a lecture that has not started (it stays in the history but never counts), or restore it (undo). */
@@ -2621,6 +2633,103 @@ function tsStudentCheckIn_(p) {
   return { ok: true, alreadyRecorded: !!rec.alreadyRecorded, at: at, status: mk === 'present' || mk === 'late' ? mk : late > 0 && at > ref + late ? 'late' : 'present', title: hit.r.title, module: S.mods[hit.r.backendModule].title };
 }
 
+/* ---------------- Group Live Classroom (2.9, step 3) ----------------
+ * ONE Live Classroom per group, in the storage "live-<link code>", run by Code.gs's own Live Classroom engine (chat,
+ * replies, reactions, pins, announcements, files, unread counts) — nothing in Code.gs changes. The platform guards it:
+ *   • students enter only through liveOpen (a session of one of the group's modules + an active membership); their
+ *     classroom identity is derived from a secret (script property LIVE_ID_SALT), so it cannot be guessed, and EVERY later
+ *     request must carry the group sessions again (checked here, cached 5 minutes) and that identity;
+ *   • teachers: the Admin (any group) or a personal teacher with at least one module of the group (liveTeacherOpen →
+ *     a teacher session of that storage, recorded in PortalGrants, so removing the teacher's access ends it);
+ *   • only the Live Classroom actions work on a "live-…" storage (no content, accounts, attendance or exams there),
+ *     and joining with the classroom code directly is refused.
+ * Teaching Sessions post "Lecture started / ended" announcements (with the module) into the group's classroom. */
+var LIVE_MODULE = 'live';
+var LIVE_ACTIONS = { liveSync: 1, liveHistory: 1, liveContext: 1, livePost: 1, liveEdit: 1, liveDelete: 1, livePin: 1, liveReact: 1, liveSearch: 1, liveMembers: 1,
+  liveNotifications: 1, liveMarkRead: 1, liveSetPrefs: 1, liveTyping: 1, liveUploadInit: 1, liveUploadChunk: 1, liveUploadStatus: 1, liveFileChunk: 1 };
+function liveStorageOf_(g) { return LIVE_MODULE + '-' + g.linkCode; }
+function liveIsStorage_(S) { return String(S).indexOf(LIVE_MODULE + '-') === 0; }
+function liveSalt_() {
+  var pr = PropertiesService.getScriptProperties(), s = pr.getProperty('LIVE_ID_SALT');
+  if (!s) { s = randomHex_(24); pr.setProperty('LIVE_ID_SALT', s); }
+  return s;
+}
+/** The student's classroom identity (an email the engine turns into the participant id) — secret-derived, never shown. */
+function liveIdentity_(S, username) { return 's' + sha256Hex_(liveSalt_() + '|' + S + '|' + username).slice(0, 24) + '@classroom.local'; }
+/** First use of a group's classroom: a random classroom code (nobody types it) and the title shown in notifications. */
+function liveEnsure_(S, label) {
+  if (!getSetting_('livepw:' + S)) setSetting_('livepw:' + S, randomHex_(12).toUpperCase());
+  var t = ('Live Classroom — ' + label).slice(0, 80);
+  if (getSetting_('modtitle:' + S) !== t) { setSetting_('modtitle:' + S, t); CacheService.getScriptCache().remove('modtitle:' + S); }
+}
+function liveGroupLabel_(g) { var i = dirFind_(DIR.INST, 'institutionId', g.institutionId) || {}; return (i.shortName || i.name || '') + ' · ' + g.name; }
+/** The live lecture of a group, if any (shown at the top of the classroom). */
+function liveLecture_(groupId) {
+  var md = {}; dirAll_(DIR.MOD).forEach(function (m) { md[m.moduleId] = m; });
+  var r = tsRows_().filter(function (x) { return x.groupId === groupId && x.status === 'live' && tsStatus_(x, tsAttRow_(x)) === 'live'; })[0];
+  return r ? { title: r.title, module: (md[r.moduleId] || {}).title || r.moduleId, icon: (md[r.moduleId] || {}).icon || '📘', teacher: r.teacher, startedAt: Number(r.startedAt) || 0 } : null;
+}
+function liveOpen_(p) {
+  var S0 = tsStudent_(p); if (S0.error) return S0.error;
+  var g = S0.G.group, S = liveStorageOf_(g);
+  var xl = liveExamLock_(S, S0.st.username); if (xl) return xl;
+  liveEnsure_(S, liveGroupLabel_(g));
+  var j = liveSvc_().join(S, { classCode: getSetting_('livepw:' + S), name: S0.mem.name || S0.st.name || S0.st.username, email: liveIdentity_(S, S0.st.username) });
+  if (!j || !j.ok) return j || { ok: false, error: 'The classroom could not be opened.' };
+  return { ok: true, storage: S, participantId: j.participantId, name: j.name, role: 'student', title: 'Live Classroom — ' + g.name, lecture: liveLecture_(g.groupId), timeZone: tsSettings_().timeZone };
+}
+/** Admin (token) or a personal teacher (ttoken) with a module of the group → a teacher session of the group's classroom. */
+function liveTeacherOpen_(p, portalToken, u, ses) {
+  var g = dirFind_(DIR.GROUP, 'groupId', String(p.groupId || '')); if (!g) return dirErr_('Choose a group.');
+  var mine = null;
+  if (u) {
+    mine = teacherDeliveries_(u.userId).filter(function (d) { return d.groupId === g.groupId && d.moduleId !== EXAM_MODULE; })[0];
+    if (!mine) return { ok: false, code: 'forbidden', error: 'No module of this group is assigned to you.' };
+  }
+  var S = liveStorageOf_(g), now = Date.now(), exp = now + SESSION_TTL_MS, token = Utilities.getUuid() + '-' + randomHex_(16);
+  liveEnsure_(S, liveGroupLabel_(g));
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    if (u) exp = Math.min(exp, Number(ses.row.expiresAt) || exp);
+    else readAll_(SHEETS.SESSIONS).forEach(function (r) { if (r.token === portalToken && Number(r.expiresAt) > now) exp = Math.min(exp, Number(r.expiresAt)); });
+    appendRow_(SHEETS.SESSIONS, { module: S, token: token, createdAt: now, expiresAt: exp });
+    if (u) appendRow_(DIR.GRANTS, { userId: u.userId, deliveryId: mine.deliveryId, backendModule: S, tokenHash: tHash_('pg', token), sessionHash: ses.hash, createdAt: now, expiresAt: exp });
+  } finally { lock.releaseLock(); }
+  return { ok: true, storage: S, token: token, expiresAt: exp, role: 'teacher', name: 'Teacher', title: 'Live Classroom — ' + g.name, lecture: liveLecture_(g.groupId), timeZone: tsSettings_().timeZone };
+}
+/** Every request to a "live-…" storage passes here first (portalHook_). null = let the engine handle it. */
+function liveGate_(S, act, p) {
+  if (!LIVE_ACTIONS[act]) return { ok: false, code: 'badmodule', error: act === 'liveJoin' ? 'Open the Live Classroom from your group page.' : 'Unknown module.' };
+  if (p.token) return null;   // teacher: the engine checks the teacher session of this storage
+  var pid = String(p.participantId || ''), toks = p.gs && typeof p.gs === 'object' ? p.gs : {};
+  if (!pid) return { ok: false, code: 'auth', error: 'Please open the classroom again.' };
+  var c = CacheService.getScriptCache(), ck = 'lvg:' + sha256Hex_(S + '|' + pid + '|' + JSON.stringify(Object.keys(toks).sort().map(function (k) { return [k, String(toks[k])]; })));
+  var who = c.get(ck);
+  if (!who) {
+    var code = S.slice(LIVE_MODULE.length + 1), g = null;
+    if (dirReadable_()) dirAll_(DIR.GROUP).some(function (x) { if (x.linkCode === code) { g = x; return true; } return false; });
+    var st = g && tsStudent_({ g: g.linkCode, sessions: toks });
+    if (!st || st.error || LE_pidFor(S, liveIdentity_(S, st.st.username)) !== pid) return { ok: false, code: 'auth', error: 'Please open the classroom again from your group page.' };
+    who = st.st.username; c.put(ck, who, 300);
+  }
+  return liveExamLock_(S, who);
+}
+/** A combined exam of the group with "close all teaching modules" closes the group's classroom for its candidates too. */
+function liveExamLock_(S, username) {
+  var X = EXAM_MODULE + '-' + S.slice(LIVE_MODULE.length + 1);
+  if (typeof exLocks_ !== 'function' || !exLocks_(X).length) return null;
+  return exTeachingLock_(X, username) || null;
+}
+/** A system announcement in a group's classroom (lecture started / ended). Never stops the caller if it fails. */
+function livePostSystem_(groupId, body, clientId) {
+  try {
+    var g = dirFind_(DIR.GROUP, 'groupId', groupId); if (!g) return;
+    var S = liveStorageOf_(g); liveEnsure_(S, liveGroupLabel_(g));
+    var st = liveStore_(); st.isTeacherToken = function () { return true; };
+    LE_createService(st).post(S, { token: 'platform', body: body, kind: 'announcement', clientId: clientId });
+  } catch (e) { console.error('live classroom announcement: ' + (e && e.message || e)); }
+}
+
 /* ======================================================================
  * Self-check (2.6) — run it in the Apps Script editor BEFORE every Deploy:
  * choose "platformCheck" in the function list and press ▶ Run, then read the Execution log.
@@ -2706,6 +2815,8 @@ function platformCheck() {
   var attMissing = Object.keys(attFns).filter(function (n) { return attFns[n] !== 'function'; });
   if (attMissing.length) warnings.push('The attendance part of Code.gs is missing (' + attMissing.join(', ') + ') — Teaching Sessions cannot open attendance.');
   else okLines.push('Teaching Sessions: the attendance functions of Code.gs are present.');
+  if (typeof LE_createService !== 'function' || typeof liveStore_ !== 'function' || typeof liveSvc_ !== 'function') warnings.push('The Live Classroom part of Code.gs is missing — the group Live Classroom cannot work.');
+  else okLines.push('Group Live Classroom: the Live Classroom engine of Code.gs is present.');
   if (typeof VERSION !== 'undefined') okLines.push('Code.gs version ' + VERSION + ', Portal.gs version ' + PORTAL_VERSION + '.');
   var text = (errors.length ? '❌ ' + errors.length + ' PROBLEM(S) — fix before you deploy:\n' + errors.map(function (x) { return '  ❌ ' + x; }).join('\n') + '\n' : '✅ No problems found — safe to deploy (Deploy → Manage deployments → Edit → New version → Deploy).\n')
     + (warnings.length ? warnings.map(function (x) { return '  ⚠️ ' + x; }).join('\n') + '\n' : '') + okLines.map(function (x) { return '  ✓ ' + x; }).join('\n');

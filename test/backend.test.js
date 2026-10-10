@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
-const { createBackend } = require('./apps-script/harness');
+const { createBackend, driveFake } = require('./apps-script/harness');
 
 /* Step 5 closes module-level teacher sign-in. Test FIXTURES still create module teacher sessions that way (to add students
    quickly): this wrapper turns on the emergency switch (ALLOW_MODULE_LOGIN) for exactly those calls. Calls marked __real
@@ -23,7 +23,7 @@ const FILES = [path.join(__dirname, 'apps-script', 'Code.core.gs'), path.join(__
 const PW = 'student-pass-1';
 
 function setup() {
-  const b = fixtureBackend({ files: FILES });
+  const b = fixtureBackend({ files: FILES, fetch: driveFake() });
   const call = function (o) { return b.doPost(o); };
   const tokens = {};
   ['cellinjury', 'inflhealing', 'vulva'].forEach(function (m) {
@@ -1440,6 +1440,7 @@ test('platformCheck: reports a missing Portal line, missing/invalid content keys
   assert.ok(a.ok, a.text);
   assert.match(a.text, /No problems found/);
   assert.match(a.text, /Teaching Sessions: the attendance functions of Code\.gs are present/);
+  assert.match(a.text, /Group Live Classroom: the Live Classroom engine of Code\.gs is present/);
   assert.ok(!/AAECAwQFBgcICQoL/.test(a.text), 'no key in the report');
   // a module with student sign-in but no key, and a broken key
   S.b.eval("STUDENT_AUTH_MODULES.cardio = true; CONTENT_KEYS.vulva = 'short'; CONTENT_KEYS.vagina = '__VAGINA_CONTENT_KEY__';");
@@ -1733,4 +1734,104 @@ test('group page check-in: late after the limit; a student without an account in
   assert.ok(S.call({ module: 'cellinjury-razi-a-26', action: 'setStudentActive', token: tok, username: 'b2', active: false }).ok);
   const x = S.call({ module: 'portal', action: 'portalGroupCheckIn', g: 'razi-a-26', sessions: s2, code: L.code });
   assert.strictEqual(x.code, 'notregistered', JSON.stringify(x));
+});
+
+/* ---------------- Group Live Classroom (2.9, step 3) ---------------- */
+function liveSetup() {
+  const S = tsSetup();
+  S.lopen = function (id, pw) { const gs = grpSessions(S, id, pw); const r = S.call({ module: 'portal', action: 'liveOpen', g: 'razi-a-26', sessions: gs }); assert.ok(r.ok, JSON.stringify(r)); r.gs = gs; return r; };
+  S.lcall = function (who, action, o) { return S.call(Object.assign({ module: who.storage, action: action }, who.token ? { token: who.token } : { participantId: who.participantId, gs: who.gs }, o || {})); };
+  return S;
+}
+test('group classroom: students of the group and its teachers meet in ONE classroom; messages, reply, react, pin, announcement', function () {
+  const S = liveSetup();
+  const b1 = S.lopen('b1', 'basma-pass-1'), ah = S.lopen('ahmed', PW);
+  assert.strictEqual(b1.storage, 'live-razi-a-26'); assert.strictEqual(b1.name, 'Basma One'); assert.strictEqual(b1.role, 'student');
+  assert.notStrictEqual(b1.participantId, ah.participantId);
+  // the identity is not derived from anything a student can know (Student ID, email)
+  assert.notStrictEqual(b1.participantId, S.b.ctx.LE_pidFor('live-razi-a-26', 'b1@student.local'));
+  assert.strictEqual(S.lopen('b1', 'basma-pass-1').participantId, b1.participantId, 'same student → same identity on every device');
+  // the Admin and Dr. Ahmed (a module of the group) as teachers; Dr. Sara (no module of the group) refused
+  const adm = S.dir('liveTeacherOpen', { groupId: S.ra.groupId }); assert.ok(adm.ok, JSON.stringify(adm));
+  const tch = S.tt('liveTeacherOpen', S.ahmed.tok, { groupId: S.ra.groupId }); assert.ok(tch.ok, JSON.stringify(tch));
+  assert.strictEqual(S.tt('liveTeacherOpen', S.sara.tok, { groupId: S.ra.groupId }).code, 'forbidden');
+  assert.strictEqual(tch.storage, 'live-razi-a-26');
+  const m1 = S.lcall(b1, 'livePost', { body: 'Hello class', clientId: 'c1' }); assert.ok(m1.ok, JSON.stringify(m1));
+  const m2 = S.lcall(tch, 'livePost', { body: 'Welcome! Read chapter 2.', kind: 'announcement', clientId: 'c2', replyToId: m1.message.id }); assert.ok(m2.ok);
+  assert.strictEqual(m2.message.kind, 'announcement'); assert.strictEqual(m2.message.authorRole, 'teacher');
+  assert.ok(S.lcall(ah, 'liveReact', { id: m2.message.id, reaction: '👍' }).ok);
+  assert.ok(S.lcall(adm, 'livePin', { id: m2.message.id, pinned: true }).ok);
+  assert.strictEqual(S.lcall(ah, 'livePin', { id: m1.message.id, pinned: true }).code, 'forbidden');
+  const sy = S.lcall(ah, 'liveSync', { full: true }); assert.ok(sy.ok, JSON.stringify(sy));
+  assert.deepStrictEqual(sy.messages.map(function (m) { return m.body; }), ['Hello class', 'Welcome! Read chapter 2.']);
+  assert.strictEqual(sy.pinned.length, 1); assert.strictEqual(sy.messages[1].reactions['👍'], 1);
+  assert.ok(sy.unread >= 1, 'the teacher\'s announcement is unread for Ahmed');
+  // nothing reaches a module classroom: the module storages have no messages
+  assert.ok(S.b.ctx.rpRows_('LiveChat').every(function (r) { return r.module === 'live-razi-a-26'; }));
+});
+
+test('group classroom: the platform guards it — no identity guessing, no other group, no direct join, no other actions', function () {
+  const S = liveSetup(), st = 'live-razi-a-26';
+  const b1 = S.lopen('b1', 'basma-pass-1'), ah = S.lopen('ahmed', PW);
+  // b1's identity with Ahmed's sessions, or with no sessions: refused
+  assert.strictEqual(S.call({ module: st, action: 'livePost', participantId: b1.participantId, gs: ah.gs, body: 'x' }).code, 'auth');
+  assert.strictEqual(S.call({ module: st, action: 'livePost', participantId: b1.participantId, body: 'x' }).code, 'auth');
+  assert.strictEqual(S.call({ module: st, action: 'liveSync', participantId: 'p_guess', gs: b1.gs }).code, 'auth');
+  // joining with a classroom code, or any non-classroom action on the storage: refused
+  assert.strictEqual(S.call({ module: st, action: 'liveJoin', classCode: 'CLASSROOM-2026', name: 'Intruder', email: 'x@y.zz' }).code, 'badmodule');
+  ['getAllContent', 'upsert', 'studentLogin', 'startAttendanceSession', 'getLiveClassroomPassword', 'setLiveClassroomPassword', 'listStudents'].forEach(function (a) {
+    assert.strictEqual(S.call({ module: st, action: a, participantId: b1.participantId, gs: b1.gs }).code, 'badmodule', a);
+  });
+  // a student of another group (Misrata) cannot open or use Al-Razi's classroom
+  const sara = S.call({ module: 'portal', action: 'portalGroupCheck', g: 'misrata-a-26', username: 'sara', password: PW });
+  const sg = { cellinjury: sara.modules.cellinjury.token };
+  assert.strictEqual(S.call({ module: 'portal', action: 'liveOpen', g: 'razi-a-26', sessions: sg }).code, 'studentauth');
+  assert.strictEqual(S.call({ module: st, action: 'liveSync', participantId: b1.participantId, gs: sg }).code, 'auth');
+  // a teacher session of a module is not a teacher of the classroom
+  const mt = S.call({ module: 'cellinjury-razi-a-26', action: 'login', password: 'teacher-cellinjury-razi-a-26' }).token;
+  assert.strictEqual(S.call({ module: st, action: 'livePost', token: mt, body: 'x' }).code, 'auth');
+  // module id "live" is reserved
+  assert.match(S.save('module', { moduleId: 'live', title: 'Live' }, { create: true }).error, /reserved/);
+  // removing Dr. Ahmed's assignments ends his classroom session at once
+  const tch = S.tt('liveTeacherOpen', S.ahmed.tok, { groupId: S.ra.groupId });
+  assert.ok(S.lcall(tch, 'liveSync', { full: true }).ok);
+  assert.ok(S.dir('teacherAssign', { userId: S.ahmed.teacher.userId, deliveryIds: [] }).ok);
+  assert.strictEqual(S.lcall(tch, 'liveSync', { full: true }).code, 'auth');
+});
+
+test('group classroom: lecture started / ended announcements with the module; the live lecture is shown on opening', function () {
+  const S = liveSetup();
+  const L = S.ts('tsStart', { session: S.lect({ title: 'Lecture 4 — Necrosis', chapter: 'Chapter 2', startAt: Date.now(), teacher: 'Dr. W' }) }); assert.ok(L.ok);
+  const b1 = S.lopen('b1', 'basma-pass-1');
+  assert.deepStrictEqual([b1.lecture.title, b1.lecture.module], ['Lecture 4 — Necrosis', 'Cell Injury & Cell Death']);
+  S.ts('tsClose', { tsId: L.session.tsId });
+  const sy = S.lcall(b1, 'liveSync', { full: true });
+  assert.deepStrictEqual(sy.messages.map(function (m) { return m.kind + ': ' + m.body; }), [
+    'announcement: 🔴 Lecture started: Lecture 4 — Necrosis — Cell Injury & Cell Death · Chapter 2 (Dr. W). Check in with the attendance code on your group page.',
+    'announcement: ■ Lecture ended: Lecture 4 — Necrosis — Cell Injury & Cell Death. Attendance is closed.']);
+  assert.strictEqual(S.lopen('b1', 'basma-pass-1').lecture, null);
+});
+
+test('group classroom: files — a student uploads, the class downloads; others cannot read a file that was never posted', function () {
+  const S = liveSetup();
+  const b1 = S.lopen('b1', 'basma-pass-1'), ah = S.lopen('ahmed', PW);
+  const data = Buffer.from('Slide notes for lecture 4 — ' + 'x'.repeat(300));
+  const up = S.lcall(b1, 'liveUploadInit', { name: 'notes.txt', size: data.length, mime: 'text/plain' }); assert.ok(up.ok, JSON.stringify(up));
+  // before posting: Ahmed cannot read it
+  const ch = S.lcall(b1, 'liveUploadChunk', { fileId: up.fileId, offset: 0, data: data.toString('base64') }); assert.ok(ch.ok && ch.done, JSON.stringify(ch));
+  assert.strictEqual(S.lcall(ah, 'liveFileChunk', { fileId: up.fileId }).code, 'notfound');
+  const post = S.lcall(b1, 'livePost', { body: 'My notes', attachments: [{ fileId: up.fileId }], clientId: 'f1' }); assert.ok(post.ok, JSON.stringify(post));
+  const dl = S.lcall(ah, 'liveFileChunk', { fileId: up.fileId, offset: 0 }); assert.ok(dl.ok, JSON.stringify(dl));
+  assert.strictEqual(Buffer.from(dl.data, 'base64').toString(), data.toString()); assert.strictEqual(dl.name, 'notes.txt');
+  assert.strictEqual(S.lcall(ah, 'liveUploadInit', { name: 'virus.exe', size: 10, mime: 'application/octet-stream' }).code, 'blocked');
+});
+
+test('group classroom: closed for the candidates of a combined exam (close all teaching modules)', function () {
+  const S = liveSetup();
+  const b1 = S.lopen('b1', 'basma-pass-1');
+  // fake a lock for b1 in the group's combined-exam storage
+  S.b.eval("exLocks_ = function (X) { return X === 'exams-razi-a-26' ? [1] : []; }; exTeachingLock_ = function (X, u) { return X === 'exams-razi-a-26' && u === 'b1' ? { ok: false, code: 'examlock', error: 'Closed during the exam.' } : null; };");
+  assert.strictEqual(S.lcall(b1, 'liveSync', { full: true }).code, 'examlock');
+  assert.strictEqual(S.call({ module: 'portal', action: 'liveOpen', g: 'razi-a-26', sessions: b1.gs }).code, 'examlock');
+  assert.ok(S.lopen('ahmed', PW).ok);
 });

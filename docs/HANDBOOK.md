@@ -103,8 +103,13 @@ marksJson; a manual Present writes a real AttendanceRecords row via `recordAtten
 yet, as of 2026-10-10). Plan: 1 teacher panel (done, 2.7) → 2 group-page card for students (done, 2.8:
 `portalGroupSessions` / `portalGroupCheckIn`, identity = a session of one of the group's modules + active membership,
 as `portalGroupRefresh`; previous rotating code accepted 20 s via TS columns prevCode/prevCodeUntil; 10 wrong codes →
-10 min) → 3 one Live Classroom per
-group → 4 hide Live/Attendance buttons in module pages (reversible) + reports use the Teaching Sessions statuses
+10 min) → 3 one Live Classroom per group (done, 2.9: storage `live-<linkCode>` run by Code.gs's LE engine
+unchanged; Portal `liveGate_` allows only LIVE_ACTIONS there, refuses liveJoin; students via `liveOpen` (group sessions +
+membership; identity email = sha256(LIVE_ID_SALT script property|storage|username) so the pid cannot be guessed — the
+liveSync cache fast path in doPost bypasses Portal but only answers "no change" for a known pid); every student request
+carries `gs` (group sessions) and is re-checked (cache `lvg:` 5 min) + combined-exam lock; teachers via
+`liveTeacherOpen` (SESSIONS row for the storage + PortalGrants for personal teachers); `livePostSystem_` posts lecture
+started/ended announcements; UI `assets/classroom.js` (CSP: thumbnails via data: URLs, never blob:)) → 4 hide Live/Attendance buttons in module pages (reversible) + reports use the Teaching Sessions statuses
 (excused). Then: repeating schedule, exam lock pauses the group chat.
 
 **Speed (2.5):** `portalHook_` answers `getAllContent` from memory when nothing changed for that storage (markers
@@ -233,8 +238,9 @@ The user is a pathologist, not a developer. They follow steps literally and send
 
 ## 10. Current state (2026-10-07)
 
-- **Portal.gs 2.8 (2026-10-10): Teaching Sessions steps 1–2** (teacher panel; group-page card with check-in, see §3).
-  Code.core.gs test fixture includes the verbatim attendance engine of Code.gs (Drive copy stubbed). Tests: 71 backend, 45 e2e.
+- **Portal.gs 2.9 (2026-10-10): Teaching Sessions steps 1–3** (teacher panel; group-page card with check-in; group Live
+  Classroom, see §3). Code.core.gs test fixture includes the verbatim attendance engine and Live Classroom engine of
+  Code.gs (attendance Drive copy stubbed; `driveFake()` in the harness fakes Drive uploads). Tests: 76 backend, 46 e2e.
 - Portal.gs **2.6** (2275 lines, with platformCheck) deployed by the user on 2026-10-10; in the repo (Official Exams: places/hand-off, public exam list, combined exams, bank transfers,
   picture questions, combined-exam teaching lock, per-module results); the user had **2.5** deployed before this.
 - Exam app `third-year-med/pathology-exams` (single `index.html`): `?m=<storage>` manager/student, `?g=<code>` front

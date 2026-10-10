@@ -133,6 +133,10 @@ function createBackend(opts) {
     DriveApp: (function () {   // uploads are kept in drive[] (id, name, bytes) for the tests
       const folder = { createFile: function (blob) { const id = 'drv' + (drive.length + 1) + crypto.randomBytes(4).toString('hex'); drive.push({ id: id, name: blob.getName ? blob.getName() : '', bytes: blob.getBytes() });
         return { getId: function () { return id; }, setSharing: function () {} }; } };
+      const subs = {};   // sub-folders (e.g. "Live classroom files — <storage>")
+      folder.getId = function () { return 'folder-root'; };
+      folder.getFoldersByName = function (n) { let has = !!subs[n]; return { hasNext: function () { return has; }, next: function () { has = false; return subs[n]; } }; };
+      folder.createFolder = function (n) { subs[n] = { getId: function () { return 'folder-' + n; } }; return subs[n]; };
       let made = false;
       return { Access: { ANYONE_WITH_LINK: 'anyone' }, Permission: { VIEW: 'view' },
         getFoldersByName: function () { let n = made; return { hasNext: function () { return n; }, next: function () { n = false; return folder; } }; },
@@ -191,4 +195,24 @@ function githubMock(opts) {
   return state;
 }
 
-module.exports = { createBackend: createBackend, githubMock: githubMock };
+/* Google Drive's resumable upload + ranged download, enough for Live Classroom files (blobInit / blobPut / blobRead). */
+function driveFake() {
+  const sessions = {}, files = {}; let n = 0;
+  const fn = function (url, o) {
+    if (/upload\/drive\/v3\/files\?uploadType=resumable/.test(url)) { const id = 'up' + (++n); sessions[id] = { meta: JSON.parse(o.body), chunks: [] }; return { code: 200, body: '', headers: { Location: 'https://upload.test/' + id } }; }
+    let m = /^https:\/\/upload\.test\/(\w+)$/.exec(url);
+    if (m) {
+      const up = sessions[m[1]], range = String(o.headers['Content-Range'] || ''), total = Number(range.split('/')[1]);
+      if (/^bytes \*\//.test(range)) { const got = up.chunks.reduce(function (a, b) { return a + b.length; }, 0); return got >= total ? { code: 200, body: JSON.stringify({ id: up.fileId }) } : { code: 308, body: '', headers: got ? { Range: 'bytes=0-' + (got - 1) } : {} }; }
+      up.chunks.push(Buffer.from(o.body));
+      const got = up.chunks.reduce(function (a, b) { return a + b.length; }, 0);
+      if (got >= total) { up.fileId = 'drv' + (++n); files[up.fileId] = Buffer.concat(up.chunks); return { code: 200, body: JSON.stringify({ id: up.fileId }) }; }
+      return { code: 308, body: '', headers: { Range: 'bytes=0-' + (got - 1) } };
+    }
+    m = /drive\/v3\/files\/(\w+)\?alt=media/.exec(url);
+    if (m && files[m[1]]) { const r = /bytes=(\d+)-(\d+)/.exec(o.headers.Range || ''), b = files[m[1]]; return { code: 206, body: r ? b.slice(Number(r[1]), Number(r[2]) + 1) : b }; }
+    throw new Error('UrlFetchApp: unexpected ' + url);
+  };
+  fn.files = files; return fn;
+}
+module.exports = { createBackend: createBackend, githubMock: githubMock, driveFake: driveFake };

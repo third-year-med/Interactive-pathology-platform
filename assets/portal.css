@@ -236,3 +236,39 @@ code.pw{font-size:14px;font-weight:700;letter-spacing:.03em}
 .ts-ci-code{font:700 24px/1.2 ui-monospace,Consolas,monospace;letter-spacing:.12em;text-transform:uppercase;padding:8px 10px;border:1px solid var(--line);border-radius:10px;width:min(14ch,100%)}
 .ts-ci-f .err{flex-basis:100%;margin:0}
 .ts-ok{font-size:17px;margin:10px 0 4px;color:var(--good)}
+/* Group Live Classroom (2.9) */
+.lc{display:flex;flex-direction:column;gap:8px;max-width:900px;margin:0 auto}
+.lc-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.lc-ttl{min-width:0}.lc-ttl b{font-size:18px;color:var(--navy)}
+.lc-lect{background:var(--bad-soft);border:1px solid #f1c4bf;border-radius:12px;padding:8px 12px;font-size:14px}
+.lc-pins{background:var(--warn-soft);border-radius:12px;padding:6px 10px;font-size:14px}
+.lc-pin{border:0;background:none;color:var(--navy);text-decoration:underline;cursor:pointer;font:inherit;padding:0 4px}
+.lc-list{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px;height:min(60vh,560px);overflow-y:auto;overscroll-behavior:contain}
+.lc-more{text-align:center;margin-bottom:8px}
+.lc-m{padding:8px 10px;border-radius:12px;margin:6px 0;background:#f6f8fb;max-width:92%;word-wrap:break-word;overflow-wrap:anywhere}
+.lc-m.me{margin-left:auto;background:var(--teal-soft)}
+.lc-m.t{border-left:4px solid var(--navy)}
+.lc-m.ann{background:var(--warn-soft);border-left:4px solid #d39b00;max-width:100%}
+.lc-m.lc-hl{outline:3px solid #f0b429}
+.lc-mh{font-size:14px}.lc-b{margin-top:2px}
+.lc-badge{font-size:11px;background:var(--navy);color:#fff;border-radius:6px;padding:1px 6px;vertical-align:1px}
+.lc-badge.ann{background:#a76f00}
+.lc-q{border-left:3px solid var(--line);padding-left:8px;color:var(--muted);margin:2px 0}
+.lc-atts{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.lc-img{border:1px solid var(--line);border-radius:10px;padding:0;background:#fff;cursor:pointer;overflow:hidden;max-width:220px}
+.lc-img img{display:block;max-width:220px;max-height:180px;min-width:64px;min-height:48px;object-fit:contain}
+.lc-rx{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.lc-chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:0 8px;font-size:13px;cursor:pointer}
+.lc-chip.on{border-color:var(--teal);background:var(--teal-soft)}
+.lc-acts{display:flex;flex-wrap:wrap;gap:2px 10px;margin-top:2px}
+.lc-acts>button,.lc-pick button{border:0;background:none;color:var(--teal-2);font-size:12px;cursor:pointer;padding:2px 0}
+.lc-pick{display:inline-flex;gap:4px}.lc-pick button{font-size:18px}
+.lc-typing{min-height:18px}
+.lc-form{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px;display:flex;flex-direction:column;gap:6px}
+.lc-form textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:8px 10px;resize:vertical;min-height:48px}
+.lc-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.lc-row .err{flex:1;margin:0}
+.lc-row button[type=submit]{margin-left:auto}
+.lc-reply{font-size:13px;background:#f6f8fb;border-radius:8px;padding:4px 8px}
+.lc-files{display:flex;flex-wrap:wrap;gap:6px}.lc-up{background:#f6f8fb;border-radius:8px;padding:2px 8px}
+.lc-up button{border:0;background:none;cursor:pointer}
+.lc-stop{padding:20px;text-align:center}

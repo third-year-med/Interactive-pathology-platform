@@ -165,7 +165,7 @@
   /* ---------------- Group page: 🎓 Teaching Sessions card (2.8) — live lecture + check-in, upcoming, my attendance ---------------- */
   function stuTokens(s) { var o = {}, mods = (s && s.modules) || {}; Object.keys(mods).forEach(function (k) { if (mods[k] && mods[k].access && mods[k].token) o[k] = mods[k].token; }); return o; }
   function lecturesSection(s) {
-    var sec = h('<section class="t-sec ts-stu" id="ts-stu" hidden><div class="sec-head"><h2>🎓 Teaching Sessions</h2><button class="btn small" type="button" data-a="r">↻ Refresh</button></div><div class="ts-stu-body"></div></section>');
+    var sec = h('<section class="t-sec ts-stu" id="ts-stu" hidden><div class="sec-head"><h2>🎓 Teaching Sessions</h2><span class="roster-btns"><a class="btn primary small" href="#/live" data-a="live">💬 Live Classroom</a><button class="btn small" type="button" data-a="r">↻ Refresh</button></span></div><div class="ts-stu-body"></div></section>');
     var body = $('.ts-stu-body', sec), timer = null;
     $('[data-a=r]', sec).onclick = function () { load(); };
     function call(action, o) { return post(CFG.backendUrl, Object.assign({ module: 'portal', action: action, g: GINFO.group.linkCode, sessions: stuTokens(session()) }, o || {})); }
@@ -228,6 +228,37 @@
     }
     load();
     return sec;
+  }
+  /* ---------------- Group Live Classroom (2.9): one classroom per group (assets/classroom.js) ---------------- */
+  function openClassroomTeacher(call, g, btn) {
+    if (!window.PlatformClassroom) return toast('Reload the page to open the classroom.');
+    if (btn) btn.disabled = true;
+    call('liveTeacherOpen', { groupId: g.groupId }).then(function (r) {
+      if (btn) btn.disabled = false;
+      if (!r.ok) { if (r.code === 'auth') { sdel(TKEY); toast('Your session has ended — please sign in again.'); return route(); } return toast(r.code === 'badaction' ? 'Update Portal.gs on the backend (version 2.9).' : r.error); }
+      main.innerHTML = ''; window.scrollTo(0, 0);
+      window.PlatformClassroom.mount(main, { title: r.title + ' (' + g.label + ')', lecture: r.lecture, timeZone: r.timeZone, me: { role: 'teacher', name: r.name },
+        call: function (action, o) { return post(CFG.backendUrl, Object.assign({ module: r.storage, action: action, token: r.token }, o || {})); },
+        onBack: function () { route(); } });
+    });
+  }
+  function viewLive() {
+    var s = session();
+    if (!s) { location.hash = '#/'; return; }
+    if (!window.PlatformClassroom) { main.innerHTML = '<p class="err">Reload the page to open the classroom.</p>'; return; }
+    main.innerHTML = '<p class="muted">Opening the Live Classroom…</p>';
+    var cur = null;
+    var open = function () { return post(CFG.backendUrl, { module: 'portal', action: 'liveOpen', g: GINFO.group.linkCode, sessions: stuTokens(session()) }); };
+    open().then(function (r) {
+      if (!r.ok) {
+        main.innerHTML = '<div class="card"><p class="err">' + esc(r.code === 'studentauth' ? 'Please sign out and sign in again, then open the classroom.' : r.code === 'badaction' ? 'The Live Classroom is not available yet.' : r.error) + '</p><a class="btn" href="#/">← Back</a></div>'; return;
+      }
+      cur = r;
+      window.PlatformClassroom.mount(main, { title: r.title, lecture: r.lecture, timeZone: r.timeZone, me: { role: 'student', name: r.name, participantId: r.participantId },
+        call: function (action, o) { return post(CFG.backendUrl, Object.assign({ module: cur.storage, action: action, participantId: cur.participantId, gs: stuTokens(session()) }, o || {})); },
+        onAuthLost: function () { return open().then(function (x) { if (x.ok) { cur = x; return true; } return false; }); },
+        onBack: function () { location.hash = '#/'; } });
+    });
   }
   /** Group page: a module delivered or opened after the student signed in is checked again (once per page load), using the
    *  student's existing session as proof — no need to sign out and in. */
@@ -775,8 +806,9 @@
       $('select', top).onchange = function () { groupId = this.value; try { sessionStorage.setItem('pp_ts_group', groupId); } catch (e) { } paint(); };
       var sb = $('[data-a=set]', top); if (sb) sb.onclick = function () { settingsForm(top); };
       body.appendChild(top);
-      var bar = h('<div class="roster-tools"><button class="btn primary" type="button" data-a="new">📅 Schedule a lecture</button><button class="btn" type="button" data-a="now">▶ Start a lecture now</button></div>');
+      var bar = h('<div class="roster-tools"><button class="btn primary" type="button" data-a="new">📅 Schedule a lecture</button><button class="btn" type="button" data-a="now">▶ Start a lecture now</button><button class="btn" type="button" data-a="live">💬 Group Live Classroom</button></div>');
       body.appendChild(bar);
+      $('[data-a=live]', bar).onclick = function () { openClassroomTeacher(call, g, this); };
       var formBox = h('<div class="ts-form-box"></div>'); body.appendChild(formBox);
       $('[data-a=new]', bar).onclick = function () { lectureForm(formBox, null, false); };
       $('[data-a=now]', bar).onclick = function () { lectureForm(formBox, null, true); };
@@ -1709,7 +1741,7 @@
   }
 
   /* ---------------- start ---------------- */
-  function route() { header(); if (/^#\/teacher/.test(location.hash)) viewTeacher(); else viewHome(); window.scrollTo(0, 0); }
+  function route() { header(); if (/^#\/teacher/.test(location.hash)) viewTeacher(); else if (GINFO && location.hash === '#/live') viewLive(); else viewHome(); window.scrollTo(0, 0); }
   function boot() {
     header();
     if (GROUP && !/^#\/teacher/.test(location.hash)) {

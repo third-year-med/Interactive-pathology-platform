@@ -8,7 +8,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
-const { createBackend } = require('./apps-script/harness');
+const { createBackend, driveFake } = require('./apps-script/harness');
 
 /* Step 5 closes module-level teacher sign-in. Test FIXTURES still create module teacher sessions that way (to add students
    quickly): this wrapper turns on the emergency switch (ALLOW_MODULE_LOGIN) for exactly those calls. Calls marked __real
@@ -37,7 +37,7 @@ const PW = 'student-pass-1', TPW = 'portal-teacher-1';
 let server, url, browser, main, gyn;
 const errors = [];
 function backend() {
-  const b = fixtureBackend({ files: FILES });
+  const b = fixtureBackend({ files: FILES, fetch: driveFake() });
   b.teacher = {};
   b.call = function (o) { return b.doPost(o); };
   b.addStudents = function (m, list) {
@@ -1701,6 +1701,74 @@ test('Teaching Sessions on the group page: the student sees the live lecture, ch
   await p.click('#ts-stu [data-a=r]');
   await p.waitForFunction(function () { return /My attendance[\s\S]*100%/.test(document.querySelector('#ts-stu').textContent) && !document.querySelector('#ts-stu .ts-now'); });
   await p.context().close();
+});
+
+test('Group Live Classroom: a student (group page) and the teacher (dashboard) chat in ONE classroom — message, announcement, reply, reaction, file, picture, lecture banner', { skip: SKIP }, async function () {
+  groupFixture();
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const A = function (action, o) { const r = main.call(Object.assign({ module: 'portal', action: action, token: t }, o || {})); assert.ok(r.ok, JSON.stringify(r)); return r; };
+  const dir = A('dirGet'), g = dir.groups.filter(function (x) { return x.linkCode === 'tr-a'; })[0];
+  const d = dir.deliveries.filter(function (x) { return x.groupId === g.groupId && x.moduleId === 'inflhealing'; })[0];
+  const L = A('tsStart', { session: { groupId: g.groupId, deliveryId: d.deliveryId, title: 'Lecture 5 — Chronic inflammation', startAt: Date.now(), rotate: false } });
+  // student
+  const s = await page({ width: 390, height: 844 });
+  await s.goto(url + '?g=tr-a');
+  await signIn(s, 'ahmed', PW);
+  await s.waitForSelector('#ts-stu [data-a=live]');
+  await s.click('#ts-stu [data-a=live]');
+  await s.waitForSelector('.lc .lc-form');
+  assert.match(await s.textContent('.lc-lect'), /Live lecture: Lecture 5 — Chronic inflammation — 🔥 Inflammation & Healing/);
+  await s.waitForFunction(function () { return /Lecture started: Lecture 5/.test(document.querySelector('.lc-msgs').textContent); });
+  await s.fill('.lc textarea', 'Hello Doctor, I have a question about granulomas');
+  await s.press('.lc textarea', 'Enter');
+  await s.waitForFunction(function () { return /question about granulomas/.test(document.querySelector('.lc-msgs').textContent); });
+  // a file + a picture from the student
+  await s.setInputFiles('.lc input[type=file]', [{ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('my notes') },
+    { name: 'slide.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEElEQVR4nGM4IScHRwzEcQCxYxBBO0tjggAAAABJRU5ErkJggg==', 'base64') }]);
+  await s.waitForFunction(function () { var u = document.querySelectorAll('.lc-up i'); return u.length === 2 && Array.prototype.every.call(u, function (x) { return x.textContent === '✓'; }); });
+  await s.fill('.lc textarea', 'My notes and the slide');
+  await s.click('.lc button[type=submit]');
+  await s.waitForSelector('.lc-m .lc-file');
+  await s.waitForSelector('.lc-m .lc-img img');
+  // teacher (Admin) opens the same classroom from the dashboard
+  const tp = await page();
+  await tp.goto(url + '#/teacher');
+  await tp.fill('#t-p', TPW); await tp.click('form.card button[type=submit]');
+  await tp.waitForSelector('#t-sessions .ts-top select');
+  await tp.selectOption('#t-sessions .ts-top select', g.groupId);
+  await tp.waitForSelector('#t-sessions .ts-lists .ts-block');
+  await tp.click('#t-sessions [data-a=live]');
+  await tp.waitForSelector('.lc .lc-form');
+  await tp.waitForFunction(function () { return /question about granulomas/.test(document.querySelector('.lc-msgs').textContent); });
+  assert.ok(await tp.$('.lc [data-k=ann]'), 'teachers can post announcements');
+  // the teacher replies (as an announcement) and downloads the student's file
+  await tp.click('.lc-m:has-text("question about granulomas") [data-a=reply]');
+  await tp.fill('.lc textarea', 'Good question — see the pinned summary.');
+  await tp.check('.lc [data-k=ann]');
+  await tp.click('.lc button[type=submit]');
+  await tp.waitForSelector('.lc-m.ann:has-text("Good question")');
+  await tp.click('.lc-m.ann:has-text("Good question") [data-a=pin]');
+  await tp.waitForSelector('.lc-pins:not([hidden])');
+  const [dl] = await Promise.all([tp.waitForEvent('download'), tp.click('.lc-m .lc-file')]);
+  assert.strictEqual(dl.suggestedFilename(), 'notes.txt');
+  assert.strictEqual(fs.readFileSync(await dl.path(), 'utf8'), 'my notes');
+  if (process.env.SHOTS) await tp.screenshot({ path: path.join(process.env.SHOTS, 'classroom-teacher.png') });
+  // the student sees the teacher's reply (pinned announcement, quoted question) and reacts
+  await s.waitForSelector('.lc-m.ann:has-text("Good question")', { timeout: 15000 });
+  assert.match(await s.textContent('.lc-m.ann:has-text("Good question")'), /Teacher[\s\S]*Announcement[\s\S]*↩ Student Ahmed: Hello Doctor/);
+  await s.waitForSelector('.lc-pins:not([hidden])', { timeout: 15000 });
+  await s.click('.lc-m.ann:has-text("Good question") [data-a=react]');
+  await s.click('.lc-m.ann:has-text("Good question") .lc-pick button:text("👍")');
+  await s.waitForSelector('.lc-m.ann:has-text("Good question") .lc-chip.on');
+  if (process.env.SHOTS) await s.screenshot({ path: path.join(process.env.SHOTS, 'classroom-student.png') });
+  assert.ok(await s.evaluate(function () { return document.documentElement.scrollWidth - window.innerWidth; }) <= 1, 'fits a phone');
+  // closing the lecture posts "Lecture ended"; back returns to the group page
+  A('tsClose', { tsId: L.session.tsId });
+  await s.waitForFunction(function () { return /Lecture ended: Lecture 5/.test(document.querySelector('.lc-msgs').textContent); }, null, { timeout: 15000 });
+  await s.click('.lc [data-a=back]');
+  await s.waitForSelector('#ts-stu');
+  await s.context().close(); await tp.context().close();
 });
 
 test('no JavaScript errors', { skip: SKIP }, function () { assert.deepStrictEqual(errors, []); });

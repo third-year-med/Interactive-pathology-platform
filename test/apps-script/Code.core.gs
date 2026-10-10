@@ -1,7 +1,7 @@
 /* TEST FIXTURE — verbatim excerpts of the platform's shared Code.gs (v1.7): configuration, entry point, routing,
  * sheet plumbing, teacher authentication, student accounts, content CRUD helpers and the exam-window lock that the
- * sign-in gate consults, and the attendance engine (Teaching Sessions). Engines not needed (Live Classroom, study sync,
- * assessments, practicals, exam app) are left out; the router only reaches them for other actions.
+ * sign-in gate consults, the attendance engine and the Live Classroom (Teaching Sessions). Engines not needed (study
+ * sync, assessments, practicals, exam app) are left out; the router only reaches them for other actions.
  * NOT FOR DEPLOYMENT: deploy your own Code.gs unchanged. Content keys and default passwords here are test values. */
 
 var VERSION = '1.7';
@@ -122,6 +122,36 @@ function route_(p) {
     case 'getAttendanceSessionReport': return authed_(module, p, function () { return actionGetAttendanceSessionReport_(module, p); });
     case 'submitAttendance': return actionSubmitAttendance_(module, p);
     case 'submitAttendanceByCode': return actionSubmitAttendanceByCode_(module, p);
+    /* Live Classroom (v1.2) — one shared engine (LE_createService, generated from src/08_live_engine.js).
+       Teacher = valid session token; student = joined member of THIS classroom — checked inside every action. */
+    case 'liveJoin': return liveSvc_().join(module, p);
+    case 'liveSync': return liveSvc_().sync(module, p);
+    case 'liveHistory': return liveSvc_().history(module, p);
+    case 'liveContext': return liveSvc_().context(module, p);
+    case 'livePost': return liveSvc_().post(module, p);
+    case 'liveEdit': return liveSvc_().mutate(module, p, 'edit');
+    case 'liveDelete': return liveSvc_().mutate(module, p, 'delete');
+    case 'livePin': return liveSvc_().mutate(module, p, 'pin');
+    case 'liveReact': return liveSvc_().mutate(module, p, 'react');
+    case 'liveSearch': return liveSvc_().search(module, p);
+    case 'liveMembers': return liveSvc_().members(module, p);
+    case 'liveNotifications': return liveSvc_().notifications(module, p);
+    case 'liveMarkRead': return liveSvc_().markRead(module, p);
+    case 'liveSetPrefs': return liveSvc_().setPrefs(module, p);
+    case 'liveTyping': return liveSvc_().typing(module, p);
+    case 'liveUploadInit': return liveSvc_().uploadInit(module, p);
+    case 'liveUploadChunk': return liveSvc_().uploadChunk(module, p);
+    case 'liveUploadStatus': return liveSvc_().uploadStatus(module, p);
+    case 'liveFileChunk': return liveSvc_().fileChunk(module, p);
+    case 'liveModuleInfo': return authed_(module, p, function () {
+      var t = String(p.title || module).slice(0, 80), u = /^https?:\/\//.test(String(p.url || '')) ? String(p.url).slice(0, 300) : '';
+      if (getSetting_('modtitle:' + module) !== t) setSetting_('modtitle:' + module, t);
+      if (u && getSetting_('modurl:' + module) !== u) setSetting_('modurl:' + module, u);
+      CacheService.getScriptCache().removeAll(['modtitle:' + module, 'modurl:' + module]);
+      return { ok: true }; });
+    case 'getLiveClassroomPassword': return authed_(module, p, function () { return actionGetLiveClassroomPassword_(module); });
+    case 'setLiveClassroomPassword': return authed_(module, p, function () { return actionSetLiveClassroomPassword_(module, p); });
+
     case 'privList': return authed_(module, p, function () { return actionPrivList_(module, p); });
     case 'examBankList': case 'examBankSave': case 'examBankDelete': case 'examList': case 'examUpsert': case 'examRemove':
     case 'examResults': case 'examAttemptDetail': case 'examResetAttempt': case 'examReleaseSession':
@@ -959,3 +989,634 @@ function recordAttendance_(row, p) {
 /* TEST STUB (not from Code.gs): the Drive copy of an attendance report — counts calls instead of creating a Google Sheet. */
 var ATT_DRIVE_SYNCS = 0;
 function trySyncAttendanceToDrive_(row, records) { ATT_DRIVE_SYNCS++; return { status: 'synced', url: 'https://docs.google.com/spreadsheets/d/TESTFILE' + row.sessionId.slice(0, 8) + '/edit' }; }
+
+/* ---- Live Classroom (verbatim from Code.gs v1.7: classroom code, storage adapter, engine) ---- */
+function livePwKey_(module) { return 'livepw:' + module; }
+function actionGetLiveClassroomPassword_(module) {
+  return { ok: true, password: getSetting_(livePwKey_(module)) || DEFAULT_LIVE_PW[module] || 'CLASSROOM-2026' };
+}
+function actionSetLiveClassroomPassword_(module, p) {
+  var pw = String(p.password || '').trim();
+  if (pw.length < 4) return { ok: false, error: 'Code must be at least 4 characters.' };
+  setSetting_(livePwKey_(module), pw);
+  return { ok: true, password: pw };
+}
+
+/* ---------------------------------------------------------------------- *
+ * Live Classroom v1.2 — storage adapter for the shared engine.
+ * The engine (LE_createService) holds every rule; this block only maps its
+ * store interface onto Sheets (durable data), CacheService (presence, typing,
+ * change-version fast path, auth cache) and Drive (private files uploaded via
+ * a server-side resumable session in 2 MB chunks — no whole-file base64).
+ * ---------------------------------------------------------------------- */
+function liveSvc_() { return LE_createService(liveStore_()); }
+function liveCache_() { return CacheService.getScriptCache(); }
+function liveTeacherTokenOk_(module, token) {
+  if (!token) return false;
+  var c = liveCache_(), k = 'tok:' + module + ':' + token;
+  if (c.get(k)) return true;
+  var rows = readAll_(SHEETS.SESSIONS);
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    // r.module blank = a pre-upgrade session (grandfathered, see authed_); otherwise it must match this module.
+    if (r.token === token && Number(r.expiresAt) > Date.now() && (!r.module || r.module === module)) {
+      c.put(k, '1', Math.max(60, Math.min(1800, Math.floor((Number(r.expiresAt) - Date.now()) / 1000))));
+      return true;
+    }
+  }
+  return false;
+}
+/** Answer a liveSync from cache only when nothing changed (see LE sync fast path) — or return null to take the full path. */
+function liveSyncFast_(p) {
+  var module = String(p.module || 'default'); var since = Number(p.since) || 0;
+  if (p.full || !p.readVer) return null;
+  var c = liveCache_();
+  var verRaw = c.get(p.allModules ? 'ver:*' : 'ver:' + module);
+  if (verRaw === null || Number(verRaw) > since) return null;
+  var pid;
+  if (p.token) { if (!c.get('tok:' + module + ':' + p.token)) return null; pid = LE_TEACHER_PID; }
+  else { if (!p.participantId || !c.get('mem:' + module + ':' + p.participantId)) return null; pid = p.participantId; }
+  var rv = c.get('rv:' + (p.token ? '*' : module + ':' + pid)); if (!rv || rv !== p.readVer) return null;
+  var svc = LE_createService(liveStore_());
+  return svc.sync(module, p); // takes the engine's own fast path: CacheService reads only
+}
+function liveJsonCols_(rec, key, n) { var s = JSON.stringify(rec[key] || (key === 'reactions' ? {} : [])); return s; }
+function liveStore_() {
+  var memo = {};
+  function msgs() {
+    if (!memo.msgs) memo.msgs = readAll_(SHEETS.LIVE_CHAT).map(function (r) {
+      var j = function (v, d) { try { return v ? JSON.parse(v) : d; } catch (e) { return d; } };
+      return { _row: r._row, module: r.module, id: String(r.id), kind: r.kind || 'message', authorRole: r.authorRole, authorName: r.authorName, participantId: r.participantId || '',
+        body: String(r.body || ''), imageUrl: r.imageUrl || '', fileUrl: r.fileUrl || '', fileName: r.fileName || '', fileMime: r.fileMime || '', replyToId: r.replyToId || '',
+        pinned: r.pinned === true || r.pinned === 'TRUE', edited: r.edited === true || r.edited === 'TRUE', deleted: r.deleted === true || r.deleted === 'TRUE',
+        reactions: j(r.reactionsJson, {}), createdAt: Number(r.createdAt) || 0, updatedAt: Number(r.updatedAt) || 0, seq: Number(r.seq) || 0, ord: Number(r.ord) || 0,
+        clientId: r.clientId || '', replyToPid: r.replyToPid || '', mentions: j(r.mentionsJson, []), mentionAll: r.mentionAll === true || r.mentionAll === 'TRUE', attachments: j(r.attachmentsJson, []) };
+    });
+    return memo.msgs;
+  }
+  function msgRow(m) {
+    return { module: m.module, id: m.id, kind: m.kind, authorRole: m.authorRole, authorName: m.authorName, participantId: m.participantId || '', body: m.body || '',
+      imageUrl: m.imageUrl || '', fileUrl: m.fileUrl || '', fileName: m.fileName || '', fileMime: m.fileMime || '', replyToId: m.replyToId || '', pinned: !!m.pinned,
+      edited: !!m.edited, deleted: !!m.deleted, reactionsJson: JSON.stringify(m.reactions || {}), createdAt: m.createdAt, updatedAt: m.updatedAt, seq: m.seq, ord: m.ord || '',
+      clientId: m.clientId || '', replyToPid: m.replyToPid || '', mentionsJson: JSON.stringify(m.mentions || []), mentionAll: !!m.mentionAll, attachmentsJson: JSON.stringify(m.attachments || []) };
+  }
+  function mems() {
+    if (!memo.mems) memo.mems = readAll_(SHEETS.LIVE_MEMBERS).map(function (r) {
+      var j = function (v, d) { try { return v ? JSON.parse(v) : d; } catch (e) { return d; } };
+      return { _row: r._row, module: r.module, participantId: String(r.participantId), role: r.role, name: r.name, email: r.email || '', prefs: j(r.prefsJson, {}),
+        readUpTo: Number(r.readUpTo) || 0, readIds: j(r.readIdsJson, []), readVer: Number(r.readVer) || 0, removed: r.removed === true || r.removed === 'TRUE',
+        joinedAt: Number(r.joinedAt) || 0, updatedAt: Number(r.updatedAt) || 0 };
+    });
+    return memo.mems;
+  }
+  function files() {
+    if (!memo.files) memo.files = readAll_(SHEETS.LIVE_FILES).map(function (r) {
+      return { _row: r._row, module: r.module, id: String(r.id), name: r.name, mime: r.mime, size: Number(r.size) || 0, uploaderPid: r.uploaderPid, status: r.status,
+        storageId: r.storageId || '', messageId: r.messageId || '', preview: r.preview || '', createdAt: Number(r.createdAt) || 0, readyAt: Number(r.readyAt) || 0 };
+    });
+    return memo.files;
+  }
+  var props = PropertiesService.getScriptProperties();
+  return {
+    now: function () { return Date.now(); },
+    uuid: function () { return Utilities.getUuid(); },
+    lock: function (fn) { var l = LockService.getScriptLock(); l.waitLock(20000); try { memo = {}; return fn(); } finally { l.releaseLock(); } },
+    cacheGet: function (k) { return liveCache_().get(k); },
+    cachePut: function (k, v, ttl) { liveCache_().put(k, v, ttl || 600); },
+    nextSeq: function () { var n = Number(props.getProperty('liveSeq') || 0) + 1; props.setProperty('liveSeq', String(n)); return n; },
+    currentSeq: function () { return Number(props.getProperty('liveSeq') || 0); },
+    messages: msgs,
+    insertMessage: function (m) { appendRow_(SHEETS.LIVE_CHAT, msgRow(m)); msgs().push(m); },
+    updateMessage: function (m) { if (!m._row) { var all = msgs(); for (var i = 0; i < all.length; i++) if (all[i].id === m.id && all[i].module === m.module) { m._row = all[i]._row; break; } } updateRow_(SHEETS.LIVE_CHAT, m._row, msgRow(m)); },
+    members: mems,
+    putMember: function (m) {
+      var row = { module: m.module, participantId: m.participantId, role: m.role, name: m.name, email: m.email || '', prefsJson: JSON.stringify(m.prefs || {}), readUpTo: m.readUpTo || 0,
+        readIdsJson: JSON.stringify(m.readIds || []), readVer: m.readVer || 0, removed: !!m.removed, joinedAt: m.joinedAt || Date.now(), updatedAt: Date.now() };
+      var all = mems(); for (var i = 0; i < all.length; i++) if (all[i].module === m.module && all[i].participantId === m.participantId) { updateRow_(SHEETS.LIVE_MEMBERS, all[i]._row, row); m._row = all[i]._row; all[i] = m; return; }
+      appendRow_(SHEETS.LIVE_MEMBERS, row); all.push(m);
+    },
+    fileGet: function (id) { var all = files(); for (var i = 0; i < all.length; i++) if (all[i].id === id) return all[i]; return null; },
+    filePut: function (f) {
+      var row = { module: f.module, id: f.id, name: f.name, mime: f.mime, size: f.size, uploaderPid: f.uploaderPid, status: f.status, storageId: f.storageId || '', messageId: f.messageId || '', preview: f.preview || '', createdAt: f.createdAt, readyAt: f.readyAt || '' };
+      var all = files(); for (var i = 0; i < all.length; i++) if (all[i].id === f.id) { updateRow_(SHEETS.LIVE_FILES, all[i]._row, row); all[i] = f; f._row = all[i]._row; return; }
+      appendRow_(SHEETS.LIVE_FILES, row); all.push(f);
+    },
+    /* ---- Drive resumable session: created server-side (the OAuth token never leaves the server). Each 2 MB chunk is
+     *      forwarded straight into that session; progress, retry and resume all work at chunk granularity. ---- */
+    blobInit: function (f) {
+      var folder = liveFolder_(f.module);
+      var res = UrlFetchApp.fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id', {
+        method: 'post', contentType: 'application/json; charset=UTF-8', muteHttpExceptions: true,
+        headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken(), 'X-Upload-Content-Type': f.mime, 'X-Upload-Content-Length': String(f.size) },
+        payload: JSON.stringify({ name: f.name, parents: [folder.getId()], mimeType: f.mime })
+      });
+      var h = res.getAllHeaders(); var loc = h.Location || h.location;
+      if (!loc) throw new Error('Drive did not start the upload (' + res.getResponseCode() + '). Run authorizeDriveAccess once in the Apps Script editor.');
+      liveCache_().put('upl:' + f.id, loc, 21600);
+      return {};
+    },
+    blobPut: function (f, offset, b64) {
+      var loc = liveCache_().get('upl:' + f.id); if (!loc) throw new Error('This upload expired — please upload the file again.');
+      var bytes = Utilities.base64Decode(b64);
+      var res = UrlFetchApp.fetch(loc, { method: 'put', contentType: f.mime, payload: bytes, muteHttpExceptions: true,
+        headers: { 'Content-Range': 'bytes ' + offset + '-' + (offset + bytes.length - 1) + '/' + f.size } });
+      var code = res.getResponseCode();
+      if (code === 200 || code === 201) { var id = JSON.parse(res.getContentText()).id; return { received: f.size, done: true, storageId: id }; }
+      if (code === 308) { var rg = res.getAllHeaders().Range || res.getAllHeaders().range; return { received: rg ? Number(String(rg).split('-')[1]) + 1 : 0, done: false }; }
+      throw new Error('Storage rejected the chunk (' + code + ').');
+    },
+    blobStatus: function (f) {
+      if (f.status === 'ready') return { received: f.size, done: true, storageId: f.storageId };
+      var loc = liveCache_().get('upl:' + f.id); if (!loc) return { received: 0, done: false };
+      var res = UrlFetchApp.fetch(loc, { method: 'put', muteHttpExceptions: true, headers: { 'Content-Range': 'bytes */' + f.size } });
+      var code = res.getResponseCode();
+      if (code === 200 || code === 201) return { received: f.size, done: true, storageId: JSON.parse(res.getContentText()).id };
+      var rg = res.getAllHeaders().Range || res.getAllHeaders().range;
+      return { received: rg ? Number(String(rg).split('-')[1]) + 1 : 0, done: false };
+    },
+    blobRead: function (f, offset, length) {
+      var res = UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + f.storageId + '?alt=media', { muteHttpExceptions: true,
+        headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken(), Range: 'bytes=' + offset + '-' + (offset + length - 1) } });
+      if (res.getResponseCode() !== 206 && res.getResponseCode() !== 200) throw new Error('Storage read failed (' + res.getResponseCode() + ').');
+      return Utilities.base64Encode(res.getContent());
+    },
+    isTeacherToken: liveTeacherTokenOk_,
+    classCode: function (module) { return getSetting_(livePwKey_(module)) || DEFAULT_LIVE_PW[module] || 'CLASSROOM-2026'; },
+    moduleTitle: function (module) { var k = 'modtitle:' + module, c = liveCache_().get(k); if (c) return c; var t = getSetting_(k) || ''; if (t) liveCache_().put(k, t, 21600); return t; },
+    moduleUrl: function (module) { var k = 'modurl:' + module, c = liveCache_().get(k); if (c !== null) return c; var t = getSetting_(k) || ''; liveCache_().put(k, t, 21600); return t; }
+  };
+}
+function liveFolder_(module) {
+  var root = getImageFolder_();
+  var name = 'Live classroom files — ' + module;
+  var it = root.getFoldersByName(name);
+  return it.hasNext() ? it.next() : root.createFolder(name); // private: nothing inside is link-shared
+}
+
+
+/* ==== LIVE ENGINE BEGIN (generated from src/08_live_engine.js by build.py — edit that file, not this block) ==== */
+/* ==========================================================================
+   08_live_engine.js — the ONE Live Classroom engine (messages, change feed,
+   idempotency, ordering, notification rules, read state, presence, typing,
+   file transfer rules). Self-contained (no DOM, no platform globals): build.py
+   copies it verbatim into backend/Code.gs (LIVE ENGINE markers) and the test
+   mock loads it directly, so server, mock and client share one set of rules.
+
+   Model
+   -----
+   • Every mutation (create / edit / delete / pin / react) stamps the message
+     with a new, globally increasing `seq` (assigned under a lock). Clients keep
+     a cursor and ask "what changed since seq N?" — one small delta instead of
+     re-downloading the conversation. Deletions travel as tombstones.
+   • `ord` = the seq a message received when it was CREATED: an immutable,
+     server-assigned ordering key (browser clocks and arrival order never matter).
+   • `clientId` = idempotency key generated by the sender's browser. Posting the
+     same clientId twice returns the original message — never a duplicate.
+   • Notifications are derived per recipient from the message log by explicit
+     rules (fan-out on read): nothing extra is written when a message is sent,
+     so notification work can never slow sending down. Notification ids are
+     deterministic ("<messageId>:<TYPE>") so the same event can never produce
+     two notifications. Read state (a watermark + individually-read ids) is
+     persisted per member on the server — the source of truth for unread counts
+     on every tab and device.
+   ========================================================================== */
+var LE_PAGE = 40;
+var LE_MAX_BODY = 4000;
+var LE_MAX_ATTACH = 6;
+var LE_MAX_FILE_BYTES = 50 * 1024 * 1024;
+var LE_CHUNK_BYTES = 2 * 1024 * 1024;            // multiple of 256 KiB (Drive resumable requirement)
+var LE_PREVIEW_MAX_CHARS = 30000;                // inline image preview (data URL) budget per image
+var LE_ONLINE_MS = 60 * 1000;
+var LE_TYPING_MS = 6000;
+var LE_NOTIF_WINDOW_MS = 30 * 24 * 3600 * 1000;  // notifications consider the last 30 days
+var LE_MAX_DELTA = 400;                          // larger gaps → client resyncs the latest page
+var LE_TYPES = { MESSAGE: 'LIVE_MESSAGE', REPLY: 'LIVE_REPLY', MENTION: 'LIVE_MENTION', ANNOUNCEMENT: 'LIVE_ANNOUNCEMENT', ATTACHMENT: 'LIVE_ATTACHMENT' };
+var LE_PREF_KEY = { LIVE_MESSAGE: 'message', LIVE_REPLY: 'reply', LIVE_MENTION: 'mention', LIVE_ANNOUNCEMENT: 'announcement', LIVE_ATTACHMENT: 'attachment' };
+var LE_DEFAULT_PREFS = { message: true, reply: true, mention: true, announcement: true, attachment: true, muted: false };
+var LE_BLOCKED_EXT = /\.(exe|msi|bat|cmd|com|scr|pif|vbs|vbe|js|jse|wsf|wsh|ps1|psm1|sh|jar|app|dmg|apk|iso|dll|sys|reg|lnk|hta|cpl)$/i;
+var LE_INLINE_MIME = /^(image\/(png|jpe?g|gif|webp|bmp|svg\+xml)|application\/pdf|text\/plain)$/i;
+var LE_TEACHER_PID = '__teacher__';
+
+/* ---------------- pure helpers ---------------- */
+function LE_norm(s) { return String(s == null ? '' : s).toLowerCase().replace(/\s+/g, ' ').trim(); }
+function LE_normEmail(e) { return String(e || '').trim().toLowerCase(); }
+function LE_validEmail(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(LE_normEmail(e)); }
+function LE_hash(s) { var h = 2166136261 >>> 0; s = String(s); for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return ('00000000' + h.toString(16)).slice(-8); }
+/** Stable participant id for a student: same email in the same classroom ⇒ same identity on every device. */
+function LE_pidFor(module, email) { var e = LE_normEmail(email); return 'p_' + LE_hash(module + '|' + e) + LE_hash(e + '|' + module); }
+function LE_cmp(a, b) { var x = a.ord || 0, y = b.ord || 0; if (x && y) return x - y; if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt; return String(a.id) < String(b.id) ? -1 : 1; }
+function LE_prefs(m) { var p = {}; for (var k in LE_DEFAULT_PREFS) p[k] = LE_DEFAULT_PREFS[k]; var s = (m && m.prefs) || {}; for (var k2 in s) if (k2 in LE_DEFAULT_PREFS || k2 === 'browser') p[k2] = s[k2]; return p; }
+/** Resolve @mentions against the classroom's members (longest names first, so "@Ahmed Ali" beats "@Ahmed"). */
+function LE_parseMentions(body, members, authorRole) {
+  var text = ' ' + String(body || '') + ' ';
+  var out = { pids: [], all: false };
+  if (authorRole === 'teacher' && /(^|\s)@(everyone|all|class)\b/i.test(text)) out.all = true;
+  var low = text.toLowerCase();
+  var list = (members || []).filter(function (m) { return m.name; }).slice().sort(function (a, b) { return b.name.length - a.name.length; });
+  list.forEach(function (m) {
+    var tag = '@' + String(m.name).toLowerCase();
+    var i = low.indexOf(tag);
+    while (i >= 0) {
+      var after = low.charAt(i + tag.length);
+      if (!/[a-z0-9À-ɏ]/.test(after)) { if (out.pids.indexOf(m.participantId) < 0) out.pids.push(m.participantId); break; }
+      i = low.indexOf(tag, i + 1);
+    }
+  });
+  if (/(^|\s)@teacher\b/i.test(text) && out.pids.indexOf(LE_TEACHER_PID) < 0) out.pids.push(LE_TEACHER_PID);
+  return out;
+}
+/** The ONE notification rule set. Returns the single most relevant type for this recipient, or null. */
+function LE_notificationType(m, member, prefs) {
+  if (!m || m.deleted || !member) return null;
+  var pid = member.participantId;
+  var authorPid = m.authorRole === 'teacher' ? LE_TEACHER_PID : m.participantId;
+  if (authorPid === pid) return null;                         // never notify people about their own messages
+  var p = prefs || LE_prefs(member);
+  var isTeacherRecipient = member.role === 'teacher';
+  var type = null;
+  if ((m.mentions || []).indexOf(pid) >= 0 || (m.mentionAll && !isTeacherRecipient)) type = LE_TYPES.MENTION;
+  else if (m.replyToPid && m.replyToPid === pid) type = LE_TYPES.REPLY;
+  else if (m.kind === 'announcement' && !isTeacherRecipient) type = LE_TYPES.ANNOUNCEMENT;
+  else if (m.authorRole === 'teacher' && !isTeacherRecipient && (m.attachments || []).length) type = LE_TYPES.ATTACHMENT;
+  else if (isTeacherRecipient ? m.authorRole !== 'teacher' : m.authorRole === 'teacher') type = LE_TYPES.MESSAGE;
+  if (!type) return null;
+  if (p[LE_PREF_KEY[type]] === false) return null;
+  if (p.muted && (type === LE_TYPES.MESSAGE || type === LE_TYPES.ATTACHMENT)) return null; // mute keeps mentions/replies/announcements
+  return type;
+}
+function LE_notifFor(m, member, moduleTitle) {
+  var t = LE_notificationType(m, member);
+  if (!t) return null;
+  var att = (m.attachments || [])[0];
+  return { id: m.id + ':' + t, type: t, module: m.module, moduleTitle: moduleTitle || '', messageId: m.id, seq: m.ord || m.seq || 0,
+    senderName: m.authorName, senderRole: m.authorRole, preview: String(m.body || '').slice(0, 140),
+    fileName: att ? att.name : (m.fileName || ''), attachmentId: att ? att.fileId : '', createdAt: m.createdAt,
+    link: { view: 'live', module: m.module, messageId: m.id } };
+}
+function LE_isRead(n, member) { return (n.seq && n.seq <= (member.readUpTo || 0)) || (member.readIds || []).indexOf(n.id) >= 0; }
+
+/* ---------------- output shapes ---------------- */
+function LE_out(m) {
+  if (m.deleted) return { id: m.id, deleted: true, seq: m.seq, module: m.module };
+  var counts = {}, mine = {};
+  var r = m.reactions || {};
+  for (var actor in r) { counts[r[actor]] = (counts[r[actor]] || 0) + 1; }
+  return { id: m.id, clientId: m.clientId || '', module: m.module, seq: m.seq || 0, ord: m.ord || 0, kind: m.kind || 'message', authorRole: m.authorRole,
+    authorName: m.authorName, participantId: m.participantId || '', body: m.body || '', imageUrl: m.imageUrl || '', fileUrl: m.fileUrl || '',
+    fileName: m.fileName || '', fileMime: m.fileMime || '', attachments: m.attachments || [], mentions: m.mentions || [], mentionAll: !!m.mentionAll,
+    replyToId: m.replyToId || '', pinned: !!m.pinned, edited: !!m.edited, reactions: counts, reactors: r, createdAt: m.createdAt, updatedAt: m.updatedAt || m.createdAt };
+}
+
+/* ---------------- the service ----------------
+ * store = { now, uuid, lock(fn), cacheGet(k), cachePut(k, str, ttlSec),
+ *   nextSeq() (inside lock), currentSeq(), messages() (all modules), insertMessage(rec), updateMessage(rec),
+ *   members() (all modules), putMember(rec), fileGet(id), filePut(rec),
+ *   blobInit(fileRec) -> {}, blobPut(fileRec, offset, base64) -> {received, done, storageId}, blobStatus(fileRec) -> {received, done, storageId},
+ *   blobRead(fileRec, offset, length) -> base64, isTeacherToken(token), classCode(module), moduleTitle(module) }
+ */
+function LE_createService(store) {
+  var T0 = store.now();
+  function pres(module) { try { return JSON.parse(store.cacheGet('pres:' + module) || '{}'); } catch (e) { return {}; } }
+  function savePres(module, map) { store.cachePut('pres:' + module, JSON.stringify(map), 600); }
+  function typingMap(module) { try { return JSON.parse(store.cacheGet('typ:' + module) || '{}'); } catch (e) { return {}; } }
+  function memberOf(module, pid) { var all = store.members(); for (var i = 0; i < all.length; i++) if (all[i].module === module && all[i].participantId === pid) return all[i]; return null; }
+  function teacherMember(module) {
+    var m = memberOf(module, LE_TEACHER_PID);
+    if (!m) { m = { module: module, participantId: LE_TEACHER_PID, role: 'teacher', name: 'Teacher', email: '', prefs: {}, readUpTo: store.currentSeq(), readIds: [], readVer: 0, joinedAt: store.now() }; store.putMember(m); }
+    return m;
+  }
+  /** Who is calling? Teacher (valid session token) or a joined member of THIS classroom. */
+  function auth(module, p) {
+    if (p.token) { if (store.isTeacherToken(module, p.token)) return { role: 'teacher', pid: LE_TEACHER_PID, name: 'Teacher', token: p.token }; return null; }
+    if (p.participantId) {
+      var cached = store.cacheGet('mem:' + module + ':' + p.participantId);
+      if (cached) return { role: 'student', pid: p.participantId, name: cached };
+      var m = memberOf(module, p.participantId);
+      if (m && m.role === 'student' && !m.removed) { store.cachePut('mem:' + module + ':' + p.participantId, m.name, 1800); return { role: 'student', pid: m.participantId, name: m.name }; }
+    }
+    return null;
+  }
+  /** Message output + its image previews (previews live with the file record, not in the message log,
+   *  so scanning the log for changes stays cheap no matter how many pictures were shared). */
+  function outM(m) {
+    var o = LE_out(m);
+    if (o.attachments && o.attachments.length) o.attachments = o.attachments.map(function (x) {
+      if (x.kind !== 'image' || x.preview) return x;
+      var f = store.fileGet(x.fileId); var y = {}; for (var k in x) y[k] = x[k]; y.preview = (f && f.preview) || ''; return y; });
+    return o;
+  }
+  function deny() { return { ok: false, error: 'Please rejoin the classroom.', code: 'auth' }; }
+  function roster(module) { return store.members().filter(function (m) { return m.module === module && !m.removed; }); }
+  function msgsOf(module) { return store.messages().filter(function (m) { return m.module === module; }); }
+  function findMsg(module, id) { var a = store.messages(); for (var i = 0; i < a.length; i++) if (a[i].module === module && a[i].id === id) return a[i]; return null; }
+  function bump(module) { store.cachePut('ver:' + module, String(store.currentSeq()), 21600); store.cachePut('ver:*', String(store.currentSeq()), 21600); }
+  function touch(module, a, p) {
+    var map = pres(module); var now = store.now(); var e = map[a.pid] || {};
+    if (!p.hb && e.t && now - e.t < 25000 && e.v === !!p.viewing && (Number(p.since) || 0) <= (e.s || 0)) return; // cache-only; refreshed on heartbeat, view change or new data
+    map[a.pid] = { n: a.name, r: a.role, t: now, s: Number(p.since) || e.s || 0, v: !!p.viewing };
+    for (var k in map) if (now - map[k].t > 10 * 60000) delete map[k];
+    savePres(module, map);
+  }
+  function online(module, meId) {
+    var map = pres(module), now = store.now(), teacher = false, students = [], seen = 0;
+    for (var k in map) { var e = map[k]; if (now - e.t > LE_ONLINE_MS) continue; if (e.r === 'teacher') teacher = true; else students.push(e.n); if (k !== meId && e.v) seen = Math.max(seen, e.s || 0); }
+    return { teacherOnline: teacher, studentCount: students.length, names: students.slice(0, 12), seenSeq: seen };
+  }
+  function typingList(module, meId) {
+    var map = typingMap(module), now = store.now(), out = [];
+    for (var k in map) if (k !== meId && now - map[k].t < LE_TYPING_MS) out.push(map[k].n);
+    return out;
+  }
+  /** Memberships of this identity across every classroom on this backend (teacher: all; student: same email). */
+  function memberships(module, a) {
+    var all = store.members();
+    if (a.role === 'teacher') {
+      var mods = {}; store.messages().forEach(function (m) { mods[m.module] = 1; }); mods[module] = 1;
+      // per-module teacher accounts: the teacher's bell covers only the modules this teacher session is valid for
+      return Object.keys(mods).filter(function (mod) { return mod === module || !a.token || store.isTeacherToken(mod, a.token); }).map(function (mod) { return teacherMember(mod); });
+    }
+    var me = memberOf(module, a.pid); if (!me) return [];
+    return all.filter(function (m) { return m.role === 'student' && !m.removed && (m.participantId === me.participantId || (me.email && m.email === me.email)); });
+  }
+  function notificationsFor(mems, sinceSeq, limit) {
+    var byMod = {}; mems.forEach(function (m) { byMod[m.module] = m; });
+    var cutoff = store.now() - LE_NOTIF_WINDOW_MS; var out = [], unread = 0;
+    store.messages().forEach(function (m) {
+      var mem = byMod[m.module]; if (!mem || m.deleted || m.createdAt < cutoff) return;
+      var n = LE_notifFor(m, mem, store.moduleTitle(m.module)); if (!n) return;
+      if (store.moduleUrl) n.link.url = store.moduleUrl(m.module) || '';
+      n.read = LE_isRead(n, mem); if (!n.read) unread++;
+      if (!sinceSeq || n.seq > sinceSeq) out.push(n);
+    });
+    out.sort(function (x, y) { return y.seq - x.seq; });
+    return { list: out.slice(0, limit || 60), unread: unread };
+  }
+  function readVersion(mems) { return mems.map(function (m) { return m.module + ':' + (m.readVer || 0); }).join('|'); }
+
+  var S = {
+    auth: auth,
+    /* ---- joining: one classroom code, name + email (email = stable identity across devices) ---- */
+    join: function (module, p) {
+      var code = String(store.classCode(module) || '');
+      if (!p.classCode || String(p.classCode).trim().toUpperCase() !== code.trim().toUpperCase()) return { ok: false, error: 'That classroom code doesn’t match — check with your teacher.', code: 'badcode' };
+      var name = String(p.name || '').trim().replace(/\s+/g, ' ').slice(0, 60);
+      if (name.length < 2) return { ok: false, error: 'Please enter your name.' };
+      var email = LE_normEmail(p.email);
+      if (email && !LE_validEmail(email)) return { ok: false, error: 'Please enter a valid email address.' };
+      var pid = email ? LE_pidFor(module, email) : (p.participantId && /^[\w-]{6,64}$/.test(p.participantId) ? p.participantId : 'p_' + store.uuid().replace(/-/g, '').slice(0, 16));
+      return store.lock(function () {
+        var m = memberOf(module, pid);
+        if (!m) m = { module: module, participantId: pid, role: 'student', name: name, email: email, prefs: {}, readUpTo: store.currentSeq(), readIds: [], readVer: 0, joinedAt: store.now() };
+        m.name = name; if (email) m.email = email; m.removed = false; m.updatedAt = store.now();
+        store.putMember(m); store.cachePut('mem:' + module + ':' + pid, name, 1800);
+        return { ok: true, participantId: pid, name: name, email: m.email || '' };
+      });
+    },
+    /* ---- the one realtime call: deltas + notifications + presence + typing ---- */
+    sync: function (module, p) {
+      var a = auth(module, p); if (!a) return deny();
+      touch(module, a, p);
+      var since = Number(p.since) || 0;
+      var verRaw = store.cacheGet(p.allModules ? 'ver:*' : 'ver:' + module); var ver = Number(verRaw || 0);
+      var rvKey = 'rv:' + (a.role === 'teacher' ? '*' : module + ':' + a.pid);
+      var rv = store.cacheGet(rvKey) || '';
+      var base = { ok: true, online: online(module, a.pid), typing: typingList(module, a.pid), serverTime: store.now(), nextPollMs: 0 };
+      var n = base.online.studentCount;
+      base.nextPollMs = Math.min(8000, Math.max(2000, 1500 + n * 45)); // server paces the class: more students ⇒ slightly slower polls
+      // FAST PATH — nothing changed since this client's cursor and read state is unchanged: no sheet access at all.
+      if (!p.full && verRaw !== null && verRaw !== undefined && ver <= since && rv && rv === p.readVer) { base.noChange = true; base.seq = since; base.readVer = rv; return base; }
+      var seq = store.currentSeq();
+      if (verRaw === null || verRaw === undefined) { store.cachePut('ver:' + module, String(seq), 21600); store.cachePut('ver:*', String(seq), 21600); } // (re)arm the fast path after a cache eviction
+      var mems = memberships(module, a);
+      var mine = mems.filter(function (m) { return m.module === module; })[0];
+      if (!mine && a.role === 'teacher') mine = teacherMember(module);
+      var out = base; out.seq = seq;
+      if (p.full) {
+        var all = msgsOf(module).filter(function (m) { return !m.deleted; }).sort(LE_cmp);
+        out.initial = true; out.messages = all.slice(Math.max(0, all.length - LE_PAGE)).map(outM); out.hasMore = all.length > LE_PAGE;
+        out.pinned = all.filter(function (m) { return m.pinned; }).map(outM);
+      } else {
+        var changed = msgsOf(module).filter(function (m) { return (m.seq || 0) > since; });
+        if (changed.length > LE_MAX_DELTA) { out.resync = true; out.changes = []; }
+        else out.changes = changed.sort(function (x, y) { return x.seq - y.seq; }).map(outM);
+      }
+      var scope = p.allModules ? mems : mems.filter(function (m) { return m.module === module; });
+      var nf = notificationsFor(scope, p.full ? 0 : since, p.full ? 60 : 100);
+      out.notifications = nf.list; out.unread = nf.unread;
+      out.readVer = readVersion(scope); store.cachePut(rvKey, out.readVer, 21600);
+      if (mine) out.readState = { readUpTo: mine.readUpTo || 0, readIds: mine.readIds || [] };
+      out.prefs = mine ? LE_prefs(mine) : LE_prefs(null);
+      return out;
+    },
+    history: function (module, p) {
+      var a = auth(module, p); if (!a) return deny();
+      var all = msgsOf(module).filter(function (m) { return !m.deleted; }).sort(LE_cmp);
+      var end = all.length;
+      if (p.beforeId) { for (var i = 0; i < all.length; i++) if (all[i].id === p.beforeId) { end = i; break; } }
+      var lim = Math.min(Number(p.limit) || LE_PAGE, 200);
+      var page = all.slice(Math.max(0, end - lim), end);
+      return { ok: true, messages: page.map(outM), hasMore: end - page.length > 0 };
+    },
+    /** Deep link support: one message plus the conversation around it and the message it replies to. */
+    context: function (module, p) {
+      var a = auth(module, p); if (!a) return deny();
+      var all = msgsOf(module).filter(function (m) { return !m.deleted; }).sort(LE_cmp);
+      var i = -1; for (var k = 0; k < all.length; k++) if (all[k].id === p.id) { i = k; break; }
+      if (i < 0) return { ok: false, error: 'That message is no longer available (it may have been deleted).', code: 'notfound' };
+      var from = Math.max(0, i - 20), to = Math.min(all.length, i + 21);
+      var target = all[i];
+      var parent = target.replyToId ? findMsg(module, target.replyToId) : null;
+      return { ok: true, message: outM(target), around: all.slice(from, to).map(outM), hasMoreBefore: from > 0, reachesLatest: to >= all.length, replyTo: parent ? outM(parent) : null };
+    },
+    post: function (module, p) {
+      var tRecv = store.now();
+      var a = auth(module, p); if (!a) return deny();
+      var body = String(p.body || '').replace(/\r\n?/g, '\n').trim();
+      if (body.length > LE_MAX_BODY) return { ok: false, error: 'That message is too long (max ' + LE_MAX_BODY + ' characters).' };
+      var atts = Array.isArray(p.attachments) ? p.attachments.slice(0, LE_MAX_ATTACH) : [];
+      var cleanAtts = [];
+      for (var i = 0; i < atts.length; i++) {
+        var f = store.fileGet(atts[i].fileId);
+        if (!f || f.module !== module || f.status !== 'ready') return { ok: false, error: 'An attachment is not ready yet — wait for its upload to finish.', code: 'attachment' };
+        if (f.uploaderPid !== a.pid && a.role !== 'teacher') return { ok: false, error: 'You can only attach files you uploaded.', code: 'attachment' };
+        var prev = String(atts[i].preview || '');
+        if (prev && (!/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(prev) || prev.length > LE_PREVIEW_MAX_CHARS)) prev = '';
+        if (prev && /^image\//.test(f.mime) && !f.preview) { f.preview = prev; store.filePut(f); }
+        cleanAtts.push({ fileId: f.id, name: f.name, mime: f.mime, size: f.size, kind: /^image\//.test(f.mime) ? 'image' : 'file', w: Number(atts[i].w) || 0, h: Number(atts[i].h) || 0 });
+      }
+      if (!body && !cleanAtts.length) return { ok: false, error: 'Write a message or attach a file.' };
+      var clientId = String(p.clientId || '').slice(0, 64);
+      var res = store.lock(function () {
+        if (clientId) { var ex = store.messages().filter(function (m) { return m.module === module && m.clientId === clientId; })[0]; if (ex) return { dup: ex }; }
+        var parent = p.replyToId ? findMsg(module, p.replyToId) : null;
+        var ment = LE_parseMentions(body, roster(module).concat([{ participantId: LE_TEACHER_PID, name: 'Teacher' }]), a.role);
+        var s = store.nextSeq(); var now = store.now();
+        var rec = { module: module, id: 'm_' + store.uuid().replace(/-/g, '').slice(0, 20), clientId: clientId, seq: s, ord: s,
+          kind: (a.role === 'teacher' && p.kind === 'announcement') ? 'announcement' : 'message', authorRole: a.role, authorName: a.name, participantId: a.role === 'teacher' ? '' : a.pid,
+          body: body, attachments: cleanAtts, mentions: ment.pids.filter(function (x) { return x !== a.pid; }), mentionAll: ment.all,
+          replyToId: parent && !parent.deleted ? parent.id : '', replyToPid: parent && !parent.deleted ? (parent.authorRole === 'teacher' ? LE_TEACHER_PID : parent.participantId) : '',
+          pinned: false, edited: false, deleted: false, reactions: {}, createdAt: now, updatedAt: now };
+        store.insertMessage(rec);
+        cleanAtts.forEach(function (x) { var f = store.fileGet(x.fileId); if (f) { f.messageId = rec.id; store.filePut(f); } });
+        return { rec: rec };
+      });
+      if (res.dup) return { ok: true, duplicate: true, message: outM(res.dup), timing: { recv: tRecv, persisted: res.dup.createdAt } };
+      bump(module);
+      var t = typingMap(module); if (t[a.pid]) { delete t[a.pid]; store.cachePut('typ:' + module, JSON.stringify(t), 60); }
+      return { ok: true, message: outM(res.rec), timing: { recv: tRecv, persisted: store.now() } };
+    },
+    mutate: function (module, p, op) {
+      var a = auth(module, p); if (!a) return deny();
+      var r = store.lock(function () {
+        var m = findMsg(module, p.id);
+        if (!m || m.deleted) return { ok: false, error: 'That message is no longer available.', code: 'notfound' };
+        var own = a.role === 'teacher' ? m.authorRole === 'teacher' : m.participantId === a.pid;
+        if (op === 'edit') {
+          if (!own) return { ok: false, error: 'You can only edit your own messages.', code: 'forbidden' };
+          var body = String(p.body || '').trim(); if (!body && !(m.attachments || []).length && !m.imageUrl && !m.fileUrl) return { ok: false, error: 'A message can’t be empty.' };
+          if (body.length > LE_MAX_BODY) return { ok: false, error: 'That message is too long.' };
+          m.body = body; m.edited = true;
+          var ment = LE_parseMentions(body, roster(module).concat([{ participantId: LE_TEACHER_PID, name: 'Teacher' }]), a.role);
+          m.mentions = ment.pids.filter(function (x) { return x !== a.pid; }); m.mentionAll = ment.all;
+        } else if (op === 'delete') {
+          if (!own && a.role !== 'teacher') return { ok: false, error: 'You can only delete your own messages.', code: 'forbidden' };
+          m.deleted = true;
+        } else if (op === 'pin') {
+          if (a.role !== 'teacher') return { ok: false, error: 'Only the teacher can pin messages.', code: 'forbidden' };
+          m.pinned = !!p.pinned;
+        } else if (op === 'react') {
+          var e = String(p.reaction || '').slice(0, 8); m.reactions = m.reactions || {};
+          if (!e || m.reactions[a.pid] === e) delete m.reactions[a.pid]; else m.reactions[a.pid] = e;
+        }
+        m.seq = store.nextSeq(); m.updatedAt = store.now();
+        store.updateMessage(m);
+        return { ok: true, message: outM(m) };
+      });
+      if (r.ok) bump(module);
+      return r;
+    },
+    search: function (module, p) {
+      var a = auth(module, p); if (!a) return deny();
+      var q = LE_norm(p.query); if (q.length < 2) return { ok: true, messages: [], files: [], people: [] };
+      var all = msgsOf(module).filter(function (m) { return !m.deleted; }).sort(LE_cmp).reverse();
+      var messages = all.filter(function (m) { return LE_norm(m.body + ' ' + m.authorName).indexOf(q) >= 0; }).slice(0, 30).map(outM);
+      var files = []; all.forEach(function (m) { (m.attachments || []).forEach(function (f) { if (files.length < 20 && LE_norm(f.name).indexOf(q) >= 0) files.push({ messageId: m.id, name: f.name, mime: f.mime, size: f.size, fileId: f.fileId, authorName: m.authorName, createdAt: m.createdAt }); }); if (m.fileName && LE_norm(m.fileName).indexOf(q) >= 0 && files.length < 20) files.push({ messageId: m.id, name: m.fileName, authorName: m.authorName, createdAt: m.createdAt }); });
+      var people = roster(module).filter(function (m) { return LE_norm(m.name).indexOf(q) >= 0; }).slice(0, 10).map(function (m) { return { name: m.name, role: m.role }; });
+      return { ok: true, messages: messages, files: files, people: people };
+    },
+    /** Names for @mention autocomplete. Emails are returned to the teacher only. */
+    members: function (module, p) {
+      var a = auth(module, p); if (!a) return deny();
+      var on = pres(module);
+      return { ok: true, members: roster(module).filter(function (m) { return m.role === 'student'; }).map(function (m) {
+        var o = { participantId: m.participantId, name: m.name, online: !!(on[m.participantId] && store.now() - on[m.participantId].t < LE_ONLINE_MS) };
+        if (a.role === 'teacher') o.email = m.email || ''; return o; }) };
+    },
+    notifications: function (module, p) {
+      var a = auth(module, p); if (!a) return deny();
+      var mems = memberships(module, a); var scope = p.allModules ? mems : mems.filter(function (m) { return m.module === module; });
+      var nf = notificationsFor(scope, 0, Number(p.limit) || 60);
+      return { ok: true, notifications: nf.list, unread: nf.unread, readVer: readVersion(scope) };
+    },
+    /** Mark read: specific notification ids, or everything up to the current seq. Server-side = synced everywhere. */
+    markRead: function (module, p) {
+      var a = auth(module, p); if (!a) return deny();
+      var r = store.lock(function () {
+        var mems = memberships(module, a); var byMod = {}; mems.forEach(function (m) { byMod[m.module] = m; });
+        var ids = Array.isArray(p.ids) ? p.ids.map(String) : [];
+        var seq = store.currentSeq(); var touched = {};
+        if (p.all) {
+          (p.allModules ? mems : mems.filter(function (m) { return m.module === module; })).forEach(function (m) {
+            // Messages saved before the delta-sync/notifications rebuild have no seq/ord (blank column), so
+            // "n.seq <= readUpTo" can never mark them read on its own — remember their notification ids here
+            // explicitly, otherwise "mark all read" would leave a handful of old messages perpetually unread.
+            var legacy = msgsOf(m.module).filter(function (x) { return !x.deleted && !(x.ord || x.seq); })
+              .map(function (x) { var n = LE_notifFor(x, m, ''); return n ? n.id : null; }).filter(Boolean);
+            m.readUpTo = seq; m.readIds = legacy.slice(-400); touched[m.module] = m;
+          });
+        }
+        ids.forEach(function (id) {
+          var msgId = id.split(':')[0]; var msg = null, all = store.messages();
+          for (var i = 0; i < all.length; i++) if (all[i].id === msgId) { msg = all[i]; break; }
+          if (!msg || !byMod[msg.module]) return;                       // cannot mark other classrooms' notifications
+          var m = byMod[msg.module]; m.readIds = m.readIds || [];
+          if (m.readIds.indexOf(id) < 0 && !((msg.ord || 0) <= (m.readUpTo || 0))) m.readIds.push(id);
+          touched[m.module] = m;
+        });
+        for (var k in touched) { var m = touched[k]; m.readVer = (m.readVer || 0) + 1; if (m.readIds.length > 400) m.readIds = m.readIds.slice(-400); m.updatedAt = store.now(); store.putMember(m); }
+        return { ok: true, changed: Object.keys(touched).length };
+      });
+      store.cachePut('rv:' + (a.role === 'teacher' ? '*' : module + ':' + a.pid), 'x' + store.now(), 21600); // invalidates fast paths
+      return r;
+    },
+    setPrefs: function (module, p) {
+      var a = auth(module, p); if (!a) return deny();
+      return store.lock(function () {
+        var m = a.role === 'teacher' ? teacherMember(module) : memberOf(module, a.pid); if (!m) return deny();
+        var np = LE_prefs(m); var src = p.prefs || {};
+        for (var k in src) if (k in LE_DEFAULT_PREFS || k === 'browser') np[k] = !!src[k];
+        m.prefs = np; m.readVer = (m.readVer || 0) + 1; m.updatedAt = store.now(); store.putMember(m);
+        store.cachePut('rv:' + (a.role === 'teacher' ? '*' : module + ':' + a.pid), 'x' + store.now(), 21600);
+        return { ok: true, prefs: np };
+      });
+    },
+    typing: function (module, p) {
+      var a = auth(module, p); if (!a) return deny();
+      var t = typingMap(module); var now = store.now();
+      if (p.stop) delete t[a.pid]; else t[a.pid] = { n: a.name, t: now };
+      for (var k in t) if (now - t[k].t > LE_TYPING_MS) delete t[k];
+      store.cachePut('typ:' + module, JSON.stringify(t), 60);
+      return { ok: true };
+    },
+    /* ---- files: resumable chunked upload, authorised chunked download ---- */
+    uploadInit: function (module, p) {
+      var a = auth(module, p); if (!a) return deny();
+      var name = String(p.name || 'file').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').slice(0, 180);
+      var size = Number(p.size) || 0, mime = String(p.mime || 'application/octet-stream').toLowerCase().slice(0, 100);
+      if (!size) return { ok: false, error: 'That file is empty.' };
+      if (size > LE_MAX_FILE_BYTES) return { ok: false, error: 'That file is too large (maximum ' + Math.round(LE_MAX_FILE_BYTES / 1048576) + ' MB).', code: 'toolarge' };
+      if (LE_BLOCKED_EXT.test(name)) return { ok: false, error: 'This file type isn’t allowed in the classroom (programs and scripts are blocked).', code: 'blocked' };
+      if (/^(text\/html|application\/(x-)?javascript|application\/xhtml)/.test(mime) || /\.(html?|xhtml|svg)$/i.test(name) && !/^image\/svg/.test(mime)) mime = 'application/octet-stream'; // never rendered inline
+      var key = String(p.uploadKey || '').slice(0, 64);
+      if (key) { var prior = store.cacheGet('upk:' + module + ':' + a.pid + ':' + key); if (prior) { var f0 = store.fileGet(prior); if (f0 && f0.status !== 'failed') { var st0 = f0.status === 'ready' ? { received: f0.size, done: true } : store.blobStatus(f0); return { ok: true, fileId: f0.id, chunkSize: LE_CHUNK_BYTES, received: st0.received || 0, done: !!st0.done, resumed: true }; } } }
+      var rec = { id: 'f_' + store.uuid().replace(/-/g, '').slice(0, 20), module: module, name: name, mime: mime, size: size, uploaderPid: a.pid, status: 'uploading', createdAt: store.now(), messageId: '' };
+      store.blobInit(rec); store.filePut(rec);
+      if (key) store.cachePut('upk:' + module + ':' + a.pid + ':' + key, rec.id, 21600);
+      return { ok: true, fileId: rec.id, chunkSize: LE_CHUNK_BYTES, received: 0 };
+    },
+    uploadChunk: function (module, p) {
+      var a = auth(module, p); if (!a) return deny();
+      var f = store.fileGet(p.fileId);
+      if (!f || f.module !== module || f.uploaderPid !== a.pid) return { ok: false, error: 'Upload not found.', code: 'notfound' };
+      if (f.status === 'ready') return { ok: true, received: f.size, done: true, file: { fileId: f.id, name: f.name, mime: f.mime, size: f.size } };
+      var off = Number(p.offset) || 0;
+      var st = store.blobStatus(f);
+      if (off !== st.received) return { ok: true, received: st.received, done: !!st.done, mismatch: true };  // client re-aligns (resume)
+      var r = store.blobPut(f, off, String(p.data || ''));
+      if (r.done) { f.status = 'ready'; f.storageId = r.storageId; f.readyAt = store.now(); store.filePut(f); return { ok: true, received: f.size, done: true, file: { fileId: f.id, name: f.name, mime: f.mime, size: f.size } }; }
+      return { ok: true, received: r.received, done: false };
+    },
+    uploadStatus: function (module, p) {
+      var a = auth(module, p); if (!a) return deny();
+      var f = store.fileGet(p.fileId); if (!f || f.module !== module || f.uploaderPid !== a.pid) return { ok: false, error: 'Upload not found.', code: 'notfound' };
+      if (f.status === 'ready') return { ok: true, received: f.size, done: true, file: { fileId: f.id, name: f.name, mime: f.mime, size: f.size } };
+      var st = store.blobStatus(f); return { ok: true, received: st.received, done: false };
+    },
+    /** Download = authorised, chunked reads straight from storage. A file id alone grants nothing: the caller must be a
+     *  member of the classroom the file belongs to (and, unless they uploaded it, it must be attached to a live message). */
+    fileChunk: function (module, p) {
+      var a = auth(module, p); if (!a) return deny();
+      var f = store.fileGet(p.fileId);
+      if (!f || f.module !== module || f.status !== 'ready') return { ok: false, error: 'File not available.', code: 'notfound' };
+      if (f.uploaderPid !== a.pid) { var m = f.messageId ? findMsg(module, f.messageId) : null; if (!m || m.deleted) return { ok: false, error: 'File not available.', code: 'notfound' }; }
+      var off = Math.max(0, Number(p.offset) || 0), len = Math.min(Number(p.length) || LE_CHUNK_BYTES, 4 * 1024 * 1024);
+      if (off >= f.size) return { ok: true, data: '', offset: off, size: f.size, mime: f.mime, name: f.name, done: true };
+      var data = store.blobRead(f, off, Math.min(len, f.size - off));
+      return { ok: true, data: data, offset: off, size: f.size, mime: f.mime, name: f.name, inline: LE_INLINE_MIME.test(f.mime), done: off + len >= f.size };
+    },
+    elapsedMs: function () { return store.now() - T0; }
+  };
+  return S;
+}
+/* ==== LIVE ENGINE END ==== */
+
