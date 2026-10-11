@@ -244,6 +244,10 @@ The user is a pathologist, not a developer. They follow steps literally and send
 
 ## 10. Current state (2026-10-07)
 
+- **Portal.gs 2.11 (2026-10-11): Admin can delete an ENDED lecture** (history → 🗑 Delete, typed `DELETE`; `tsDelete` with
+  confirm:'DELETE' → Code.gs `actionDeleteAttendanceSession_` removes its AttendanceSessions row + records, Drive copy to trash;
+  refused while live and for personal teachers). Same day: fixed attendance code by default (rotation opt-in) and the open
+  code shown on the module's Presentation slides (teacher only).
 - **Portal.gs 2.10 (2026-10-10): Teaching Sessions steps 1–4 complete** (teacher panel; group-page card with check-in; group Live
   Classroom, see §3). Code.core.gs test fixture includes the verbatim attendance engine and Live Classroom engine of
   Code.gs (attendance Drive copy stubbed; `driveFake()` in the harness fakes Drive uploads). Tests: 76 backend, 46 e2e.

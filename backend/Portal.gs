@@ -61,7 +61,8 @@
  *                     lecture-materials link, teacher
  *   tsStart {tsId | session}  opens attendance = a normal Code.gs attendance session of that delivery's storage
  *   tsState {tsId}    live screen: current code (a rotating code is renewed every 45 s), check-ins, not yet checked in
- *   tsClose / tsCancel {undo?} / tsDelete (scheduled or cancelled only)
+ *   tsClose / tsCancel {undo?} / tsDelete (scheduled or cancelled; 2.11: an ENDED lecture too — Admin only, confirm:'DELETE',
+ *                     deletes its attendance session and every check-in with it)
  *   tsMark {tsId, studentId, mark: present|late|excused|clear|remove, recordId?}   the teacher's corrections
  *   tsSettings        Admin: platform time zone and attendance warning threshold
  *   Sheet TeachingSessions (created on first use). Attendance itself stays in AttendanceSessions/AttendanceRecords.
@@ -184,7 +185,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.10';
+var PORTAL_VERSION = '2.11';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -2540,13 +2541,36 @@ function tsCancel_(who, p) {
     return { ok: true, session: tsPublic_(f.row, null, null) };
   });
 }
-/** Delete a scheduled or cancelled lecture (no attendance exists for it). Started lectures are kept. */
+/** Delete a lecture from the schedule / history.
+ *  - scheduled or cancelled (no attendance exists for it): whoever manages the lecture;
+ *  - attendance was opened (2.11): only the platform administrator, only once attendance is closed, and only with
+ *    confirm:'DELETE'. Its attendance session and every check-in are deleted with it (Code.gs actionDeleteAttendanceSession_,
+ *    which also moves its Google Drive report copy, if any, to the Drive trash), so it no longer counts anywhere. */
 function tsDelete_(who, p) {
+  var f0 = tsFind_(who, p.tsId); if (f0.error) return f0.error;
+  if (f0.row.status === 'scheduled' || f0.row.status === 'cancelled') {
+    return rosterWrite_(function () {
+      var f = tsFind_(who, p.tsId); if (f.error) return f.error;
+      if (f.row.status !== 'scheduled' && f.row.status !== 'cancelled') return dirErr_('This lecture has just been started — reload the page.');
+      deleteRow_(DIR.TSES, f.row._row);
+      return { ok: true, deletedRecords: 0 };
+    });
+  }
+  if (!who.admin) return { ok: false, code: 'forbidden', error: 'Only the platform administrator can delete a lecture whose attendance was taken.' };
+  if (String(p.confirm || '') !== 'DELETE') return { ok: false, code: 'confirm', error: 'Type DELETE to confirm — the lecture and all its check-ins are deleted for good.' };
+  var att = tsAttRow_(f0.row);
+  if (tsStatus_(f0.row, att) === 'live') return dirErr_('Attendance for this lecture is still open — close it first.');
+  var out = { ok: true, deletedRecords: 0, driveTrashed: false };
+  if (att) {
+    if (typeof actionDeleteAttendanceSession_ !== 'function') return dirErr_('Deleting needs the attendance part of Code.gs (actionDeleteAttendanceSession_) — it is missing.');
+    var d = actionDeleteAttendanceSession_(f0.row.backendModule, { sessionId: f0.row.attSessionId });
+    if (!d || (!d.ok && d.code !== 'notfound')) return d || dirErr_('The attendance of this lecture could not be deleted.');
+    if (d.ok) { out.deletedRecords = d.deletedRecords || 0; out.driveTrashed = !!d.driveTrashed; }
+  }
   return rosterWrite_(function () {
     var f = tsFind_(who, p.tsId); if (f.error) return f.error;
-    if (f.row.status !== 'scheduled' && f.row.status !== 'cancelled') return dirErr_('A lecture whose attendance was opened is kept in the history and cannot be deleted.');
     deleteRow_(DIR.TSES, f.row._row);
-    return { ok: true };
+    return out;
   });
 }
 /** The teacher's marks: present / late (also checks in a student who could not), excused, clear (back to the computed status),
@@ -2828,7 +2852,8 @@ function platformCheck() {
   // 6. the other parts the platform relies on
   if (typeof exRoute_ !== 'function') warnings.push('The Official Exams part of Code.gs (1.7) is missing — the exam app will not work.');
   var attFns = { actionStartAttendance_: typeof actionStartAttendance_, actionCloseAttendance_: typeof actionCloseAttendance_, actionRegenerateAttendanceCode_: typeof actionRegenerateAttendanceCode_,
-    actionDeleteAttendanceRecord_: typeof actionDeleteAttendanceRecord_, recordAttendance_: typeof recordAttendance_, findModuleAttSession_: typeof findModuleAttSession_ };
+    actionDeleteAttendanceRecord_: typeof actionDeleteAttendanceRecord_, recordAttendance_: typeof recordAttendance_, findModuleAttSession_: typeof findModuleAttSession_,
+    actionDeleteAttendanceSession_: typeof actionDeleteAttendanceSession_ };
   var attMissing = Object.keys(attFns).filter(function (n) { return attFns[n] !== 'function'; });
   if (attMissing.length) warnings.push('The attendance part of Code.gs is missing (' + attMissing.join(', ') + ') — Teaching Sessions cannot open attendance.');
   else okLines.push('Teaching Sessions: the attendance functions of Code.gs are present.');

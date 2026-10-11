@@ -1673,6 +1673,63 @@ test('Teaching Sessions: Admin schedules a lecture, opens attendance (rotating c
   main.call({ module: 'portal', action: 'teacherSetActive', token: t, userId: cr.teacher.userId, active: false });
 });
 
+test('Teaching Sessions: the Admin deletes an ENDED lecture from the history (typed DELETE) — its check-ins go with it; a teacher has no Delete on ended lectures', { skip: SKIP }, async function () {
+  groupFixture();
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const A = function (action, o) { return main.call(Object.assign({ module: 'portal', action: action, token: t }, o || {})); };
+  const dir = A('dirGet'), g = dir.groups.filter(function (x) { return x.linkCode === 'tr-a'; })[0];
+  const d = dir.deliveries.filter(function (x) { return x.groupId === g.groupId && x.moduleId === 'cellinjury'; })[0];
+  const ended = function (title) {
+    const L = A('tsStart', { session: { groupId: g.groupId, deliveryId: d.deliveryId, title: title, startAt: Date.now() } }); assert.ok(L.ok, JSON.stringify(L));
+    const ses = main.call({ module: 'cellinjury-tr-a', action: 'studentLogin', username: 'ahmed', password: PW });
+    assert.ok(main.call({ module: 'cellinjury-tr-a', action: 'submitAttendanceByCode', stoken: ses.token, code: L.code }).ok);
+    assert.ok(A('tsClose', { tsId: L.session.tsId }).ok);
+    return main.ctx.dirAll_('TeachingSessions').filter(function (x) { return x.tsId === L.session.tsId; })[0];
+  };
+  const del = ended('Trial lecture — delete me'), kept = ended('Real lecture — keep');
+  const recs = function (id) { return main.ctx.rpRows_('AttendanceRecords').filter(function (q) { return q.sessionId === id; }).length; };
+  assert.strictEqual(recs(del.attSessionId), 1);
+  const p = await page();
+  p.removeAllListeners('dialog');
+  let answer = 'nope', prompts = [];
+  p.on('dialog', function (dl) { prompts.push(dl.message()); dl.accept(answer); });
+  await p.goto(url + '#/teacher');
+  await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+  await p.waitForSelector('#t-sessions .ts-top select');
+  await p.selectOption('#t-sessions .ts-top select', g.groupId);
+  const row = '#t-sessions .ts-block:has(h3:text("history")) .dir-row:has-text("Trial lecture — delete me")';
+  await p.waitForSelector(row + ' [data-a=delx]');
+  assert.ok(await p.isVisible('#t-sessions .ts-block:has(h3:text("history")) .dir-row:has-text("Real lecture — keep") [data-a=delx]'));
+  // wrong word → nothing deleted
+  await p.click(row + ' [data-a=delx]');
+  await p.waitForSelector('.toast:has-text("Not deleted")');
+  assert.match(prompts[0], /Trial lecture — delete me[\s\S]*1 check-in[\s\S]*cannot be undone[\s\S]*Type DELETE/);
+  assert.strictEqual(recs(del.attSessionId), 1); assert.ok(await p.$(row));
+  // DELETE → gone from the history, with its attendance
+  answer = 'DELETE';
+  await p.click(row + ' [data-a=delx]');
+  await p.waitForFunction(function () { return !/Trial lecture — delete me/.test((document.querySelector('#t-sessions .ts-lists') || {}).textContent || ''); });
+  assert.ok(await p.isVisible('#t-sessions .ts-block:has(h3:text("history")) .dir-row:has-text("Real lecture — keep")'));
+  assert.strictEqual(main.ctx.dirAll_('TeachingSessions').filter(function (x) { return x.tsId === del.tsId; }).length, 0);
+  assert.strictEqual(main.ctx.rpRows_('AttendanceSessions').filter(function (a) { return a.sessionId === del.attSessionId; }).length, 0);
+  assert.strictEqual(recs(del.attSessionId), 0);
+  assert.strictEqual(recs(kept.attSessionId), 1, 'the other lecture keeps its check-in');
+  await p.context().close();
+  // a personal teacher of that module sees the ended lecture without a Delete button
+  const un = 'del.teacher', cr = A('teacherSave', { create: true, record: { username: un, name: 'Dr. Delete', password: 'del-teacher-1' } }); assert.ok(cr.ok, JSON.stringify(cr));
+  assert.ok(A('teacherAssign', { userId: cr.teacher.userId, deliveryIds: [d.deliveryId] }).ok);
+  const lg = main.call({ module: 'portal', action: 'teacherLogin', username: un, password: 'del-teacher-1' });
+  main.call({ module: 'portal', action: 'teacherChangePassword', ttoken: lg.ttoken, oldPassword: 'del-teacher-1', newPassword: 'del-teacher-2' });
+  const q = await page();
+  await q.goto(url + '#/teacher');
+  await q.fill('#t-u', un); await q.fill('#t-p', 'del-teacher-2'); await q.click('form.card button[type=submit]');
+  await q.waitForSelector('#t-sessions .ts-block:has(h3:text("history")) .dir-row:has-text("Real lecture — keep")');
+  assert.ok(!(await q.$('#t-sessions [data-a=delx]')), 'no Delete for a teacher');
+  await q.context().close();
+  main.call({ module: 'portal', action: 'teacherSetActive', token: t, userId: cr.teacher.userId, active: false });
+});
+
 test('Teaching Sessions on the group page: the student sees the live lecture, checks in with the code, sees upcoming lectures and own attendance', { skip: SKIP }, async function () {
   groupFixture();
   main.call({ module: 'portal', action: 'setup', password: TPW });

@@ -914,11 +914,28 @@
       hist.forEach(function (s) {
         var off = s.status === 'cancelled';
         var row = h('<div class="dir-row' + (off ? ' off' : '') + '"><div class="dir-main">' + what(s) + '<div class="small">' + esc(tzShow(s.startAt || s.startedAt, tz())) + ' · ' + (off ? '<b>Cancelled</b> — does not count' : counts(s.counts, s.members)) + mat(s) + '</div></div>' +
-          '<div class="dir-btns">' + (off ? '<button class="btn" type="button" data-a="re">Restore</button><button class="btn danger" type="button" data-a="del">Delete</button>' : '<button class="btn" type="button" data-a="reg">📋 Register</button><button class="btn" type="button" data-a="ed">Edit details</button>') + '</div></div>');
+          '<div class="dir-btns">' + (off ? '<button class="btn" type="button" data-a="re">Restore</button><button class="btn danger" type="button" data-a="del">Delete</button>' : '<button class="btn" type="button" data-a="reg">📋 Register</button><button class="btn" type="button" data-a="ed">Edit details</button>' + (admin && s.status === 'ended' ? '<button class="btn danger" type="button" data-a="delx">🗑 Delete</button>' : '')) + '</div></div>');
         var reg = $('[data-a=reg]', row); if (reg) reg.onclick = function () { liveScreen(liveBox, s.tsId); };
         var ed = $('[data-a=ed]', row); if (ed) ed.onclick = function () { lectureForm(formBox, s, false); };
         var re = $('[data-a=re]', row); if (re) re.onclick = function () { call('tsCancel', { tsId: s.tsId, undo: true }).then(function (x) { if (!x.ok) return fail(x); paint(); }); };
         var del = $('[data-a=del]', row); if (del) del.onclick = function () { if (!window.confirm('Delete the cancelled lecture “' + s.title + '”?')) return; call('tsDelete', { tsId: s.tsId }).then(function (x) { if (!x.ok) return fail(x); paint(); }); };
+        // Admin only: delete an ended lecture together with its attendance (check-ins) — for test or mistaken lectures
+        var delx = $('[data-a=delx]', row); if (delx) delx.onclick = function () {
+          var c = s.counts || {}, n = (c.present || 0) + (c.late || 0);
+          var typed = window.prompt('Delete “' + s.title + '” (' + tzShow(s.startAt || s.startedAt, tz()) + ') for good?\n\n' +
+            'Its attendance is deleted with it: ' + n + ' check-in' + (n === 1 ? '' : 's') + ', the teacher\'s marks and its Google Drive report copy (moved to the Drive trash). ' +
+            'It will no longer count in anyone\'s attendance. This cannot be undone.\n\nType DELETE to confirm:');
+          if (typed == null) return;
+          if (String(typed).trim() !== 'DELETE') { toast('Not deleted — you must type DELETE.'); return; }
+          delx.disabled = true;
+          call('tsDelete', { tsId: s.tsId, confirm: 'DELETE' }).then(function (x) {
+            delx.disabled = false;
+            if (!x.ok) { if (/cannot be deleted/.test(x.error || '')) x = { ok: false, error: 'Update Portal.gs on the backend (version 2.11) to delete ended lectures.' }; return fail(x); }
+            toast('Deleted “' + s.title + '”' + (x.deletedRecords ? ' and ' + x.deletedRecords + ' check-in' + (x.deletedRecords === 1 ? '' : 's') : '') + '.');
+            if (liveId === s.tsId) { stop(); liveBox.innerHTML = ''; }
+            paint();
+          });
+        };
         $('.dir-list', hb).appendChild(row);
       });
       var hc = $('[data-a=csv]', hb);

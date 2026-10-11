@@ -1726,6 +1726,46 @@ test('attendance stays open with the SAME code until the teacher closes it: time
   assert.strictEqual(stuOf(c, 'b1').status, 'late', 'the record is kept (checked in 6 h after the start → late)');
 });
 
+test('deleting an ENDED lecture (2.11): Admin only, typed confirmation, never while attendance is open; its attendance session and check-ins go with it, other lectures untouched', function () {
+  const S = tsSetup(), X = S.b.ctx, st = 'cellinjury-razi-a-26';
+  const keep = S.ts('tsStart', { session: S.lect({ title: 'Keep me', startAt: Date.now() }) }); assert.ok(keep.ok, JSON.stringify(keep));
+  const ses = grpSessions(S, 'b1', 'basma-pass-1'), ci = function (code) { return S.call({ module: 'portal', action: 'portalGroupCheckIn', g: 'razi-a-26', sessions: ses, code: code }); };
+  assert.ok(ci(keep.code).ok); S.ts('tsClose', { tsId: keep.session.tsId });
+  const L = S.ts('tsStart', { session: S.lect({ title: 'Test lecture', startAt: Date.now() }) }); assert.ok(L.ok, JSON.stringify(L));
+  assert.ok(ci(L.code).ok);
+  const attId = X.dirAll_('TeachingSessions').filter(function (r) { return r.tsId === L.session.tsId; })[0].attSessionId;
+  const recs = function (id) { return X.rpRows_('AttendanceRecords').filter(function (q) { return q.sessionId === id; }).length; };
+  assert.strictEqual(recs(attId), 1);
+  // still live → refused, even for the Admin
+  let r = S.ts('tsDelete', { tsId: L.session.tsId, confirm: 'DELETE' }); assert.strictEqual(r.ok, false); assert.match(r.error, /still open/);
+  S.ts('tsClose', { tsId: L.session.tsId });
+  // a personal teacher of that module cannot; the Admin must type DELETE
+  r = S.tt('tsDelete', S.ahmed.tok, { tsId: L.session.tsId, confirm: 'DELETE' }); assert.strictEqual(r.ok, false); assert.strictEqual(r.code, 'forbidden');
+  r = S.ts('tsDelete', { tsId: L.session.tsId }); assert.strictEqual(r.code, 'confirm');
+  r = S.ts('tsDelete', { tsId: L.session.tsId, confirm: 'delete' }); assert.strictEqual(r.code, 'confirm');
+  // a student with any of their tokens cannot
+  assert.strictEqual(S.call({ module: 'portal', action: 'tsDelete', tsId: L.session.tsId, confirm: 'DELETE', token: ses[Object.keys(ses)[0]] }).ok, false);
+  assert.strictEqual(S.call({ module: st, action: 'deleteAttendanceSession', sessionId: attId, stoken: login(S, st, 'b1', 'basma-pass-1').token }).ok, false);
+  assert.strictEqual(recs(attId), 1, 'nothing deleted so far');
+  // the Admin, confirmed → lecture, attendance session and its check-ins are gone
+  r = S.ts('tsDelete', { tsId: L.session.tsId, confirm: 'DELETE' }); assert.ok(r.ok, JSON.stringify(r)); assert.strictEqual(r.deletedRecords, 1);
+  assert.strictEqual(X.dirAll_('TeachingSessions').filter(function (x) { return x.tsId === L.session.tsId; }).length, 0);
+  assert.strictEqual(X.rpRows_('AttendanceSessions').filter(function (a) { return a.sessionId === attId; }).length, 0);
+  assert.strictEqual(recs(attId), 0);
+  // the other lecture and its check-in are untouched; the history and the student's own view no longer count the deleted one
+  const list = S.ts('tsList', { groupId: S.ra.groupId });
+  assert.deepStrictEqual(list.sessions.map(function (x) { return x.title; }), ['Keep me']);
+  const keepAtt = X.dirAll_('TeachingSessions').filter(function (x) { return x.tsId === keep.session.tsId; })[0].attSessionId;
+  assert.strictEqual(recs(keepAtt), 1);
+  const mine = S.call({ module: 'portal', action: 'portalGroupSessions', g: 'razi-a-26', sessions: ses });
+  assert.ok(mine.ok, JSON.stringify(mine));
+  assert.ok(!JSON.stringify(mine).includes('Test lecture'));
+  // deleting again → not found; scheduled/cancelled lectures are still deleted as before (no confirmation needed)
+  assert.strictEqual(S.ts('tsDelete', { tsId: L.session.tsId, confirm: 'DELETE' }).ok, false);
+  const sc = S.ts('tsSave', { session: S.lect({ title: 'Planned' }) }).session;
+  assert.ok(S.tt('tsDelete', S.ahmed.tok, { tsId: sc.tsId }).ok);
+});
+
 test('group page check-in: right code → present (or late); twice → already; wrong codes limited; the rotated code works 20 s more', function () {
   const S = tsSetup(), X = S.b.ctx;
   const L = S.ts('tsStart', { session: S.lect({ title: 'Now', startAt: Date.now(), rotate: true }) }); assert.ok(L.ok);

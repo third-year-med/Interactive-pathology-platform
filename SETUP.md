@@ -265,7 +265,7 @@ shown; never the code) → sign in with the access code, student ID and password
 Drive permission: the first picture upload needs Drive access. If you see "Access denied: DriveApp", open the Apps
 Script editor, choose **authorizeDriveAccess** in the function list and press ▶ once.
 
-## Teaching Sessions (Portal.gs 2.10)
+## Teaching Sessions (Portal.gs 2.11)
 
 **Modules contain learning content; Teaching Sessions contain teaching events.** Teacher Dashboard → **🎓 Teaching
 Sessions** (the Admin: every group; a personal teacher: only the modules assigned to them). Choose the **group** at the top.
@@ -288,7 +288,9 @@ Sessions** (the Admin: every group; a personal teacher: only the modules assigne
   scheduled time, or from when you opened attendance if that was later) · 📝 Excused (does not count against the
   student) · ❌ Absent. A lecture opened long before or after its scheduled time takes the real time.
 - **Cancel lecture** — it stays in the history as *Cancelled* and never counts; **Restore** undoes it. Only scheduled or
-  cancelled lectures can be deleted; a lecture whose attendance was opened is always kept.
+  cancelled lectures can be deleted. A lecture whose attendance was opened is kept — except that the **Admin** can
+  **🗑 Delete** an *ended* lecture in the history (type `DELETE` to confirm): its check-ins, marks and Drive report copy
+  (to the Drive trash) are deleted with it and it no longer counts in anyone's attendance (for trial or mistaken lectures).
 - **🗂️ Session history** (CSV) and **📋 Attendance by student**: attended (late counts as attended), late, excused,
   absent and the percentage over the ended lectures; students below the warning threshold are marked ⚠ (CSV too).
 - **⚙ Change** (Admin): the platform **time zone** (e.g. `Asia/Aden`) — every date and time is entered and shown in it,
