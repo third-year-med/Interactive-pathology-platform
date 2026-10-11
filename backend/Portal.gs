@@ -185,7 +185,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.11';
+var PORTAL_VERSION = '2.12';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -256,6 +256,9 @@ function portalHook_(module, p) {
     case 'portalGroupRefresh': return portalGroupRefresh_(p);
     case 'portalGroupSessions': return tsStudentSessions_(p);   // 2.8: the group page's 🎓 Teaching Sessions card
     case 'portalGroupCheckIn': return tsStudentCheckIn_(p);
+    case 'tsPresentCodes':   // 2.12: the module's Presentation Mode shows the code of a live Teaching Sessions lecture (read-only)
+      if (!p.storage || String(p.storage) === PORTAL_MODULE) return { ok: false, code: 'auth', error: 'Not signed in.' };
+      return authed_(String(p.storage), p, function () { return tsPresentCodes_(String(p.storage)); });
     case 'portalModuleFlags': return { ok: true, hideLiveAttendance: tsSettings_().hideModuleLive };   // 2.10: read by the module pages' platform block
     case 'liveOpen': return liveOpen_(p);   // 2.9: the group's Live Classroom (student)
     case 'liveTeacherOpen':
@@ -2531,6 +2534,22 @@ function tsClose_(who, p) {
   rosterWrite_(function () { var r = tsFind_(who, p.tsId).row; tsWrite_(r, { status: 'ended', endedAt: now }); });
   livePostSystem_(f.row.groupId, '■ Lecture ended: ' + f.row.title + ' — ' + f.mod.title + '. Attendance is closed.', 'ts-' + p.tsId + '-end');
   return tsState_(who, { tsId: p.tsId });
+}
+/** Presentation Mode (2.12): the codes of the live lectures a module page may show, for a TEACHER session of that page's storage
+ *  (authed_ above). A group page (storage <module>-<link code>) gets its own group's lecture; the module's main page — only ever
+ *  opened as teacher by the Admin (portalTeacherOpen) — gets the live lectures of every group of that module. Read-only: never
+ *  starts, renews or closes anything (a rotating code is renewed only by the Teacher Dashboard's live screen). */
+function tsPresentCodes_(storage) {
+  var out = [];
+  tsRows_().forEach(function (r) {
+    var b = String(r.backendModule || '');
+    if (r.status !== 'live' || (b !== storage && b.indexOf(storage + '-') !== 0)) return;
+    var att = tsAttRow_(r); if (!att || tsStatus_(r, att) !== 'live' || !att.code) return;
+    var g = dirFind_(DIR.GROUP, 'groupId', r.groupId) || {};
+    out.push({ code: String(att.code), title: r.title, group: g.name ? g.name + (g.academicYear ? ' (' + g.academicYear + ')' : '') : '', startedAt: Number(r.startedAt) || 0 });
+  });
+  out.sort(function (a, b) { return b.startedAt - a.startedAt; });
+  return { ok: true, live: out };
 }
 /** Cancel a lecture that has not started (it stays in the history but never counts), or restore it (undo). */
 function tsCancel_(who, p) {

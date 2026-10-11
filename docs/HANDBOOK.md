@@ -244,6 +244,10 @@ The user is a pathologist, not a developer. They follow steps literally and send
 
 ## 10. Current state (2026-10-07)
 
+- **Portal.gs 2.12 (2026-10-11): `tsPresentCodes`** — the presentation code badge failed when the Admin opened a module
+  WITHOUT a group (main storage `cellinjury`) while the lecture's attendance lives in the group storage (`cellinjury-<link>`).
+  Public action, authed_ by the module page's TEACHER token for `storage`: live TS lectures whose backendModule === storage or
+  starts with storage + '-'; read-only (never renews a rotating code). The modules poll it next to listAttendanceSessions.
 - **Teacher Dashboard redesign (2026-10-11, front end only):** compact cards → one view at a time (`#/teacher/<view>`:
   modules, sessions, attendance, exams, manage, directory; personal teacher: the first four). `dashShell()` in portal.js wraps the
   EXISTING sections unchanged (built once, kept in the page → typed input survives view switches); `route()` switches views

@@ -1727,7 +1727,7 @@ test('Teaching Sessions: the Admin deletes an ENDED lecture from the history (ty
   await p.selectOption('#t-sessions .ts-top select', g.groupId);
   const row = '#t-sessions .ts-block:has(h3:text("history")) .dir-row:has-text("Trial lecture — delete me")';
   await p.waitForSelector(row + ' [data-a=delx]');
-  assert.ok(await p.isVisible('#t-sessions .ts-block:has(h3:text("history")) .dir-row:has-text("Real lecture — keep") [data-a=delx]'));
+  await p.waitForSelector('#t-sessions .ts-block:has(h3:text("history")) .dir-row:has-text("Real lecture — keep") [data-a=delx]', { state: 'visible' });
   // wrong word → nothing deleted
   await p.click(row + ' [data-a=delx]');
   await p.waitForSelector('.toast:has-text("Not deleted")');
@@ -2322,6 +2322,37 @@ test('Teacher Dashboard: compact cards first; each card opens its full managemen
   await q.click('#t-pwbox [data-a=cancel]'); assert.ok(!(await q.$('#t-pwbox form')));
   await q.context().close();
   main.call({ module: 'portal', action: 'teacherSetActive', token: t, userId: cr.teacher.userId, active: false });
+});
+
+test('Presentation Mode attendance code — the Admin opens the module from Teaching Modules (no group) and still sees the code of the group lecture opened in Teaching Sessions', { skip: SKIP || ((!fs.existsSync(REAL[0][2]) || !REAL[0][3]) && 'module page or key not available') }, async function () {
+  const M = REAL[0];
+  groupFixture();
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const A = function (action, o) { return main.call(Object.assign({ module: 'portal', action: action, token: t }, o || {})); };
+  const dir = A('dirGet'), g = dir.groups.filter(function (x) { return x.linkCode === 'tr-a'; })[0];
+  const d = dir.deliveries.filter(function (x) { return x.groupId === g.groupId && x.moduleId === M[0]; })[0];
+  (A('tsList', { groupId: g.groupId }).sessions || []).filter(function (x) { return x.status === 'live'; }).forEach(function (x) { A('tsClose', { tsId: x.tsId }); });
+  const L = A('tsStart', { session: { groupId: g.groupId, deliveryId: d.deliveryId, title: 'Admin lecture', startAt: Date.now() } }); assert.ok(L.ok, JSON.stringify(L));
+  const calls = [];
+  const p = await realPage(M, calls);
+  await p.goto(HOME + '#/teacher');
+  await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+  await dash(p, 'modules');
+  await p.click('#t-modules .mod[data-id="' + M[0] + '"] .t-open');   // "All students (no group)"
+  await p.waitForURL(new RegExp(M[1]));
+  await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+  assert.strictEqual(await p.evaluate(function () { return window.NEO_BOOT.module; }), M[0], 'the main page, not the group storage');
+  await p.evaluate(function () { location.hash = '#/present/slide/1'; });
+  await p.waitForSelector('#pres-stage .slide');
+  await p.waitForFunction(function (c) { const e = document.querySelector('.pres-att .pa-c'); return e && e.textContent === c; }, L.code, { timeout: 15000 });
+  assert.match(await p.textContent('.pres-att'), new RegExp('Attendance Code:\\s*' + L.code));
+  for (let i = 0; i < 4; i++) await p.keyboard.press('ArrowRight');
+  assert.strictEqual(await p.textContent('.pres-att .pa-c'), L.code);
+  assert.ok(calls.some(function (c) { return c.action === 'tsPresentCodes' && c.storage === M[0]; }));
+  assert.ok(A('tsClose', { tsId: L.session.tsId }).ok);
+  await p.waitForFunction(function () { return !document.querySelector('.pres-att'); }, null, { timeout: 15000 });
+  await p.context().close();
 });
 
 test('no JavaScript errors', { skip: SKIP }, function () { assert.deepStrictEqual(errors, []); });

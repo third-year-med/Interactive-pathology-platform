@@ -1766,6 +1766,37 @@ test('deleting an ENDED lecture (2.11): Admin only, typed confirmation, never wh
   assert.ok(S.tt('tsDelete', S.ahmed.tok, { tsId: sc.tsId }).ok);
 });
 
+test('Presentation Mode codes (2.12): the module main page opened by the Admin sees the live lecture of every group; a group page only its own; students and other tokens nothing; read-only', function () {
+  const S = tsSetup(), X = S.b.ctx;
+  const L = S.ts('tsStart', { session: S.lect({ title: 'Live A', startAt: Date.now(), rotate: true }) }); assert.ok(L.ok, JSON.stringify(L));
+  const pc = function (storage, token) { return S.call({ module: 'portal', action: 'tsPresentCodes', storage: storage, token: token }); };
+  // the Admin opens Cell Injury without a group (main storage) → every group's live lecture of that module
+  const adm = S.call({ module: 'portal', action: 'portalTeacherOpen', token: S.admin, modules: ['cellinjury'] }).modules.cellinjury;
+  let r = pc('cellinjury', adm.token); assert.ok(r.ok, JSON.stringify(r));
+  assert.deepStrictEqual(r.live.map(function (x) { return [x.code, x.title]; }), [[L.code, 'Live A']]); assert.match(r.live[0].group, /Group A/);
+  // the group's own page (personal teacher of that delivery) → its lecture
+  const mt = S.t('teacherOpen', S.ahmed.tok, { deliveryId: S.ci.deliveryId }); assert.ok(mt.ok, JSON.stringify(mt));
+  r = pc('cellinjury-razi-a-26', mt.token); assert.deepStrictEqual(r.live.map(function (x) { return x.code; }), [L.code]);
+  // the same token cannot read another storage (another group / the main page / another module), nor can students or nobody
+  assert.strictEqual(pc('cellinjury', mt.token).code, 'auth');
+  assert.strictEqual(pc('inflhealing-razi-a-26', mt.token).code, 'auth');
+  const stu = login(S, 'cellinjury-razi-a-26', 'b1', 'basma-pass-1');
+  assert.strictEqual(pc('cellinjury-razi-a-26', stu.token).ok, false);
+  assert.strictEqual(S.call({ module: 'portal', action: 'tsPresentCodes', storage: 'cellinjury-razi-a-26', stoken: stu.token }).ok, false);
+  assert.strictEqual(pc('cellinjury-razi-a-26', '').ok, false);
+  assert.strictEqual(pc('portal', S.admin).ok, false, 'never with the dashboard session itself');
+  // inflammation's main page sees nothing of Cell Injury
+  const admI = S.call({ module: 'portal', action: 'portalTeacherOpen', token: S.admin, modules: ['inflhealing'] }).modules.inflhealing;
+  assert.deepStrictEqual(pc('inflhealing', admI.token).live, []);
+  // read-only: even when the rotating code is due, asking never renews it
+  const row = X.dirAll_('TeachingSessions').filter(function (x) { return x.tsId === L.session.tsId; })[0];
+  X.updateRow_('TeachingSessions', row._row, Object.assign(X.dirPublic_(row), { codeAt: Date.now() - 600000 }));
+  for (let i = 0; i < 3; i++) assert.strictEqual(pc('cellinjury', adm.token).live[0].code, L.code);
+  // closed by the teacher → gone
+  assert.ok(S.ts('tsClose', { tsId: L.session.tsId }).ok);
+  assert.deepStrictEqual(pc('cellinjury', adm.token).live, []);
+});
+
 test('group page check-in: right code → present (or late); twice → already; wrong codes limited; the rotated code works 20 s more', function () {
   const S = tsSetup(), X = S.b.ctx;
   const L = S.ts('tsStart', { session: S.lect({ title: 'Now', startAt: Date.now(), rotate: true }) }); assert.ok(L.ok);

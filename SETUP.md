@@ -272,7 +272,7 @@ shown; never the code) → sign in with the access code, student ID and password
 Drive permission: the first picture upload needs Drive access. If you see "Access denied: DriveApp", open the Apps
 Script editor, choose **authorizeDriveAccess** in the function list and press ▶ once.
 
-## Teaching Sessions (Portal.gs 2.11)
+## Teaching Sessions (Portal.gs 2.12)
 
 **Modules contain learning content; Teaching Sessions contain teaching events.** Teacher Dashboard → **🎓 Teaching
 Sessions** (the Admin: every group; a personal teacher: only the modules assigned to them). Choose the **group** at the top.
@@ -287,7 +287,8 @@ Sessions** (the Admin: every group; a personal teacher: only the modules assigne
 - **On your slides** — while attendance is open, the module's **Presentation** shows *Attendance Code: …* in the
   bottom-right corner (teacher's screen only) on every slide, in fullscreen and over enlarged images. Nothing closes
   attendance automatically (not time, slide changes, fullscreen or a lost connection); the code disappears only when
-  you close attendance.
+  you close attendance. It also appears when you (Admin) open the module from **Teaching Modules → Open module** without
+  choosing a group: that page shows the code of every group's live lecture of the module (Portal.gs 2.12).
 - **■ Close attendance** — students who did not check in become **Absent**. You can still correct anyone, also later
   (📋 Register in the history): **Present** (adds a real check-in), **Mark late / Mark present**, **Excused**,
   **Remove check-in** (e.g. someone who checked in from outside the room).
