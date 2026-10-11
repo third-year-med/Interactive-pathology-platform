@@ -272,3 +272,35 @@ code.pw{font-size:14px;font-weight:700;letter-spacing:.03em}
 .lc-files{display:flex;flex-wrap:wrap;gap:6px}.lc-up{background:#f6f8fb;border-radius:8px;padding:2px 8px}
 .lc-up button{border:0;background:none;cursor:pointer}
 .lc-stop{padding:20px;text-align:center}
+/* ---------- Teacher Dashboard: compact cards → one management view at a time (2026-10-11) ---------- */
+.dash-head{margin:24px 0 0}.dash-head .page-h{margin:0 0 2px}.dash-intro{margin:0;font-size:15px}
+.dash-tools{margin:10px 0 0}.dash-tools .roster-tools{margin:0}
+.dash-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin:18px 0 8px}
+@media (min-width:1000px){.dash-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.dash-card{position:relative;display:flex;gap:13px;align-items:flex-start;min-height:126px;padding:16px 38px 15px 16px;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 1px 2px rgba(15,42,74,.06);color:inherit;text-decoration:none;transition:border-color .15s,box-shadow .15s,transform .15s}
+.dash-card:hover{border-color:var(--teal);box-shadow:var(--shadow);transform:translateY(-1px)}
+.dash-card:focus-visible{outline:3px solid #f0b429;outline-offset:2px}
+.dc-ico{flex:0 0 44px;height:44px;border-radius:12px;display:grid;place-items:center;font-size:22px;background:var(--teal-soft)}
+.dc-txt{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
+.dc-t{font-weight:700;font-size:16.5px;line-height:1.3;color:var(--navy);padding-right:70px}
+.dc-d{font-size:13px;line-height:1.45;color:var(--muted)}
+.dc-sum{font-size:13px;line-height:1.4;font-weight:600;color:var(--navy-2);margin-top:5px;padding-top:6px;border-top:1px solid var(--line)}
+.dc-sum:empty{display:none}
+.dc-dirty{display:none;font-size:12px;font-weight:700;color:var(--warn);margin-top:2px}
+.dash-card.dirty .dc-dirty{display:block}
+.dc-badges{position:absolute;top:13px;right:13px;max-width:45%}
+.dc-badges:empty{display:none}
+.dc-go{position:absolute;right:13px;bottom:10px;font-size:24px;line-height:1;color:var(--muted)}
+.dash-card:hover .dc-go{color:var(--teal)}
+.pill.live{background:var(--bad-soft);color:var(--bad)}
+.dv-bar{display:flex;align-items:center;flex-wrap:wrap;gap:10px 14px;margin:16px 0 4px;padding:10px 0;border-bottom:1px solid var(--line)}
+.dv-h{margin:0;font-size:21px;color:var(--navy)}.dv-h:focus{outline:none}
+.dash-root.in-view .dash-head{margin-top:16px}.dash-root.in-view .dash-head .page-h{font-size:18px;color:var(--muted)}
+.dash-view .t-sec>.sec-head>h2{display:none}
+.dash-view .t-sec>.sec-head{margin:10px 0 12px}
+.dash-view .t-sec:first-of-type .sec-head{margin-top:10px}
+.dash-view details.dir>summary{display:none}
+.dash-view details.dir{border:0;padding:0;background:none;box-shadow:none}
+.dash-view .rep-block{margin-top:26px;padding-top:6px;border-top:1px solid var(--line)}
+#t-pwbox:not(:empty){margin:14px 0 0}
+@media (max-width:640px){.dash-grid{grid-template-columns:1fr;gap:10px}.dash-card{min-height:0;padding:13px 34px 13px 13px}.dc-ico{flex-basis:38px;height:38px;font-size:19px}.dv-h{font-size:18px}}

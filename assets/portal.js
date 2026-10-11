@@ -438,6 +438,8 @@
     });
   }
   function teacherSignOut() {
+    if (dashDirtyViews().length && !window.confirm('You have unsaved changes (' + dashDirtyNames() + '). Sign out anyway? They will be lost.')) return;
+    DASH = null;
     var t = tget() || sget(TKEY) || {}, list = [];
     if (t.role === 'teacher') {   // the backend ends this session and every module session opened from it
       Object.keys(t.mods || {}).forEach(function (k) { var x = t.mods[k], cur = x.prefix && lsGet(x.prefix + 'backend_token_v1'); if (cur && cur.token === x.token) lsDel(x.prefix + 'backend_token_v1'); });
@@ -453,6 +455,110 @@
       .then(function () { if (t.token) post(CFG.backendUrl, { module: 'portal', action: 'logout', token: t.token }, { keepalive: true }); });
     sdel(TKEY); location.hash = '#/'; route(); toast('You have signed out.');
   }
+  /* ---------------- Teacher Dashboard (2026-10-11): a compact control centre of cards. Each card opens ONE management view
+     (#/teacher/<view>) — the existing section, built once and kept in the page, so moving between views never loses what was
+     typed; "← Back to Dashboard" and the browser's Back button return to the cards. Card summaries only use data the sections
+     already load (no extra requests); where nothing reliable is loaded yet the card shows its short description. ---------------- */
+  var DASH = null;
+  var DASH_DEF = {
+    modules: ['📚', 'Teaching Modules', 'Open a module in teacher mode or its Teacher Portal.'],
+    sessions: ['🎓', 'Teaching Sessions', 'Schedule or start lectures, live attendance, Live Classroom, history.'],
+    attendance: ['📋', 'Student Attendance', 'Attendance by student: attended, late, excused, absent — CSV export.'],
+    exams: ['📝', 'Official Exams', 'Module and combined exams, exam banks, student exam pages, results.'],
+    manage: ['🧩', 'Teacher Management', 'Front-page module cards: title, icon, colour, link, status.'],
+    directory: ['🏛️', 'Platform Directory', 'Institutions, groups, modules, deliveries, students, teachers, content.']
+  };
+  function dashKey() { var t = tteach(); if (t && t.ttoken) return 'teacher:' + t.ttoken; var k = tsess(); return k ? 'admin:' + k : ''; }
+  /** opts: { intro (html), tools (element|null), views: [[id, element], …] } → the dashboard element (cards + hidden views). */
+  function dashShell(opts) {
+    var root = h('<div class="dash-root"><div class="t-head dash-head"><h1 class="page-h">Teacher Dashboard</h1><p class="muted dash-intro"></p></div>' +
+      '<div class="dash-tools"></div><div id="t-pwbox"></div><nav class="dash-grid" aria-label="Dashboard sections"></nav></div>');
+    root.dataset.key = dashKey();
+    $('.dash-intro', root).innerHTML = opts.intro || '';
+    if (opts.tools) $('.dash-tools', root).appendChild(opts.tools);
+    var grid = $('.dash-grid', root), views = {};
+    opts.views.forEach(function (v) {
+      var id = v[0], d = DASH_DEF[id];
+      var c = h('<a class="dash-card" href="#/teacher/' + id + '" data-view="' + id + '"><span class="dc-ico" aria-hidden="true">' + d[0] + '</span>' +
+        '<span class="dc-txt"><span class="dc-t">' + esc(d[1]) + '</span><span class="dc-d">' + esc(d[2]) + '</span><span class="dc-sum"></span><span class="dc-dirty">● Unsaved changes</span></span>' +
+        '<span class="dc-badges"></span><span class="dc-go" aria-hidden="true">›</span></a>');
+      grid.appendChild(c);
+      var view = h('<section class="dash-view" data-view="' + id + '" hidden aria-labelledby="dv-h-' + id + '"><div class="dv-bar"><a class="btn dv-back" href="#/teacher">← Back to Dashboard</a>' +
+        '<h2 class="dv-h" id="dv-h-' + id + '" tabindex="-1"><span aria-hidden="true">' + d[0] + '</span> ' + esc(d[1]) + '</h2></div></section>');
+      view.appendChild(v[1]);
+      root.appendChild(view);
+      views[id] = { card: c, view: view };
+    });
+    DASH = { root: root, views: views, cur: '', last: '', forms: [], onOpen: {} };
+    root.addEventListener('input', dashTrack, true); root.addEventListener('change', dashTrack, true);
+    return root;
+  }
+  /** A form inside a view that the teacher typed into — unsaved while it is still on the page (saving re-draws or removes it). */
+  function dashTrack(e) {
+    if (!DASH || !e.isTrusted || !e.target.closest) return;
+    var f = e.target.closest('form'); if (!f || !e.target.closest('.dash-view')) return;
+    if (DASH.forms.indexOf(f) < 0) DASH.forms.push(f);
+    dashBadges();
+  }
+  function dashDirtyViews() {
+    if (!DASH || !DASH.root.isConnected) return [];
+    DASH.forms = DASH.forms.filter(function (f) { return f.isConnected; });
+    return Object.keys(DASH.views).filter(function (id) {
+      var v = DASH.views[id].view;
+      return DASH.forms.some(function (f) { return v.contains(f); }) || !!$('[data-dirty="1"]', v);
+    });
+  }
+  function dashDirtyNames() { return dashDirtyViews().map(function (id) { return DASH_DEF[id][1]; }).join(', '); }
+  function dashBadges() {
+    if (!DASH) return; var dirty = dashDirtyViews();
+    Object.keys(DASH.views).forEach(function (id) { DASH.views[id].card.classList.toggle('dirty', dirty.indexOf(id) >= 0); });
+  }
+  /** The summary line (and an optional small badge) of a card. */
+  function dashSum(id, text, badge, cls) {
+    if (!DASH || !DASH.views[id]) return; var c = DASH.views[id].card;
+    $('.dc-sum', c).textContent = text || '';
+    $('.dc-badges', c).innerHTML = badge ? '<span class="pill ' + (cls || 'available') + '">' + esc(badge) + '</span>' : '';
+  }
+  /** Shows the cards (#/teacher) or the view named in the address. False when no dashboard of this session is on the page. */
+  function dashShow() {
+    var root = $('.dash-root', main);
+    if (!DASH || !root || DASH.root !== root || root.dataset.key !== dashKey()) return false;
+    var m = /^#\/teacher\/([a-z]+)/.exec(location.hash), id = m && DASH.views[m[1]] ? m[1] : '';
+    DASH.cur = id;
+    root.classList.toggle('in-view', !!id);
+    $('.dash-grid', root).hidden = !!id; $('.dash-tools', root).hidden = !!id; $('.dash-intro', root).hidden = !!id;
+    Object.keys(DASH.views).forEach(function (k) { DASH.views[k].view.hidden = k !== id; });
+    if (id && DASH.onOpen[id]) DASH.onOpen[id]();
+    dashBadges();
+    setTimeout(function () {
+      try { if (id) $('#dv-h-' + id).focus({ preventScroll: true }); else if (DASH.last && DASH.views[DASH.last]) DASH.views[DASH.last].card.focus({ preventScroll: true }); } catch (e) { }
+      if (id) DASH.last = id;
+    }, 0);
+    return true;
+  }
+  /** "Results & attendance" of every module (the existing report), opened on request inside Student Attendance. */
+  function reportBlock(call) {
+    var w = h('<div class="ts-block rep-block"><h3>📊 Results &amp; attendance — all modules</h3><p class="small muted">Results and attendance registers per group and module.</p>' +
+      '<div class="roster-tools"><button class="btn" type="button" data-a="rep">📊 Results &amp; attendance</button></div><section class="t-sec" id="t-report" hidden></section></div>');
+    var box = $('#t-report', w);
+    $('[data-a=rep]', w).onclick = function () { if (!box.hidden) { box.hidden = true; return; } box.hidden = false; reportView(box, call); };
+    return w;
+  }
+  function sessSummary(x) {
+    if (x.none) { dashSum('sessions', x.none); dashSum('attendance', x.none); return; }
+    dashSum('sessions', x.group + ' · ' + (x.live ? 'live now: ' + x.live : 'no lecture live') + ' · ' + x.up + ' upcoming', x.live ? '🔴 Live' : '', 'live');
+    dashSum('attendance', x.group + ' · ' + x.students + ' student' + (x.students === 1 ? '' : 's') + ' · ' + x.ended + ' ended lecture' + (x.ended === 1 ? '' : 's'),
+      x.warn ? '⚠ ' + x.warn + ' below ' + x.th + '%' : '', 'warn');
+  }
+  function examSummary(places) {
+    var groups = {}, comb = 0; places.forEach(function (p) { groups[p.groupLabel] = 1; if (p.kind === 'combined') comb++; });
+    var g = Object.keys(groups).length;
+    dashSum('exams', places.length ? places.length + ' exam place' + (places.length === 1 ? '' : 's') + ' in ' + g + ' group' + (g === 1 ? '' : 's') + (comb ? ' · ' + comb + ' combined' : '') : 'No exam places yet');
+  }
+  function moduleSummary() {
+    var open = MODULES.filter(function (m) { return m.status === 'available'; }).length;
+    dashSum('modules', MODULES.length + ' module' + (MODULES.length === 1 ? '' : 's') + ' · ' + open + ' open to students');
+  }
   function viewTeacher() {
     var tok = tsess();
     main.innerHTML = '';
@@ -461,21 +567,30 @@
       main.appendChild(h('<div class="t-head"><h1 class="page-h">Teacher Sign-In</h1><p class="muted">Teachers: sign in with your username and password to open the groups and modules assigned to you. Administrator: leave the username empty.</p></div>'));
       return main.appendChild(teacherLogin());
     }
-    main.appendChild(h('<div class="t-head"><h1 class="page-h">Teacher Dashboard</h1><p class="muted">Signed in as teacher. Open any module directly, or manage the platform below.</p></div>'));
+    var call = function (action, o) { return post(CFG.backendUrl, Object.assign({ module: 'portal', action: action, token: tok }, o || {})); };
     var tm = h('<section class="t-sec" id="t-modules"><div class="sec-head"><h2>Teaching Modules</h2><span class="small muted">Open in teacher mode — no second password</span></div><div class="grid t-grid"></div></section>');
     var grid = $('.t-grid', tm);
     MODULES.forEach(function (m) { grid.appendChild(teacherCard(m)); });
     if (!MODULES.length) grid.appendChild(h('<p class="muted">No modules yet — add one under Teacher Management.</p>'));
-    main.appendChild(tm);
-    main.appendChild(sessionsSection(function (action, o) { return post(CFG.backendUrl, Object.assign({ module: 'portal', action: action, token: tok }, o || {})); }, true));
-    main.appendChild(examsSection(function (action, o) { return post(CFG.backendUrl, Object.assign({ module: 'portal', action: action, token: tok }, o || {})); }, true));
+    var att = h('<section class="t-sec" id="t-att"><div class="ts-att"><p class="muted small">Loading…</p></div></section>');
+    var ss = sessionsSection(call, true, { attHost: $('.ts-att', att), onSummary: sessSummary });
+    att.appendChild(reportBlock(call));
+    var ex = examsSection(call, true, examSummary);
     var mg = h('<section class="t-sec" id="t-manage"><div class="sec-head"><h2>Teacher Management</h2><span class="small muted">Front-page modules, statuses and links</span></div><div class="t-box"><p class="muted">Loading…</p></div></section>');
-    main.appendChild(mg);
     var box = $('.t-box', mg);
-    main.appendChild(directorySection());
+    var dir = directorySection(function (D) {
+      var n = function (k, one) { var c = (D[k] || []).length; return c + ' ' + one + (c === 1 ? '' : 's'); };
+      dashSum('directory', n('institutions', 'institution').replace('institutionss', 'institutions') + ' · ' + n('groups', 'group') + ' · ' + n('deliveries', 'delivery').replace('deliverys', 'deliveries'));
+    });
+    main.appendChild(dashShell({ intro: 'Signed in as the platform administrator. Choose an area to open it.',
+      views: [['modules', tm], ['sessions', ss], ['attendance', att], ['exams', ex], ['manage', mg], ['directory', dir]] }));
+    DASH.onOpen.directory = function () { var d = $('details.dir', dir); if (d && !d.open) d.open = true; };   // loads the directory the first time
+    moduleSummary();
+    dashShow();
     post(CFG.backendUrl, { module: 'portal', action: 'portalAdminGet', token: tok }).then(function (r) {
       if (!r.ok) { if (r.code === 'auth') { sdel(TKEY); return route(); } box.innerHTML = '<p class="err">' + esc(r.error) + '</p>'; return; }
       editor(box, r);
+      dashSum('manage', r.modules.length + ' module card' + (r.modules.length === 1 ? '' : 's') + ' on the front page');
     });
   }
   function teacherCard(m) {
@@ -483,7 +598,7 @@
     var el = h('<article class="mod t-card ' + (m.url ? 'open' : 'locked') + ' st-' + esc(m.status) + '" style="--c:' + esc(m.color) + '" data-id="' + esc(m.id) + '">' +
       '<div class="mod-top"><div class="mod-ico">' + iconHtml(m) + '</div><span class="pill ' + st.cls + '">' + st.icon + ' ' + esc(st.label) + '</span></div>' +
       '<div class="mod-body">' + (m.subtitle ? '<div class="cat">' + esc(m.subtitle) + '</div>' : '') + '<h3>' + esc(m.title) + '</h3>' + (d ? '<p class="desc">' + esc(d) + '</p>' : '') +
-      '<p class="msg">' + esc(!m.url ? 'The link to this module has not been set yet (Teacher Management below).' : direct ? 'Opens in teacher mode with your teacher sign-in.' + (m.status !== 'available' ? ' Students cannot open it yet.' : '') : 'This module is not connected for direct teacher access; it opens on its own page.') + '</p>' +
+      '<p class="msg">' + esc(!m.url ? 'The link to this module has not been set yet (Teacher Management card).' : direct ? 'Opens in teacher mode with your teacher sign-in.' + (m.status !== 'available' ? ' Students cannot open it yet.' : '') : 'This module is not connected for direct teacher access; it opens on its own page.') + '</p>' +
       (m.url && direct && (m.groups || []).length ? '<label class="t-grp">Group link<select class="t-g"><option value="">All students (no group)</option>' + m.groups.map(function (g) { return '<option value="' + esc(g) + '">Group ' + esc(g) + ' (?g=' + esc(g) + ')</option>'; }).join('') + '</select></label>' : '') +
       '<div class="act">' + (m.url ? '<button class="btn primary t-open" type="button">Open module →</button>' + (direct ? '<button class="btn t-admin" type="button">Teacher Portal</button>' : '') : '<button class="btn" type="button" disabled>Link not set</button>') + '</div></div></article>');
     var o = $('.t-open', el), a = $('.t-admin', el), gs = $('.t-g', el);
@@ -534,23 +649,30 @@
   function viewMyTeaching() {
     var t = tteach(), u = t.user || {};
     main.innerHTML = '';
-    main.appendChild(h('<div class="t-head"><h1 class="page-h">Teacher Dashboard</h1><p class="muted">Signed in as <b>' + esc(u.name || u.username) + '</b> (' + esc(u.username) + '). These are the groups and modules assigned to you.</p></div>'));
-    var bar = h('<div class="roster-tools"><button class="btn" type="button" data-a="pw">🔑 Change my password</button><button class="btn" type="button" data-a="rep">📊 Results &amp; attendance</button></div>'); main.appendChild(bar);
-    $('[data-a=pw]', bar).onclick = function () { teacherPwForm(false); };
-    var repBox = h('<section class="t-sec" id="t-report" hidden></section>'); main.appendChild(repBox);
-    $('[data-a=rep]', bar).onclick = function () {
-      if (!repBox.hidden) { repBox.hidden = true; return; }
-      repBox.hidden = false;
-      reportView(repBox, function (action, o) { var cur = tteach(); return post(CFG.backendUrl, Object.assign({ module: 'portal', action: action, ttoken: cur && cur.ttoken }, o || {})); });
-    };
-    var box = h('<section class="t-sec" id="t-mine"><p class="muted">Loading…</p></section>'); main.appendChild(box);
     if (u.mustChange) return teacherPwForm(true);
+    var call = function (action, o) { var cur = tteach(); return post(CFG.backendUrl, Object.assign({ module: 'portal', action: action, ttoken: cur && cur.ttoken }, o || {})); };
+    var bar = h('<div class="roster-tools"><button class="btn" type="button" data-a="pw">🔑 Change my password</button></div>');
+    $('[data-a=pw]', bar).onclick = function () { teacherPwForm(false); };
+    var box = h('<section class="t-sec" id="t-mine"><p class="muted">Loading…</p></section>');
+    var sessW = h('<div class="dv-wrap"><p class="muted small">Loading…</p></div>'), exW = h('<div class="dv-wrap"><p class="muted small">Loading…</p></div>');
+    var att = h('<section class="t-sec" id="t-att"><div class="ts-att"><p class="muted small">Loading…</p></div></section>');
+    att.appendChild(reportBlock(call));
+    main.appendChild(dashShell({ intro: 'Signed in as <b>' + esc(u.name || u.username) + '</b> (' + esc(u.username) + '). Your groups and modules — choose an area to open it.', tools: bar,
+      views: [['modules', box], ['sessions', sessW], ['attendance', att], ['exams', exW]] }));
+    dashShow();
     post(CFG.backendUrl, { module: 'portal', action: 'teacherMe', ttoken: t.ttoken }).then(function (r) {
       if (!r.ok) { if (r.code === 'auth') { sdel(TKEY); toast('Your teacher session has ended — please sign in again.'); return route(); } box.innerHTML = '<p class="err">' + esc(r.error) + '</p>'; return; }
       var cur = tteach(); if (cur) { cur.user = r.user; sset(TKEY, cur, false); }
       if (r.user.mustChange) return teacherPwForm(true);
       box.innerHTML = '';
-      if (!r.deliveries.length) { box.appendChild(h('<div class="card"><p>No group or module has been assigned to you yet. Please contact the platform administrator.</p></div>')); return; }
+      if (!r.deliveries.length) {
+        box.appendChild(h('<div class="card"><p>No group or module has been assigned to you yet. Please contact the platform administrator.</p></div>'));
+        sessW.innerHTML = exW.innerHTML = $('.ts-att', att).innerHTML = '<p class="muted small">No group or module is assigned to you yet.</p>';
+        ['modules', 'sessions', 'attendance', 'exams'].forEach(function (id) { dashSum(id, 'Nothing assigned yet'); });
+        return;
+      }
+      var nG = {}, nOpen = 0; r.deliveries.forEach(function (d) { nG[d.groupId] = 1; if (d.open) nOpen++; });
+      dashSum('modules', r.deliveries.length + ' module' + (r.deliveries.length === 1 ? '' : 's') + ' in ' + Object.keys(nG).length + ' group' + (Object.keys(nG).length === 1 ? '' : 's') + ' · ' + nOpen + ' active');
       var byGroup = {}, order = [];
       r.deliveries.forEach(function (d) { if (!byGroup[d.groupId]) { byGroup[d.groupId] = []; order.push(d.groupId); } byGroup[d.groupId].push(d); });
       order.forEach(function (gid) {
@@ -562,8 +684,8 @@
         ds.forEach(function (d) { $('.t-grid', sec).appendChild(myCard(d)); });
         box.appendChild(sec);
       });
-      box.appendChild(sessionsSection(function (action, o) { var cur = tteach(); return post(CFG.backendUrl, Object.assign({ module: 'portal', action: action, ttoken: cur && cur.ttoken }, o || {})); }, false));
-      box.appendChild(examsSection(function (action, o) { var cur = tteach(); return post(CFG.backendUrl, Object.assign({ module: 'portal', action: action, ttoken: cur && cur.ttoken }, o || {})); }, false));
+      sessW.innerHTML = ''; sessW.appendChild(sessionsSection(call, false, { attHost: $('.ts-att', att), onSummary: sessSummary }));
+      exW.innerHTML = ''; exW.appendChild(examsSection(call, false, examSummary));
     });
   }
   function myCard(d) {
@@ -604,13 +726,15 @@
   /** Change password (forced after a temporary password, or voluntary). */
   function teacherPwForm(forced) {
     var t = tteach(); if (!t) return route();
-    var box = $('#t-mine') || main;
+    var box = forced ? main : ($('#t-pwbox') || $('#t-mine') || main);
+    if (box === $('#t-pwbox') && box.firstChild) { box.innerHTML = ''; return; }   // the button again closes it
     box.innerHTML = '';
+    if (box.id === 't-pwbox' && DASH && DASH.cur) location.hash = '#/teacher';
     var f = h('<form class="card t-login" style="max-width:440px" novalidate><h2 style="margin-top:0;color:var(--navy);font-size:18px">' + (forced ? 'Choose your own password' : 'Change my password') + '</h2>' +
       (forced ? '<p class="small muted">You signed in with a temporary password. Choose your own (at least 8 characters) to continue.</p>' : '') +
       '<label>Current password<input id="tp-o" type="password" autocomplete="current-password"></label><label>New password<input id="tp-n1" type="password" autocomplete="new-password"></label><label>Repeat new password<input id="tp-n2" type="password" autocomplete="new-password"></label>' +
       '<p class="err" role="alert"></p><button class="btn primary full" type="submit">Save new password</button>' + (forced ? '' : '<button class="btn full" type="button" data-a="cancel" style="margin-top:8px">Cancel</button>') + '</form>');
-    var c = $('[data-a=cancel]', f); if (c) c.onclick = function () { route(); };
+    var c = $('[data-a=cancel]', f); if (c) c.onclick = function () { if (box.id === 't-pwbox') box.innerHTML = ''; else { main.innerHTML = ''; route(); } };
     f.onsubmit = function (e) {
       e.preventDefault();
       var err = $('.err', f), n1 = $('#tp-n1', f).value;
@@ -621,7 +745,7 @@
         b.disabled = false;
         if (!r.ok) { if (r.code === 'auth') { sdel(TKEY); return route(); } err.textContent = r.error || 'Could not change the password.'; return; }
         var cur = tteach(); if (cur && cur.user) { cur.user.mustChange = false; sset(TKEY, cur, false); }
-        toast('Password changed.'); route();
+        toast('Password changed.'); main.innerHTML = ''; DASH = null; route();
       });
     };
     box.appendChild(f);
@@ -638,8 +762,9 @@
   ];
   function editor(box, r) {
     var list = r.modules.map(function (m) { return JSON.parse(JSON.stringify(m)); }), counts = r.counts || {};
+    var dirty = function (on) { if (on) box.dataset.dirty = '1'; else delete box.dataset.dirty; dashBadges(); };
     box.innerHTML = '';
-    box.appendChild(h('<div class="note" style="margin-bottom:14px"><b>Status is only what students see.</b> A student can enter a module only if their account is registered for it (Teaching Modules above → that module’s <b>Teacher Portal</b> → Students). “Available” never opens a module to students without an account.</div>'));
+    box.appendChild(h('<div class="note" style="margin-bottom:14px"><b>Status is only what students see.</b> A student can enter a module only if their account is registered for it (Teaching Modules card → that module’s <b>Teacher Portal</b> → Students). “Available” never opens a module to students without an account.</div>'));
     var rows = h('<div></div>'); box.appendChild(rows);
     var bar = h('<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px"><button class="btn add" type="button">＋ Add a module</button><span style="flex:1"></span><button class="btn out" type="button">Sign out</button><button class="btn primary save" type="button">💾 Save changes</button></div>');
     box.appendChild(bar);
@@ -655,24 +780,24 @@
           '<details class="adv"><summary>Advanced (connection to the module)</summary><div class="rowed">' + ADV.map(function (f) {
             return '<label>' + esc(f[1]) + (f[2] === 'select' ? '<select data-k="' + f[0] + '">' + f[3].map(function (o) { return '<option value="' + o[0] + '">' + esc(o[1]) + '</option>'; }).join('') + '</select>' : '<input data-k="' + f[0] + '">') + '</label>';
           }).join('') + '</div></details></section>');
-        $$('[data-k]', el).forEach(function (inp) { var v = m[inp.dataset.k]; inp.value = v == null ? '' : Array.isArray(v) ? v.join(', ') : v; inp.oninput = inp.onchange = function () { m[inp.dataset.k] = inp.value; if (inp.dataset.k === 'color') el.style.setProperty('--c', inp.value); }; });
+        $$('[data-k]', el).forEach(function (inp) { var v = m[inp.dataset.k]; inp.value = v == null ? '' : Array.isArray(v) ? v.join(', ') : v; inp.oninput = inp.onchange = function () { m[inp.dataset.k] = inp.value; dirty(true); if (inp.dataset.k === 'color') el.style.setProperty('--c', inp.value); }; });
         el.onclick = function (e) {
           var a = e.target.dataset.a; if (!a) return;
-          if (a === 'up' && i > 0) { list.splice(i - 1, 0, list.splice(i, 1)[0]); draw(); }
-          if (a === 'dn' && i < list.length - 1) { list.splice(i + 1, 0, list.splice(i, 1)[0]); draw(); }
-          if (a === 'rm' && window.confirm('Remove “' + m.title + '” from the front page? (The module itself and its accounts are not touched.)')) { list.splice(i, 1); draw(); }
+          if (a === 'up' && i > 0) { list.splice(i - 1, 0, list.splice(i, 1)[0]); dirty(true); draw(); }
+          if (a === 'dn' && i < list.length - 1) { list.splice(i + 1, 0, list.splice(i, 1)[0]); dirty(true); draw(); }
+          if (a === 'rm' && window.confirm('Remove “' + m.title + '” from the front page? (The module itself and its accounts are not touched.)')) { list.splice(i, 1); dirty(true); draw(); }
         };
         rows.appendChild(el);
       });
     }
-    $('.add', bar).onclick = function () { list.push({ id: 'module' + (list.length + 1), title: 'New module', subtitle: '', icon: '📘', color: '#0f2a4a', status: 'soon', url: '', moduleKey: '', handoff: 'link', storagePrefix: '', backend: '', note: '', groups: [] }); draw(); rows.lastChild.scrollIntoView({ behavior: 'smooth' }); };
+    $('.add', bar).onclick = function () { dirty(true); list.push({ id: 'module' + (list.length + 1), title: 'New module', subtitle: '', icon: '📘', color: '#0f2a4a', status: 'soon', url: '', moduleKey: '', handoff: 'link', storagePrefix: '', backend: '', note: '', groups: [] }); draw(); rows.lastChild.scrollIntoView({ behavior: 'smooth' }); };
     $('.out', bar).onclick = teacherSignOut;
     $('.save', bar).onclick = function () {
       var btn = this; btn.disabled = true; btn.textContent = 'Saving…';
       post(CFG.backendUrl, { module: 'portal', action: 'portalAdminSave', token: tsess(), modules: list }).then(function (x) {
         btn.disabled = false; btn.textContent = '💾 Save changes';
         if (!x.ok) { if (x.code === 'auth') { sdel(TKEY); return viewTeacher(); } toast(x.error); return; }
-        list = x.modules; MODULES = x.modules; draw(); var g = $('#t-modules .t-grid'); if (g) { g.innerHTML = ''; MODULES.forEach(function (m) { g.appendChild(teacherCard(m)); }); } toast('Saved. Students see the new list when they open or reload the front page.');
+        list = x.modules; MODULES = x.modules; dirty(false); draw(); moduleSummary(); dashSum('manage', list.length + ' module card' + (list.length === 1 ? '' : 's') + ' on the front page'); var g = $('#t-modules .t-grid'); if (g) { g.innerHTML = ''; MODULES.forEach(function (m) { g.appendChild(teacherCard(m)); }); } toast('Saved. Students see the new list when they open or reload the front page.');
       });
     };
     draw();
@@ -710,13 +835,14 @@
       location.href = (r.examUrl || EXAM_APP) + '?m=' + encodeURIComponent(storage);
     });
   }
-  function examsSection(call, admin) {
+  function examsSection(call, admin, onSummary) {
     var sec = h('<section class="t-sec" id="t-exams"><div class="sec-head"><h2>📝 Official Exams</h2><span class="small muted">' + (admin ? 'Every module and group' : 'Your groups') + ' · exam manager without a second password</span></div><div class="ex-body"><p class="muted small">Loading…</p></div></section>');
     var body = $('.ex-body', sec);
     var paint = function () {
       call('examPlaces').then(function (r) {
         if (!r.ok) { body.innerHTML = '<p class="small ' + (r.code === 'badaction' ? 'muted' : 'err') + '">' + esc(r.code === 'badaction' ? 'Update Portal.gs on the backend (version 2.6) to manage official exams from here.' : r.error) + '</p>'; return; }
         var url = r.examUrl || EXAM_APP, places = r.places || [], hasCombined = places.some(function (x) { return x.kind === 'combined'; });
+        if (onSummary) onSummary(places);
         body.innerHTML = '<p class="small">Each place has its own exam bank, exams and results. <b>Combined exams</b> (questions from several modules) live in a group\'s <i>Official Exams</i> delivery. Students open the exam page of their group and need the <b>access code</b> you give out in the exam room.</p>';
         if (admin && !hasCombined) {
           var setup = h('<div class="note small">To give a group <b>combined exams</b>: add the <b>Official Exams</b> module once, then deliver it to the group (Platform directory → Deliveries). The group\'s students get exam accounts with their usual password automatically.<div class="roster-tools"><button class="btn" type="button">➕ Add the Official Exams module</button></div></div>');
@@ -776,7 +902,9 @@
     var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + [head].concat(rows).map(function (r) { return r.map(q).join(','); }).join('\r\n')], { type: 'text/csv;charset=utf-8' }));
     a.download = name; document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
   }
-  function sessionsSection(call, admin) {
+  function sessionsSection(call, admin, opts) {
+    opts = opts || {};
+    var attHost = opts.attHost || null;   // Student Attendance view: the by-student table is drawn there (same data, same group)
     var sec = h('<section class="t-sec" id="t-sessions"><div class="sec-head"><h2>🎓 Teaching Sessions</h2><span class="small muted">' + (admin ? 'Every group' : 'Your groups') + ' · lectures, live attendance, history</span></div><div class="ts-body"><p class="muted small">Loading…</p></div></section>');
     var body = $('.ts-body', sec), G = null, groupId = '', poll = null, liveId = '';
     function fail(r) {
@@ -787,9 +915,14 @@
     function stop() { if (poll) { clearTimeout(poll); poll = null; } liveId = ''; }
     function start() {
       call('tsGroups').then(function (r) {
-        if (!r.ok) { body.innerHTML = '<p class="small ' + (r.code === 'badaction' ? 'muted' : 'err') + '">' + esc(r.code === 'badaction' ? 'Update Portal.gs on the backend (version 2.8) to run Teaching Sessions from here.' : r.error) + '</p>'; return; }
+        if (!r.ok) { body.innerHTML = '<p class="small ' + (r.code === 'badaction' ? 'muted' : 'err') + '">' + esc(r.code === 'badaction' ? 'Update Portal.gs on the backend (version 2.8) to run Teaching Sessions from here.' : r.error) + '</p>'; if (attHost) attHost.innerHTML = body.innerHTML; return; }
         G = r;
-        if (!G.groups.length) { body.innerHTML = '<p class="muted small">' + (admin ? 'No group has teaching modules yet (Platform directory → Groups and Deliveries).' : 'No group or module is assigned to you yet.') + '</p>'; return; }
+        if (!G.groups.length) {
+          body.innerHTML = '<p class="muted small">' + (admin ? 'No group has teaching modules yet (Platform directory → Groups and Deliveries).' : 'No group or module is assigned to you yet.') + '</p>';
+          if (attHost) attHost.innerHTML = body.innerHTML;
+          if (opts.onSummary) opts.onSummary({ none: 'No teaching group yet' });
+          return;
+        }
         try { groupId = sessionStorage.getItem('pp_ts_group') || ''; } catch (e) { }
         if (!G.groups.some(function (g) { return g.groupId === groupId; })) groupId = G.groups[0].groupId;
         paint();
@@ -803,7 +936,15 @@
       body.innerHTML = '';
       var top = h('<div class="ts-top"><label class="ts-g">Group <select>' + G.groups.map(function (x) { return '<option value="' + esc(x.groupId) + '"' + (x.groupId === groupId ? ' selected' : '') + '>' + esc(x.label) + '</option>'; }).join('') + '</select></label>' +
         '<span class="small muted">Times: <b>' + esc(set.timeZone) + '</b> · warning below <b>' + set.threshold + '%</b> · module Live/Attendance: <b>' + (set.hideModuleLive !== false ? 'hidden' : 'shown') + '</b>' + (admin ? ' <button class="btn linkish" type="button" data-a="set">⚙ Change</button>' : '') + '</span></div>');
-      $('select', top).onchange = function () { groupId = this.value; try { sessionStorage.setItem('pp_ts_group', groupId); } catch (e) { } paint(); };
+      var pick = function () { groupId = this.value; try { sessionStorage.setItem('pp_ts_group', groupId); } catch (e) { } paint(); };
+      $('select', top).onchange = pick;
+      if (attHost) {
+        attHost.innerHTML = '';
+        var at = h('<div class="ts-top"><label class="ts-g">Group <select>' + G.groups.map(function (x) { return '<option value="' + esc(x.groupId) + '"' + (x.groupId === groupId ? ' selected' : '') + '>' + esc(x.label) + '</option>'; }).join('') + '</select></label>' +
+          '<span class="small muted">Warning below <b>' + set.threshold + '%</b> · times in <b>' + esc(set.timeZone) + '</b></span></div>');
+        $('select', at).onchange = pick;
+        attHost.appendChild(at); attHost.appendChild(h('<p class="muted small ts-att-wait">Loading the attendance…</p>'));
+      }
       var sb = $('[data-a=set]', top); if (sb) sb.onclick = function () { settingsForm(top); };
       body.appendChild(top);
       var bar = h('<div class="roster-tools"><button class="btn primary" type="button" data-a="new">📅 Schedule a lecture</button><button class="btn" type="button" data-a="now">▶ Start a lecture now</button><button class="btn" type="button" data-a="live">💬 Group Live Classroom</button></div>');
@@ -815,7 +956,7 @@
       var liveBox = h('<div class="ts-live-box"></div>'); body.appendChild(liveBox);
       var lists = h('<div class="ts-lists"><p class="muted small">Loading the lectures…</p></div>'); body.appendChild(lists);
       call('tsList', { groupId: g.groupId }).then(function (r) {
-        if (!r.ok) { lists.innerHTML = ''; fail(r); return; }
+        if (!r.ok) { lists.innerHTML = ''; var aw = attHost && $('.ts-att-wait', attHost); if (aw) aw.textContent = r.error || ''; fail(r); return; }
         G.settings = r.settings;
         drawLists(lists, liveBox, formBox, r, want);
       });
@@ -954,7 +1095,8 @@
           '</tbody></table></div>' : '<p class="muted small">No students in this group yet (Platform directory → Students).</p>') + '</div>');
       var sc = $('[data-a=csv]', sb);
       if (sc) sc.onclick = function () { csvDownload('attendance-by-student-' + grp().linkCode + '.csv', ['Student ID', 'Name', 'Attended', 'Late', 'Excused', 'Absent', 'Lectures counted', 'Attendance %', 'Below ' + th + '%'], st.map(function (x) { return [x.studentId, x.name, x.attended, x.late, x.excused, x.absent, x.counted, x.pct, x.warn ? 'yes' : '']; })); };
-      host.appendChild(sb);
+      if (attHost) { var aw = $('.ts-att-wait', attHost); if (aw) aw.remove(); attHost.appendChild(sb); } else host.appendChild(sb);
+      if (opts.onSummary) opts.onSummary({ group: grp().label, live: live.length ? live[0].title : '', up: up.length, ended: ended, students: st.length, warn: warnN, th: th });
       if (want && S.some(function (s) { return s.tsId === want && (s.status === 'live' || s.status === 'ended'); })) liveScreen(liveBox, want);   // just started / just closed
     }
     /** The live screen (attendance open) or the register of an ended lecture: code, check-ins, the teacher's marks. */
@@ -1146,14 +1288,14 @@
       }
     });
   }
-  function directorySection() {
+  function directorySection(onData) {
     var sec = h('<section class="t-sec" id="t-dir"><details class="dir"><summary><span class="dir-h">Platform directory</span><span class="small muted">Admin · institutions, groups, modules and deliveries</span></summary><div class="dir-body"><p class="muted">Loading…</p></div></details></section>');
     var det = $('details', sec), body = $('.dir-body', sec), D = null, tab = 'institutions', scan = null;
     det.addEventListener('toggle', function () { if (det.open && !D) load(); });
     function load() {
       dirCall('dirGet').then(function (r) {
         if (!r.ok) { if (r.code === 'auth') { sdel(TKEY); return route(); } body.innerHTML = '<p class="err">' + esc(r.code === 'badaction' ? 'Update Portal.gs on the backend (version 1.3, see SETUP.md) to use the platform directory.' : r.error) + '</p>'; return; }
-        D = r; draw();
+        D = r; draw(); if (onData) onData(D);
       });
     }
     function byId(list, k, v) { return (D[list] || []).filter(function (x) { return x[k] === v; })[0]; }
@@ -1760,7 +1902,19 @@
   }
 
   /* ---------------- start ---------------- */
-  function route() { header(); if (/^#\/teacher/.test(location.hash)) viewTeacher(); else if (GINFO && location.hash === '#/live') viewLive(); else viewHome(); window.scrollTo(0, 0); }
+  var lastHash = location.hash;
+  function route() {
+    var toTeacher = /^#\/teacher/.test(location.hash);
+    if (!toTeacher && DASH && DASH.root.isConnected && dashDirtyViews().length && !window.confirm('You have unsaved changes (' + dashDirtyNames() + '). Leave the Teacher Dashboard anyway? They will be lost.')) {
+      location.hash = lastHash || '#/teacher'; return;
+    }
+    lastHash = location.hash;
+    header();
+    if (toTeacher) { if (!dashShow()) viewTeacher(); }
+    else { DASH = null; if (GINFO && location.hash === '#/live') viewLive(); else viewHome(); }
+    window.scrollTo(0, 0);
+  }
+  window.addEventListener('beforeunload', function (e) { if (dashDirtyViews().length) { e.preventDefault(); e.returnValue = ''; } });
   function boot() {
     header();
     if (GROUP && !/^#\/teacher/.test(location.hash)) {

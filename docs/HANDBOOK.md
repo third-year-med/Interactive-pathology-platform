@@ -244,6 +244,13 @@ The user is a pathologist, not a developer. They follow steps literally and send
 
 ## 10. Current state (2026-10-07)
 
+- **Teacher Dashboard redesign (2026-10-11, front end only):** compact cards → one view at a time (`#/teacher/<view>`:
+  modules, sessions, attendance, exams, manage, directory; personal teacher: the first four). `dashShell()` in portal.js wraps the
+  EXISTING sections unchanged (built once, kept in the page → typed input survives view switches); `route()` switches views
+  without re-rendering (`dashShow()`), asks before leaving with unsaved forms (any typed `<form>` still on the page, or the
+  module-card editor's `data-dirty`), `beforeunload` too. Card summaries come from data already loaded (sessionsSection /
+  examsSection / directorySection callbacks; the directory loads only when opened). Student Attendance = the sessions
+  section's by-student table drawn in its own view (`opts.attHost`) + `reportView`. e2e helper `dash(p, view)`.
 - **Portal.gs 2.11 (2026-10-11): Admin can delete an ENDED lecture** (history → 🗑 Delete, typed `DELETE`; `tsDelete` with
   confirm:'DELETE' → Code.gs `actionDeleteAttendanceSession_` removes its AttendanceSessions row + records, Drive copy to trash;
   refused while live and for personal teachers). Same day: fixed attendance code by default (rotation opt-in) and the open

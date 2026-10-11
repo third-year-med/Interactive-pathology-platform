@@ -97,6 +97,14 @@ async function page(viewport) {
   await p.route('https://third-year-med.github.io/**', function (route) { navigations.push(route.request().url()); return route.fulfill({ status: 204, body: '' }); });
   return p;
 }
+/** Teacher Dashboard (2026-10-11): open one card's management view (the cards are links to #/teacher/<view>). */
+async function dash(p, v) {
+  if (await p.isVisible('.dash-view[data-view="' + v + '"]')) return;   // already open
+  if (!(await p.isVisible('.dash-grid'))) { await p.evaluate(function () { if (/^#\/teacher\/./.test(location.hash)) location.hash = '#/teacher'; }); }
+  await p.waitForSelector('.dash-card[data-view="' + v + '"]', { timeout: 15000 });
+  await p.click('.dash-card[data-view="' + v + '"]');
+  await p.waitForSelector('.dash-view[data-view="' + v + '"]:not([hidden])');
+}
 async function signIn(p, id, pw) {
   await p.fill('#p-u', id); await p.fill('#p-p', pw); await p.click('form.signin button[type=submit]');
 }
@@ -154,6 +162,7 @@ test('teacher panel: status changes are shown at once, but never open a module w
   await p.fill('#t-p', 'wrong-pass-1'); await p.click('form.card button[type=submit]');
   await p.waitForFunction(function () { return /Incorrect/.test(document.querySelector('form.card .err').textContent); });
   await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+  await dash(p, 'manage');
   await p.waitForSelector('.modrow');
   assert.match(await p.textContent('#t-manage'), /Cell Injury & Cell Death\s*1 active student account/);
   const row = p.locator('.modrow', { hasText: 'Ready test module' });
@@ -176,15 +185,18 @@ test('teacher: one sign-in → Teacher Dashboard → open any module directly as
   await p.waitForSelector('.mod');
   await p.click('.top a.tportal');
   await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+  await dash(p, 'modules');
   await p.waitForSelector('#t-modules .mod[data-id="cellinjury"] .t-open');
   assert.match(await p.textContent('h1.page-h'), /Teacher Dashboard/);
   assert.match(await p.textContent('.top a.tportal'), /Platform Home/);
   assert.match(await p.textContent('#t-modules'), /Teaching Modules/);
+  await dash(p, 'manage');
   await p.waitForSelector('#t-manage .modrow');
   assert.match(await p.textContent('#t-manage'), /Teacher Management/);
   if (process.env.SHOTS) { await p.screenshot({ path: path.join(process.env.SHOTS, 'dashboard.png'), fullPage: true }); await p.setViewportSize({ width: 390, height: 844 }); await p.screenshot({ path: path.join(process.env.SHOTS, 'dashboard-phone.png') }); assert.ok(await p.evaluate(function () { return document.documentElement.scrollWidth - window.innerWidth; }) <= 1, 'dashboard fits a phone'); await p.setViewportSize({ width: 1280, height: 900 }); }
   // open Cell Injury as teacher: the module's own teacher session is created and placed in its slot
   const before = navigations.length;
+  await dash(p, 'modules');
   await p.click('#t-modules .mod[data-id="cellinjury"] .t-open');
   await p.waitForTimeout(400);
   assert.ok(navigations.slice(before).some(function (u) { return /cell-injury-teaching-platform\/$/.test(u); }), 'module opened');
@@ -202,6 +214,7 @@ test('teacher: one sign-in → Teacher Dashboard → open any module directly as
   // a module that is not released yet can still be reviewed by the teacher, never by students
   assert.ok(await p.$('#t-modules .mod[data-id="readytest"]'));
   // front-page management is unchanged
+  await dash(p, 'manage');
   await p.locator('.modrow', { hasText: 'Soon test module' }).locator('input[data-k=subtitle]').fill('Edited by teacher');
   await p.click('.save');
   await p.waitForFunction(function () { return /Saved/.test((document.querySelector('.toast') || {}).textContent || ''); });
@@ -223,8 +236,7 @@ test('Admin: platform directory — add institutions, groups (same name at two u
   const studentsBefore = JSON.stringify(main.sheets.Students._rows);
   await p.goto(url + '#/teacher');
   await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
-  await p.waitForSelector('#t-dir details.dir');
-  await p.click('#t-dir summary');
+  await dash(p, 'directory');
   await p.waitForSelector('#t-dir .dir-tabs');
   const pane = '#t-dir .dir-pane';
   async function saved() { await p.waitForFunction(function () { return /Saved/.test((document.querySelector('.toast') || {}).textContent || ''); }); await p.waitForTimeout(150); await p.evaluate(function () { document.querySelectorAll('.toast').forEach(function (t) { t.remove(); }); }); }
@@ -367,8 +379,7 @@ test('roster: Admin adds a student → temporary password → the student signs 
   const p = await page();
   await p.goto(url + '#/teacher');
   await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
-  await p.waitForSelector('#t-dir details.dir');
-  await p.click('#t-dir summary');
+  await dash(p, 'directory');
   await p.waitForSelector('#t-dir .dir-tab[data-t=students]');
   await p.click('#t-dir .dir-tab[data-t=students]');
   await p.selectOption('#t-dir [data-k=rg]', { label: 'Test Razi · Group A (2026-27)' });
@@ -440,7 +451,7 @@ test('roster: temporary passwords for a whole group in one click (different each
   const p = await page();
   await p.goto(url + '#/teacher');
   await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
-  await p.waitForSelector('#t-dir details.dir'); await p.click('#t-dir summary');
+  await dash(p, 'directory');
   await p.click('#t-dir .dir-tab[data-t=students]');
   await p.selectOption('#t-dir [data-k=rg]', { label: 'Test Misrata · Group A (2026-27)' });
   await p.waitForSelector('#t-dir .roster-add');
@@ -502,7 +513,7 @@ async function adminCreatesTeacher(username, name, groupLabelText, moduleTitle) 
   const p = await page();
   await p.goto(url + '#/teacher');
   await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
-  await p.waitForSelector('#t-dir details.dir'); await p.click('#t-dir summary');
+  await dash(p, 'directory');
   await p.click('#t-dir .dir-tab[data-t=teachers]');
   await p.waitForSelector('#t-dir .teachers form');
   await p.fill('#t-dir .teachers form [data-k=username]', username); await p.fill('#t-dir .teachers form [data-k=name]', name);
@@ -525,6 +536,7 @@ async function teacherSignsIn(p, username, temp, own) {
   await p.fill('#t-u', username); await p.fill('#t-p', temp); await p.click('form.card button[type=submit]');
   await p.waitForSelector('#tp-n1'); await p.waitForTimeout(300);
   await p.fill('#tp-o', temp); await p.fill('#tp-n1', own); await p.fill('#tp-n2', own); await p.click('form.t-login button[type=submit]');
+  await dash(p, 'modules');
   await p.waitForSelector('#t-mine .my-group');
 }
 
@@ -536,6 +548,7 @@ test('personal teacher: Admin creates Dr. Ahmed with ONE group + module; he sign
   await teacherSignsIn(p, 'dr.ahmed', temp, 'ahmed-own-pass-1');
   TCH = { username: 'dr.ahmed', pw: 'ahmed-own-pass-1' };
   assert.match(await p.textContent('h1.page-h'), /Teacher Dashboard/);
+  await dash(p, 'modules');
   assert.match(await p.textContent('#t-mine'), /Test Razi University · Group A/);
   assert.deepStrictEqual(await p.$$eval('#t-mine .mod', function (els) { return els.map(function (e) { return e.dataset.id; }); }), ['cellinjury'], 'only the assigned module');
   assert.ok(!/Misrata|Inflammation/.test(await p.textContent('#t-mine')), 'nothing else');
@@ -569,7 +582,7 @@ test('Admin: Content tab shows each module (versioning off) and a read-only migr
   const p = await page();
   await p.goto(url + '#/teacher');
   await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
-  await p.waitForSelector('#t-dir details.dir'); await p.click('#t-dir summary');
+  await dash(p, 'directory');
   await p.click('#t-dir .dir-tab[data-t=content]');
   await p.waitForSelector('#t-dir .content-mod[data-module="cellinjury"]');
   assert.match(await p.textContent('#t-dir .content-mod[data-module="cellinjury"]'), /Versioned content: off[\s\S]*cellinjury-tr-a/);
@@ -593,7 +606,7 @@ test('Admin: Content tab — decide, create master v1.0, switch ON (every group 
   const p = await page();
   await p.goto(url + '#/teacher');
   await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
-  await p.waitForSelector('#t-dir details.dir'); await p.click('#t-dir summary');
+  await dash(p, 'directory');
   await p.click('#t-dir .dir-tab[data-t=content]');
   const card = '#t-dir .content-mod[data-module="cellinjury"]';
   await p.waitForSelector(card + ' [data-a=rep]');
@@ -715,7 +728,7 @@ async function backHome(p, M, role, group) {
   assert.strictEqual(await p.getAttribute(sel, 'href'), teacher ? HOME + '#/teacher' : home);
   if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, M[0] + '-' + role + '-back.png'), clip: { x: 0, y: 0, width: 1280, height: 200 } });
   await p.click(sel);
-  if (teacher) { await p.waitForURL(HOME + '#/teacher'); await p.waitForSelector('#t-modules .t-open'); assert.match(await p.textContent('h1.page-h'), /Teacher Dashboard/); }
+  if (teacher) { await p.waitForURL(HOME + '#/teacher'); await p.waitForSelector('.dash-card[data-view=modules]'); assert.match(await p.textContent('h1.page-h'), /Teacher Dashboard/); }
   else { await p.waitForURL(home); await p.waitForSelector('.hero h1'); assert.strictEqual(await p.$('#t-modules'), null, 'the student front page, not the dashboard'); }
 }
 REAL.forEach(function (M) {
@@ -724,6 +737,7 @@ REAL.forEach(function (M) {
     const p = await realPage(M, calls);
     await p.goto(HOME + '#/teacher');
     await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+    await dash(p, 'modules');
     await p.waitForSelector('#t-modules .mod[data-id="' + M[0] + '"] .t-open');
     await p.click('#t-modules .mod[data-id="' + M[0] + '"] .t-open');
     await p.waitForURL(new RegExp(M[1]));
@@ -736,7 +750,7 @@ REAL.forEach(function (M) {
     if (process.env.SHOTS) { await p.waitForTimeout(800); await p.screenshot({ path: path.join(process.env.SHOTS, M[0] + '-teacher.png') }); }
     await backHome(p, M, 'teacher');
     assert.match(await p.textContent('.top a.tportal'), M[3] ? /Platform Home/ : /Teacher Dashboard/, 'still signed in as teacher (on the dashboard when the course opened as teacher)');
-    if (M[3]) await p.waitForSelector('#t-manage .modrow');   // Teacher Management still there
+    if (M[3]) { await dash(p, 'manage'); await p.waitForSelector('#t-manage .modrow'); }   // Teacher Management still there
     await p.context().close();
   });
   test('student: front page → the real ' + M[1] + ' → Back to Platform Home → front page (still signed in)', { skip: SKIP || (!fs.existsSync(M[2]) && 'module page not available') }, async function () {
@@ -833,6 +847,7 @@ REAL.forEach(function (M) {
     const p = await realPage(M, calls);
     await p.goto(HOME + '#/teacher');
     await p.fill('#t-u', un); await p.fill('#t-p', 'real-teacher-2'); await p.click('form.card button[type=submit]');
+    await dash(p, 'modules');
     await p.waitForSelector('#t-mine .mod[data-id="' + M[0] + '"] .t-open');
     await p.click('#t-mine .mod[data-id="' + M[0] + '"] .t-open');
     await p.waitForURL(new RegExp(M[1] + '/\\?g=tr-a'));
@@ -846,6 +861,7 @@ REAL.forEach(function (M) {
       assert.match(await p.textContent(sel), /Back to Teacher Dashboard/);
       await p.click(sel);
       await p.waitForURL(HOME + '#/teacher');
+      await dash(p, 'modules');
       await p.waitForSelector('#t-mine .my-group');
       assert.strictEqual(await p.$('#t-dir'), null, 'his own dashboard, not the Admin one');
     }
@@ -884,6 +900,7 @@ REAL.forEach(function (M) {
     const pfx = M[0] === 'cellinjury' ? 'ci_' : 'ih_';
     await p.goto(HOME + '#/teacher');
     await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+    await dash(p, 'manage');
     await p.waitForSelector('#t-manage .modrow');
     const row = p.locator('#t-manage .modrow', { hasText: M[0] === 'cellinjury' ? 'Cell Injury & Cell Death' : 'Inflammation & Healing' });
     await p.evaluate(function (k) { document.querySelectorAll('#t-manage details.adv').forEach(function (d) { d.open = true; }); }, M[0]);
@@ -891,6 +908,7 @@ REAL.forEach(function (M) {
     await p.click('.save');
     await p.waitForFunction(function () { return /Saved/.test((document.querySelector('.toast') || {}).textContent || ''); });
     const card = '#t-modules .mod[data-id="' + M[0] + '"]';
+    await dash(p, 'modules');
     await p.waitForSelector(card + ' select.t-g');
     await p.selectOption(card + ' select.t-g', 'B');
     await p.click(card + ' .t-open');
@@ -949,7 +967,7 @@ test('Draft → Preview → Publish: Edit master draft opens the real module on 
     p.on('response', async function (res) { if (/script\.google\.com/.test(res.url())) { try { answers.push(await res.json()); } catch (e) { } } });
     await p.goto(HOME + '#/teacher');
     await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
-    await p.waitForSelector('#t-dir details.dir'); await p.click('#t-dir summary');
+    await dash(p, 'directory');
     await p.click('#t-dir .dir-tab[data-t=content]');
     const card = '#t-dir .content-mod[data-module="' + M[0] + '"]';
     await p.waitForSelector(card + ' [data-a=edit]');
@@ -971,7 +989,7 @@ test('Draft → Preview → Publish: Edit master draft opens the real module on 
     assert.strictEqual(groupView(), 'Published title', 'groups still see the published version');
     // back on the dashboard: changes, publish, history, restore
     await p.goto(HOME + '#/teacher');
-    await p.waitForSelector('#t-dir details.dir'); await p.click('#t-dir summary');
+    await dash(p, 'directory');
     await p.click('#t-dir .dir-tab[data-t=content]');
     await p.waitForSelector(card + ' [data-a=chg]');
     assert.match(await p.textContent(card + ' [data-a=chg]'), /Changes in draft \(1\)/);
@@ -1017,7 +1035,7 @@ test('Step 9: Group local changes — hidden / local addition listed; "Show it a
     const p = await realPage(M, []);
     await p.goto(HOME + '#/teacher');
     await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
-    await p.waitForSelector('#t-dir details.dir'); await p.click('#t-dir summary');
+    await dash(p, 'directory');
     await p.click('#t-dir .dir-tab[data-t=content]');
     const card = '#t-dir .content-mod[data-module="' + M[0] + '"]';
     await p.waitForSelector(card + ' [data-a=loc]');
@@ -1080,7 +1098,7 @@ test('Step 10: Results & attendance — Admin tab (all groups) and a personal te
   let p = await page();
   await p.goto(url + '#/teacher');
   await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
-  await p.waitForSelector('#t-dir details.dir'); await p.click('#t-dir summary');
+  await dash(p, 'directory');
   await p.click('#t-dir .dir-tab[data-t=results]');
   const row = '#t-dir .rep-tbl tr[data-delivery="' + d.deliveryId + '"]';
   await p.waitForSelector(row);
@@ -1101,7 +1119,9 @@ test('Step 10: Results & attendance — Admin tab (all groups) and a personal te
   p = await page();
   await p.goto(url + '#/teacher');
   await p.fill('#t-u', un); await p.fill('#t-p', 'rep-teacher-2'); await p.click('form.card button[type=submit]');
+  await dash(p, 'modules');
   await p.waitForSelector('#t-mine .my-group');
+  await dash(p, 'attendance');
   await p.click('.roster-tools [data-a=rep]');
   await p.waitForSelector('#t-report .rep-tbl tbody tr');
   assert.deepStrictEqual(await p.$$eval('#t-report .rep-tbl tbody tr', function (r) { return r.map(function (x) { return x.dataset.delivery; }); }), [d.deliveryId]);
@@ -1136,10 +1156,10 @@ test('new build: release tool → preview (Admin only, banner) → compatibility
   SERVE[M[1] + '/preview/'] = path.join(repo, 'preview', 'index.html');
   try {
     const calls = [], p = await realPage(M, calls);
-    const dash = async function () {
+    const toBuild = async function () {
       await p.goto(HOME + '#/teacher');
       if (await p.$('#t-p')) { await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]'); }
-      await p.waitForSelector('#t-dir details.dir'); await p.click('#t-dir summary');
+      await dash(p, 'directory');
       await p.click('#t-dir .dir-tab[data-t=content]');
       await p.waitForSelector('#t-dir .content-mod[data-module="' + M[0] + '"] [data-a=build]');
       await p.click('#t-dir .content-mod[data-module="' + M[0] + '"] [data-a=build]');
@@ -1149,7 +1169,7 @@ test('new build: release tool → preview (Admin only, banner) → compatibility
     await p.goto('https://third-year-med.github.io/' + M[1] + '/preview/');
     await p.waitForSelector('#neo-boot .pf-prev');
     assert.strictEqual(await p.evaluate(function () { return document.body.classList.contains('neo-locked'); }), true);
-    await dash();
+    await toBuild();
     const card = '#t-dir .content-mod[data-module="' + M[0] + '"]';
     assert.match(await p.textContent(card + ' .rb'), /Live page on GitHub\s*build 2026-09-24 11:46 UTC[\s\S]*Preview page \(…\/preview\/\)\s*build e2e-build-2[\s\S]*not yet/);
     await p.click(card + ' [data-b=open]');
@@ -1162,7 +1182,7 @@ test('new build: release tool → preview (Admin only, banner) → compatibility
     assert.ok(calls.some(function (c) { return c.action === 'contentBuildManifest' && c.preview === true && c.build === 'e2e-build-2'; }), 'the preview reported its build');
     assert.ok(calls.some(function (c) { return c.action === 'studentSession' && c.preview === 1; }));
     // back on the dashboard: check, decide, go live
-    await dash();
+    await toBuild();
     assert.match(await p.textContent(card + ' .rb'), /Preview checked in\s*build e2e-build-2/);
     await p.click(card + ' [data-b=check]');
     await p.waitForSelector(card + ' tr[data-key="master|contentedits|question:q203"] select');
@@ -1349,7 +1369,7 @@ test('Tidy up (Content tab): shows what can be tidied, then removes it', { skip:
   const p = await page();
   await p.goto(url + '#/teacher');
   await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
-  await p.waitForSelector('#t-dir details.dir'); await p.click('#t-dir summary');
+  await dash(p, 'directory');
   await p.click('#t-dir .dir-tab[data-t=content]');
   await p.click('#t-dir [data-a=tidy]');
   await p.waitForSelector('#t-dir .tidy-out [data-a=tidygo]');
@@ -1372,6 +1392,7 @@ test('Official Exams: Admin adds the module → combined exam bank from two modu
   // 1. Admin: Teacher Dashboard → Official Exams → "Add the Official Exams module"
   await p.goto(HOME + '#/teacher');
   await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+  await dash(p, 'exams');
   await p.waitForSelector('#t-exams .ex-row');
   await p.click('#t-exams button:has-text("Add the Official Exams module")');
   await p.waitForTimeout(500);
@@ -1488,6 +1509,7 @@ test('Official Exams: Admin adds the module → combined exam bank from two modu
   p = await realPage(REAL[0], calls);
   await p.goto(HOME + '#/teacher');
   await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+  await dash(p, 'exams');
   await p.waitForSelector('#t-exams .ex-row[data-storage="exams-tr-a"] [data-a=man]');
   await p.click('#t-exams .ex-row[data-storage="exams-tr-a"] [data-a=man]');
   await p.waitForSelector('.tbar');
@@ -1517,6 +1539,7 @@ test('Official Exams: a group\'s empty exam bank is filled from the normal link\
   const p = await realPage(REAL[0], []);
   await p.goto(HOME + '#/teacher');
   await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+  await dash(p, 'exams');
   await p.waitForSelector('#t-exams .ex-row[data-storage="cellinjury-tr-a"] [data-a=man]');
   await p.click('#t-exams .ex-row[data-storage="cellinjury-tr-a"] [data-a=man]');
   await p.waitForSelector('.tbar');
@@ -1563,6 +1586,7 @@ test('Official Exams: "Copy to a group" gives a normal-link exam to Razi Group A
   const p = await realPage(REAL[0], []);
   await p.goto(HOME + '#/teacher');
   await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+  await dash(p, 'exams');
   await p.waitForSelector('#t-exams .ex-row[data-storage="cellinjury"] [data-a=man]');
   await p.click('#t-exams .ex-row[data-storage="cellinjury"] [data-a=man]');
   await p.waitForSelector('.card:has-text("Q1 copy test") button:has-text("Copy to a group")');
@@ -1591,6 +1615,7 @@ test('Teaching Sessions: Admin schedules a lecture, opens attendance (rotating c
   let p = await page();
   await p.goto(url + '#/teacher');
   await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+  await dash(p, 'sessions');
   await p.waitForSelector('#t-sessions .ts-top select');
   const gid = await p.$eval('#t-sessions .ts-top select', function (s) { return Array.prototype.filter.call(s.options, function (o) { return /Test Razi · Group A/.test(o.textContent); })[0].value; });
   await p.selectOption('#t-sessions .ts-top select', gid);
@@ -1624,7 +1649,7 @@ test('Teaching Sessions: Admin schedules a lecture, opens attendance (rotating c
   if (process.env.SHOTS) await (await p.$('#t-sessions')).screenshot({ path: path.join(process.env.SHOTS, 'sessions-live.png') });
   // a student checks in inside the module with the code → appears within 5 s
   const ses = main.call({ module: 'cellinjury-tr-a', action: 'studentLogin', username: 'ahmed', password: PW });
-  assert.ok(main.call({ module: 'cellinjury-tr-a', action: 'submitAttendanceByCode', stoken: ses.token, code: code }).ok);
+  const sub = main.call({ module: 'cellinjury-tr-a', action: 'submitAttendanceByCode', stoken: ses.token, code: code }); assert.ok(sub.ok, JSON.stringify(sub) + ' code ' + code);
   await p.waitForFunction(function () { var r = Array.prototype.filter.call(document.querySelectorAll('#t-sessions .ts-reg tr'), function (x) { return /Student Ahmed/.test(x.textContent); })[0]; return r && /Present/.test(r.textContent); }, null, { timeout: 8000 });
   // close attendance → the register stays open; nobody is "Not yet" any more
   await p.click('#t-sessions [data-a=close]');
@@ -1633,7 +1658,7 @@ test('Teaching Sessions: Admin schedules a lecture, opens attendance (rotating c
   const hist = await p.textContent('#t-sessions .ts-block:has(h3:text("history"))');
   assert.match(hist, /Lecture 1 — Cell adaptation[\s\S]*✅ 1/);
   // students table + CSV
-  assert.match(await p.textContent('#t-sessions .ts-block:has(h3:text("by student"))'), /ahmed[\s\S]*Student Ahmed[\s\S]*100%/);
+  assert.match(await p.textContent('#t-att .ts-block:has(h3:text("by student"))'), /ahmed[\s\S]*Student Ahmed[\s\S]*100%/);
   const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#t-sessions .ts-block:has(h3:text("history")) [data-a=csv]')]);
   assert.strictEqual(dl.suggestedFilename(), 'teaching-sessions-tr-a.csv');
   assert.match(fs.readFileSync(await dl.path(), 'utf8'), /Date and time \(Asia\/Aden\),Lecture,Module[\s\S]*Lecture 1 — Cell adaptation,Cell Injury & Cell Death,Chapter 1,[^,]*,ended,1,0,0,/);
@@ -1651,6 +1676,7 @@ test('Teaching Sessions: Admin schedules a lecture, opens attendance (rotating c
   p = await page();
   await p.goto(url + '#/teacher');
   await p.fill('#t-u', un); await p.fill('#t-p', 'ts-teacher-2'); await p.click('form.card button[type=submit]');
+  await dash(p, 'sessions');
   await p.waitForSelector('#t-sessions .ts-lists .ts-block');
   assert.deepStrictEqual(await p.$$eval('#t-sessions .ts-top select option', function (o) { return o.map(function (x) { return x.textContent; }); }), ['Test Razi · Group A (2026-27)']);
   assert.ok(!/Cell adaptation/.test(await p.textContent('#t-sessions')), 'not the other module\'s lecture');
@@ -1696,6 +1722,7 @@ test('Teaching Sessions: the Admin deletes an ENDED lecture from the history (ty
   p.on('dialog', function (dl) { prompts.push(dl.message()); dl.accept(answer); });
   await p.goto(url + '#/teacher');
   await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+  await dash(p, 'sessions');
   await p.waitForSelector('#t-sessions .ts-top select');
   await p.selectOption('#t-sessions .ts-top select', g.groupId);
   const row = '#t-sessions .ts-block:has(h3:text("history")) .dir-row:has-text("Trial lecture — delete me")';
@@ -1724,6 +1751,7 @@ test('Teaching Sessions: the Admin deletes an ENDED lecture from the history (ty
   const q = await page();
   await q.goto(url + '#/teacher');
   await q.fill('#t-u', un); await q.fill('#t-p', 'del-teacher-2'); await q.click('form.card button[type=submit]');
+  await dash(q, 'sessions');
   await q.waitForSelector('#t-sessions .ts-block:has(h3:text("history")) .dir-row:has-text("Real lecture — keep")');
   assert.ok(!(await q.$('#t-sessions [data-a=delx]')), 'no Delete for a teacher');
   await q.context().close();
@@ -1794,6 +1822,7 @@ test('Group Live Classroom: a student (group page) and the teacher (dashboard) c
   const tp = await page();
   await tp.goto(url + '#/teacher');
   await tp.fill('#t-p', TPW); await tp.click('form.card button[type=submit]');
+  await dash(tp, 'sessions');
   await tp.waitForSelector('#t-sessions .ts-top select');
   await tp.selectOption('#t-sessions .ts-top select', g.groupId);
   await tp.waitForSelector('#t-sessions .ts-lists .ts-block');
@@ -1881,6 +1910,7 @@ test('Teaching Sessions step 4: the teacher inside the real module — the Teach
   const p = await realPage(M, calls);
   await p.goto(HOME + '#/teacher');
   await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+  await dash(p, 'modules');
   await p.waitForSelector('#t-modules .mod[data-id="cellinjury"] .t-admin');
   await p.click('#t-modules .mod[data-id="cellinjury"] .t-admin');
   await p.waitForURL(new RegExp(M[1]));
@@ -2085,6 +2115,7 @@ test('Presentation Mode attendance code: the open code stays in the corner on ev
   const p = await realPage(M, calls);
   await p.goto(HOME + '#/teacher');
   await p.fill('#t-u', un); await p.fill('#t-p', 'pres-att-2'); await p.click('form.card button[type=submit]');
+  await dash(p, 'modules');
   await p.waitForSelector('#t-mine .mod[data-id="' + M[0] + '"] .t-open');
   await p.click('#t-mine .mod[data-id="' + M[0] + '"] .t-open');
   await p.waitForURL(new RegExp(M[1] + '/\\?g=tr-a'));
@@ -2170,6 +2201,127 @@ test('Presentation Mode attendance code: the open code stays in the corner on ev
   await p.keyboard.press('ArrowRight');
   assert.ok(!(await p.$('.pres-att')), 'gone after the teacher closed attendance');
   await p.context().close();
+});
+
+test('Teacher Dashboard: compact cards first; each card opens its full management view; Back / browser Back / deep links; typed input is kept and unsaved changes are protected; a personal teacher gets four cards', { skip: SKIP }, async function () {
+  groupFixture();
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const A = function (action, o) { return main.call(Object.assign({ module: 'portal', action: action, token: t }, o || {})); };
+  const dir = A('dirGet'), g = dir.groups.filter(function (x) { return x.linkCode === 'tr-a'; })[0];
+  const d = dir.deliveries.filter(function (x) { return x.groupId === g.groupId && x.moduleId === 'cellinjury'; })[0];
+  const p = await page();
+  p.removeAllListeners('dialog');
+  let answer = true; const dialogs = [];
+  p.on('dialog', function (dl) { dialogs.push(dl.type() + ': ' + dl.message()); if (answer) dl.accept(); else dl.dismiss(); });
+  await p.goto(url + '#/teacher');
+  await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+  await p.waitForSelector('.dash-grid .dash-card');
+  // only the six cards are on screen — no management form or table
+  assert.deepStrictEqual(await p.$$eval('.dash-card', function (c) { return c.map(function (x) { return x.dataset.view + '|' + x.querySelector('.dc-t').textContent; }); }),
+    ['modules|Teaching Modules', 'sessions|Teaching Sessions', 'attendance|Student Attendance', 'exams|Official Exams', 'manage|Teacher Management', 'directory|Platform Directory']);
+  assert.strictEqual(await p.$$eval('.dash-view', function (v) { return v.filter(function (x) { return !x.hidden; }).length; }), 0);
+  for (const sel of ['#t-modules', '#t-sessions', '#t-att', '#t-exams', '#t-manage', '#t-dir', 'form.ts-form', '.modrow', 'table']) assert.ok(!(await p.isVisible(sel)), sel + ' hidden on the dashboard');
+  // summaries from the data the sections already loaded
+  await p.waitForFunction(function () { return /module/.test(document.querySelector('.dash-card[data-view=modules] .dc-sum').textContent) && /module card/.test(document.querySelector('.dash-card[data-view=manage] .dc-sum').textContent) && /exam place|No exam/.test(document.querySelector('.dash-card[data-view=exams] .dc-sum').textContent); });
+  assert.match(await p.textContent('.dash-card[data-view=modules] .dc-sum'), /^\d+ modules? · \d+ open to students$/);
+  // every card opens its view (address #/teacher/<view>), with Back to Dashboard
+  const expect = { modules: '#t-modules .mod .t-open', sessions: '#t-sessions .ts-top select', attendance: '#t-att .ts-top select', exams: '#t-exams .ex-row', manage: '#t-manage .modrow', directory: '#t-dir .dir-tabs' };
+  for (const v of Object.keys(expect)) {
+    await p.click('.dash-card[data-view=' + v + ']');
+    await p.waitForSelector(expect[v], { state: 'visible', timeout: 15000 });
+    assert.strictEqual(new URL(p.url()).hash, '#/teacher/' + v);
+    assert.deepStrictEqual(await p.$$eval('.dash-view', function (x) { return x.filter(function (e) { return !e.hidden; }).map(function (e) { return e.dataset.view; }); }), [v]);
+    assert.ok(!(await p.isVisible('.dash-grid')));
+    assert.ok(await p.isVisible('.dash-view[data-view=' + v + '] .dv-back'));
+    await p.click('.dash-view[data-view=' + v + '] .dv-back');
+    await p.waitForSelector('.dash-grid', { state: 'visible' });
+    assert.strictEqual(new URL(p.url()).hash, '#/teacher');
+  }
+  // the directory keeps every tab
+  await dash(p, 'directory');
+  assert.deepStrictEqual(await p.$$eval('#t-dir .dir-tab', function (b) { return b.map(function (x) { return x.textContent; }); }), ['Institutions', 'Groups', 'Modules', 'Deliveries', 'Students', 'Teachers', 'Content', 'Results & attendance', 'Existing data']);
+  // browser Back returns to the cards; a deep link (reload) opens the view directly
+  await p.goBack(); await p.waitForSelector('.dash-grid', { state: 'visible' });
+  await p.goto(url + '#/teacher/exams'); await p.waitForSelector('#t-exams .ex-row', { state: 'visible' });
+  await p.goto(url + '#/teacher/nonsense'); await p.waitForSelector('.dash-grid', { state: 'visible' });
+  // the attendance view: group, the by-student table with its totals and CSV, and the all-modules report
+  A('tsStart', { session: { groupId: g.groupId, deliveryId: d.deliveryId, title: 'Dash lecture', startAt: Date.now() } });
+  const live = main.ctx.dirAll_('TeachingSessions').filter(function (x) { return x.title === 'Dash lecture'; })[0];
+  A('tsClose', { tsId: live.tsId });
+  await p.reload(); await p.waitForSelector('.dash-grid .dash-card');
+  await dash(p, 'attendance');
+  await p.selectOption('#t-att .ts-top select', g.groupId);
+  await p.waitForSelector('#t-att .ts-block:has(h3:text("by student")) table');
+  assert.deepStrictEqual(await p.$$eval('#t-att .ts-block:has(h3:text("by student")) th', function (x) { return x.map(function (e) { return e.textContent; }); }), ['Student ID', 'Name', 'Attended', 'Late', 'Excused', 'Absent', 'Attendance']);
+  const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#t-att .ts-block:has(h3:text("by student")) [data-a=csv]')]);
+  assert.strictEqual(dl.suggestedFilename(), 'attendance-by-student-tr-a.csv');
+  await p.click('#t-att [data-a=rep]'); await p.waitForSelector('#t-report:not([hidden])');
+  // the sessions view follows the same group, and the card shows it
+  await p.click('.dash-view[data-view=attendance] .dv-back');
+  await p.waitForFunction(function () { return /Group A/.test(document.querySelector('.dash-card[data-view=sessions] .dc-sum').textContent); });
+  assert.match(await p.textContent('.dash-card[data-view=attendance] .dc-sum'), /student/);
+  // unsaved changes: typing in Teacher Management is kept while moving between views, the card warns, leaving asks first
+  await dash(p, 'manage');
+  await p.fill('#t-manage .modrow:first-child [data-k=title]', 'Cell Injury — renamed (unsaved)');
+  await p.click('.dash-view[data-view=manage] .dv-back');
+  await p.waitForSelector('.dash-card[data-view=manage].dirty');
+  assert.match(await p.textContent('.dash-card[data-view=manage]'), /Unsaved changes/);
+  await dash(p, 'sessions'); await p.click('.dash-view[data-view=sessions] .dv-back');
+  await dash(p, 'manage');
+  assert.strictEqual(await p.inputValue('#t-manage .modrow:first-child [data-k=title]'), 'Cell Injury — renamed (unsaved)', 'still there');
+  answer = false;   // "Platform Home" → asked → stay
+  await p.click('.top a.tportal');
+  await p.waitForFunction(function () { return /^#\/teacher/.test(location.hash); });
+  assert.match(dialogs[dialogs.length - 1], /^confirm: You have unsaved changes \(Teacher Management\)/);
+  assert.strictEqual(await p.inputValue('#t-manage .modrow:first-child [data-k=title]'), 'Cell Injury — renamed (unsaved)');
+  // a typed directory form also counts; saving clears the warning
+  await p.click('.dash-view[data-view=manage] .dv-back');
+  await dash(p, 'directory');
+  await p.fill('#t-dir .dir-pane form [data-k=name]', 'Half-typed university');
+  await p.click('.dash-view[data-view=directory] .dv-back');
+  await p.waitForSelector('.dash-card[data-view=directory].dirty');
+  await dash(p, 'directory'); await p.fill('#t-dir .dir-pane form [data-k=name]', ''); 
+  await p.fill('#t-dir .dir-pane form [data-k=name]', 'Dash University'); await p.click('#t-dir .dir-pane form button[type=submit]');
+  await p.waitForFunction(function () { return /Dash University/.test(document.querySelector('#t-dir .dir-list').textContent); });
+  await p.click('.dash-view[data-view=directory] .dv-back'); await p.waitForSelector('.dash-grid', { state: 'visible' });
+  assert.ok(!(await p.$('.dash-card[data-view=directory].dirty')), 'saved → no warning');
+  await dash(p, 'manage');
+  await p.fill('#t-manage .modrow:first-child [data-k=title]', 'Cell Injury & Cell Death');
+  await p.click('#t-manage .save'); await p.waitForSelector('.toast:has-text("Saved")');
+  await p.click('.dash-view[data-view=manage] .dv-back'); await p.waitForSelector('.dash-grid', { state: 'visible' });
+  assert.ok(!(await p.$('.dash-card.dirty')), 'everything saved');
+  // signing out with nothing unsaved asks nothing
+  const before = dialogs.length; answer = true;
+  await p.click('#who button:has-text("Sign out")'); await p.waitForSelector('.hero h1, #t-p');
+  assert.strictEqual(dialogs.length, before);
+  // keyboard: the cards are links in tab order
+  await p.goto(url + '#/teacher'); await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+  await p.waitForSelector('.dash-card');
+  await p.focus('.dash-card[data-view=exams]'); await p.keyboard.press('Enter');
+  await p.waitForSelector('#t-exams .ex-row', { state: 'visible' });
+  assert.strictEqual(await p.evaluate(function () { return document.activeElement && document.activeElement.id; }), 'dv-h-exams', 'focus moves to the view title');
+  await p.context().close();
+  // a personal teacher: four cards (no Teacher Management / Platform Directory)
+  const un = 'dash.teacher', cr = A('teacherSave', { create: true, record: { username: un, name: 'Dr. Dash', password: 'dash-teacher-1' } }); assert.ok(cr.ok, JSON.stringify(cr));
+  assert.ok(A('teacherAssign', { userId: cr.teacher.userId, deliveryIds: [d.deliveryId] }).ok);
+  const lg = main.call({ module: 'portal', action: 'teacherLogin', username: un, password: 'dash-teacher-1' });
+  main.call({ module: 'portal', action: 'teacherChangePassword', ttoken: lg.ttoken, oldPassword: 'dash-teacher-1', newPassword: 'dash-teacher-2' });
+  const q = await page();
+  await q.goto(url + '#/teacher');
+  await q.fill('#t-u', un); await q.fill('#t-p', 'dash-teacher-2'); await q.click('form.card button[type=submit]');
+  await q.waitForSelector('.dash-card');
+  assert.deepStrictEqual(await q.$$eval('.dash-card', function (c) { return c.map(function (x) { return x.dataset.view; }); }), ['modules', 'sessions', 'attendance', 'exams']);
+  await q.waitForFunction(function () { return /1 module in 1 group/.test(document.querySelector('.dash-card[data-view=modules] .dc-sum').textContent); });
+  await dash(q, 'modules'); await q.waitForSelector('#t-mine .mod[data-id="cellinjury"] .t-open', { state: 'visible' });
+  await q.click('.dash-view[data-view=modules] .dv-back');
+  await dash(q, 'attendance'); await q.waitForSelector('#t-att .ts-top select', { state: 'visible' });
+  await q.click('#t-att [data-a=rep]'); await q.waitForSelector('#t-report:not([hidden])');
+  await q.click('.dash-view[data-view=attendance] .dv-back');
+  await q.click('.dash-tools [data-a=pw]'); await q.waitForSelector('#t-pwbox form #tp-o', { state: 'visible' });
+  await q.click('#t-pwbox [data-a=cancel]'); assert.ok(!(await q.$('#t-pwbox form')));
+  await q.context().close();
+  main.call({ module: 'portal', action: 'teacherSetActive', token: t, userId: cr.teacher.userId, active: false });
 });
 
 test('no JavaScript errors', { skip: SKIP }, function () { assert.deepStrictEqual(errors, []); });

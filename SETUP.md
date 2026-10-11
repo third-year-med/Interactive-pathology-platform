@@ -41,11 +41,18 @@ There is **one teacher account** for the whole platform: Platform Home → **Tea
 1. The first time, create the **teacher password** (at least 8 characters).
    *If it says a teacher password already exists:* your main backend still has the old shared teacher password from
    before per-module passwords — sign in with that one.
-2. After signing in you are on the **Teacher Dashboard**:
+2. After signing in you are on the **Teacher Dashboard** — a page of compact cards (Admin: **Teaching Modules**, **Teaching
+   Sessions**, **Student Attendance**, **Official Exams**, **Teacher Management**, **Platform Directory**; a personal teacher
+   gets the first four). Each card shows a short summary (e.g. a live lecture, upcoming lectures, students below the
+   attendance threshold); clicking it opens that area (address `#/teacher/<area>`, so it can be bookmarked), and
+   **← Back to Dashboard** (or the browser's Back button) returns to the cards. What you type in one area is kept while you
+   visit another; a card marked **● Unsaved changes** has a form you have not saved yet, and leaving the dashboard, signing
+   out or closing the tab asks first.
    - **Teaching Modules** — **Open module →** enters the module directly in teacher mode (no module password; it does
      not depend on student accounts and works for modules that are not yet released). **Teacher Portal** opens that
      module's own Teacher Portal (students, content, results, assessments, attendance …).
    - **Teacher Management** — the front-page list (below).
+   - **Student Attendance** — the attendance-by-student table of a group (CSV) and **📊 Results & attendance** of every module.
 3. Teachers no longer use a module's own teacher password: on the modules' sign-in page the *Teacher* tab, and the
    module's Teacher Portal page, now point to this Teacher Sign-In.
 4. **Sign out** (top right) ends the dashboard and the module teacher sessions opened from it.
@@ -65,7 +72,7 @@ The module list (Teacher Management):
 
 ## Platform directory (Admin)
 
-Teacher Dashboard → **Platform directory** (bottom of the page; opens when you click it). It records the structure of the
+Teacher Dashboard → **Platform Directory** card. It records the structure of the
 platform — nothing in it changes sign-in or module access yet (that comes in later steps):
 
 - **Institutions** (e.g. Al-Razi University, Misrata University).
@@ -182,7 +189,7 @@ group. Removing a local item reaches the group at its next sync.
 
 ### Results & attendance overviews
 - **Admin:** Platform directory → **Results & attendance** — one row per group + module (every delivery).
-- **Personal teacher:** Teacher Dashboard → **📊 Results & attendance** — only the group + module combinations assigned to
+- **Personal teacher:** Teacher Dashboard → **Student Attendance** → **📊 Results & attendance** — only the group + module combinations assigned to
   that teacher.
 
 Each row shows the group's students, how many have signed in (and in the last 7 days), practice quizzes, assessments,
