@@ -849,7 +849,7 @@
         '<label>Late after (minutes, 0 = never)<input data-k="late" type="number" min="0" max="180" value="' + (s ? s.lateAfterMin : 15) + '"></label>' +
         '<label>Teacher<input data-k="teacher" maxlength="80" value="' + esc(s ? s.teacher : G.teacherName || '') + '" placeholder="e.g. Dr. Wesam"></label>' +
         '<label style="flex-basis:100%">Lecture materials (link, optional)<input data-k="mat" maxlength="300" placeholder="https://… (e.g. the module chapter)" value="' + esc(s ? s.materialsUrl : '') + '"></label>' +
-        '<label class="chk" style="flex-basis:100%"><input type="checkbox" data-k="rot"' + (s ? (s.rotate ? ' checked' : '') : ' checked') + '> 🔄 Rotating attendance code — changes every 45 seconds, so a code sent to an absent friend no longer works</label>' +
+        '<label class="chk" style="flex-basis:100%"><input type="checkbox" data-k="rot"' + (s && s.rotate ? ' checked' : '') + '> 🔄 Rotating attendance code — changes every 45 seconds while this panel is open (off: one code stays the same, also on your presentation slides, until you close attendance)</label>' +
         '<p class="err small" role="alert" style="flex-basis:100%"></p>' +
         '<div class="dir-act"><button class="btn primary" type="submit">' + (s ? 'Save changes' : now ? '▶ Start and open attendance' : 'Save lecture') + '</button><button class="btn" type="button" data-a="x">Cancel</button></div></form>');
       $('[data-a=x]', f).onclick = function () { box.innerHTML = ''; box.dataset.for = ''; };

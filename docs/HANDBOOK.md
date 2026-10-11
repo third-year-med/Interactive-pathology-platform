@@ -98,7 +98,9 @@ own `actionStartAttendance_` on the **delivery's storage**, so attendance stays 
 Step 10 reports unchanged). Student statuses are COMPUTED (present/late from scannedAt vs max(startAt, startedAt) +
 lateAfterMin; absent = active roster member without a check-in after close; excused/present/late overrides in
 marksJson; a manual Present writes a real AttendanceRecords row via `recordAttendance_`). Rotating code = Code.gs
-`actionRegenerateAttendanceCode_` every 45 s, driven by the teacher screen's `tsState` polling. Platform settings:
+`actionRegenerateAttendanceCode_` every 45 s, driven by the teacher screen's `tsState` polling — opt-in since 2026-10-11
+(default = one fixed code). Module Presentation Mode shows the open code (teacher only, read-only `listAttendanceSessions`
+every 8 s, `.pres-att` badge in `.pres-stage-outer`); nothing ever closes attendance except the teacher's Close. Platform settings:
 `ts:tz` (time zone, default the script's) and `ts:threshold` (75). The user is still in a trial period (no students
 yet, as of 2026-10-10). Plan: 1 teacher panel (done, 2.7) → 2 group-page card for students (done, 2.8:
 `portalGroupSessions` / `portalGroupCheckIn`, identity = a session of one of the group's modules + active membership,

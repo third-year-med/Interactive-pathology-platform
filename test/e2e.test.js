@@ -1607,6 +1607,8 @@ test('Teaching Sessions: Admin schedules a lecture, opens attendance (rotating c
   const day = new Date(Date.now() + 864e5).toISOString().slice(0, 10);
   await p.fill('#t-sessions .ts-form [data-k=when]', day + 'T10:00');
   await p.fill('#t-sessions .ts-form [data-k=mat]', 'https://third-year-med.github.io/cell-injury-teaching-platform/');
+  assert.strictEqual(await p.isChecked('#t-sessions .ts-form [data-k=rot]'), false, 'a new lecture has ONE fixed code unless the teacher chooses rotation');
+  await p.check('#t-sessions .ts-form [data-k=rot]');
   await p.click('#t-sessions .ts-form button[type=submit]');
   await p.waitForFunction(function () { return /Lecture 1 — Cell adaptation/.test(document.querySelector('#t-sessions .ts-lists').textContent); });
   const up = await p.textContent('#t-sessions .ts-block:has(h3:text("Upcoming"))');
@@ -2006,6 +2008,110 @@ test('Presentation Mode (iPad, touch): tap the enlarge icon → viewer with pinc
   // the gesture never left Presentation Mode (no browser back/forward)
   assert.match(p.url(), /#\/present/);
   if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'present-ipad.png') });
+  await p.context().close();
+});
+
+test('Presentation Mode attendance code: the open code stays in the corner on every slide, in fullscreen and over the image viewer, unchanged, until the teacher closes attendance; students never see it', { skip: SKIP || ((!fs.existsSync(REAL[0][2]) || !REAL[0][3]) && 'module page or key not available') }, async function () {
+  const M = REAL[0];
+  groupFixture();
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const A = function (action, o) { return main.call(Object.assign({ module: 'portal', action: action, token: t }, o || {})); };
+  const dir = A('dirGet'), g = dir.groups.filter(function (x) { return x.linkCode === 'tr-a'; })[0];
+  const d = dir.deliveries.filter(function (x) { return x.groupId === g.groupId && x.moduleId === M[0]; })[0];
+  const un = 'pres.att', cr = A('teacherSave', { create: true, record: { username: un, name: 'Dr. Present', password: 'pres-att-1' } }); assert.ok(cr.ok, JSON.stringify(cr));
+  assert.ok(A('teacherAssign', { userId: cr.teacher.userId, deliveryIds: [d.deliveryId] }).ok);
+  const lg = main.call({ module: 'portal', action: 'teacherLogin', username: un, password: 'pres-att-1' });
+  main.call({ module: 'portal', action: 'teacherChangePassword', ttoken: lg.ttoken, oldPassword: 'pres-att-1', newPassword: 'pres-att-2' });
+  // no attendance open yet
+  const calls = [];
+  const p = await realPage(M, calls);
+  await p.goto(HOME + '#/teacher');
+  await p.fill('#t-u', un); await p.fill('#t-p', 'pres-att-2'); await p.click('form.card button[type=submit]');
+  await p.waitForSelector('#t-mine .mod[data-id="' + M[0] + '"] .t-open');
+  await p.click('#t-mine .mod[data-id="' + M[0] + '"] .t-open');
+  await p.waitForURL(new RegExp(M[1] + '/\\?g=tr-a'));
+  await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+  assert.strictEqual(await p.evaluate(function () { return window.NEO_BOOT.module; }), M[0] + '-tr-a');
+  await p.evaluate(function () { location.hash = '#/present/slide/1'; });
+  await p.waitForSelector('#pres-stage .slide');
+  await p.waitForFunction(function () { return window.__presAttendance; });
+  await p.evaluate(function () { return window.__presAttendance.poll(); });
+  assert.ok(!(await p.$('.pres-att')), 'no code while attendance is closed');
+  // the lecture starts (Teacher Dashboard → Teaching Sessions → Open attendance) → the code appears on the slide
+  const L = A('tsStart', { session: { groupId: g.groupId, deliveryId: d.deliveryId, title: 'Lecture 9 — Necrosis', startAt: Date.now(), durationMin: 50 } });
+  assert.ok(L.ok, JSON.stringify(L)); assert.strictEqual(L.session.rotate, false, 'one fixed code by default');
+  const code = L.code;
+  await p.waitForFunction(function (c) { const e = document.querySelector('.pres-att .pa-c'); return e && e.textContent === c; }, code, { timeout: 15000 });
+  assert.match(await p.textContent('.pres-att'), new RegExp('^Attendance Code:\\s*' + code + '$'));
+  const where = async function () {
+    return p.evaluate(function () {
+      const b = document.querySelector('.pres-att'); if (!b) return null;
+      const r = b.getBoundingClientRect(), o = document.querySelector('.pres-stage-outer').getBoundingClientRect(), cs = getComputedStyle(b);
+      b.style.pointerEvents = 'auto'; const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); b.style.pointerEvents = '';
+      return { code: b.querySelector('.pa-c').textContent, visible: cs.display !== 'none' && cs.visibility !== 'hidden' && r.width > 40 && r.height > 15, onTop: b.contains(top),
+        bottomRight: r.right <= o.right && r.bottom <= Math.min(o.bottom, innerHeight) && Math.min(o.right, innerWidth) - r.right < 30 && Math.min(o.bottom, innerHeight) - r.bottom < 30, small: r.width < o.width * 0.45 && r.height < o.height * 0.2,
+        inFullscreen: document.fullscreenElement ? document.fullscreenElement.contains(b) : null };
+    });
+  };
+  let w = await where();
+  assert.deepStrictEqual(w, { code: code, visible: true, onTop: true, bottomRight: true, small: true, inFullscreen: null });
+  // move through many slides with keys, buttons and swipes: same code, still there
+  for (let i = 0; i < 6; i++) await p.keyboard.press('ArrowRight');
+  await p.click('.pres-toolbar button[aria-label="Next slide"]'); await p.click('.pres-toolbar button[aria-label="Previous slide"]');
+  const ob = await p.$eval('.pres-stage-outer', function (e) { const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height * 0.25 }; });
+  await p.mouse.move(ob.x + 150, ob.y); await p.mouse.down(); for (let i = 1; i <= 8; i++) await p.mouse.move(ob.x + 150 - 37 * i, ob.y); await p.mouse.up(); await p.waitForTimeout(300);
+  await p.keyboard.press('End'); await p.keyboard.press('Home'); await p.keyboard.press('o'); await p.keyboard.press('o');
+  w = await where(); assert.strictEqual(w.code, code); assert.ok(w.visible && w.onTop && w.bottomRight, JSON.stringify(w));
+  // fullscreen in and out
+  await p.keyboard.press('f');
+  await p.waitForFunction(function () { return document.fullscreenElement && document.fullscreenElement.id === 'pres-wrap'; });
+  await p.waitForTimeout(300); await p.keyboard.press('ArrowRight');
+  w = await where(); assert.deepStrictEqual([w.code, w.visible, w.onTop, w.bottomRight, w.inFullscreen], [code, true, true, true, true], 'shown in fullscreen');
+  // an image enlarged in fullscreen: the code stays on top of the viewer
+  for (let i = 0; i < 150 && !(await p.$('#pres-stage .slide-img:not(.img-broken) .pz-zoom')); i++) await p.keyboard.press('ArrowRight');
+  await p.waitForTimeout(350);
+  await p.click('#pres-stage .slide-img .pz-zoom'); await p.waitForSelector('.lightbox');
+  w = await where(); assert.deepStrictEqual([w.code, w.visible, w.onTop], [code, true, true], 'over the image viewer');
+  await p.click('.lightbox .lb-close');
+  await p.keyboard.press('f');
+  await p.waitForFunction(function () { return !document.fullscreenElement; });
+  await p.waitForTimeout(400);
+  w = await where(); assert.deepStrictEqual([w.code, w.visible, w.onTop, w.bottomRight], [code, true, true, true], 'after leaving fullscreen');
+  // slide-edit mode and back
+  await p.click('.pres-toolbar button:has-text("Edit slides")'); await p.click('.pres-toolbar button:has-text("Editing slides")');
+  // time passes (several checks), and the connection drops for a while: the code never disappears or changes
+  await p.waitForTimeout(17000);
+  const offline = function (r) { return r.abort(); };
+  await p.route('https://script.google.com/**', offline);
+  await p.evaluate(function () { return window.__presAttendance.poll(); });
+  w = await where(); assert.strictEqual(w && w.code, code, 'kept while offline');
+  await p.unroute('https://script.google.com/**', offline);   // only the outage, not the test backend
+  await p.evaluate(function () { return window.__presAttendance.poll(); });
+  assert.strictEqual(A('tsState', { tsId: L.session.tsId }).code, code, 'the server code is unchanged');
+  assert.strictEqual(A('tsState', { tsId: L.session.tsId }).session.status, 'live', 'still open');
+  // the presentation only ever READ the code: it never started, changed or closed an attendance session
+  assert.ok(calls.some(function (c) { return c.action === 'listAttendanceSessions'; }));
+  assert.deepStrictEqual(calls.filter(function (c) { return /^(startAttendanceSession|closeAttendanceSession|regenerateAttendanceCode|deleteAttendanceSession|tsStart|tsClose|tsSave|tsCancel|tsDelete|tsMark)$/.test(String(c.action)); }).map(function (c) { return c.action; }), []);
+  if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'present-attendance.png') });
+  // a student of the group, in the same module's Presentation Mode: no code, no teacher request
+  const sp = await realPage(M, []);
+  const scalls = [];
+  sp.on('request', function (r) { if (/script\.google\.com/.test(r.url())) { try { scalls.push(JSON.parse(r.postData() || '{}').action); } catch (e) { } } });
+  await sp.goto(HOME + '?g=tr-a');
+  await signIn(sp, 'ahmed', PW);
+  await sp.waitForSelector('.mod[data-id="' + M[0] + '"] .go'); await sp.click('.mod[data-id="' + M[0] + '"] .go');
+  await sp.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'student'; }, null, { timeout: 20000 });
+  await sp.evaluate(function () { location.hash = '#/present/slide/1'; });
+  await sp.waitForSelector('#pres-stage .slide'); await sp.waitForTimeout(2500);
+  assert.ok(!(await sp.$('.pres-att')), 'students do not see the code on the slides');
+  assert.ok(scalls.indexOf('listAttendanceSessions') < 0);
+  await sp.context().close();
+  // only the teacher closes attendance (Teacher Dashboard → Close attendance) → the code leaves the slide
+  const c = A('tsClose', { tsId: L.session.tsId }); assert.ok(c.ok, JSON.stringify(c));
+  await p.waitForFunction(function () { return !document.querySelector('.pres-att'); }, null, { timeout: 15000 });
+  await p.keyboard.press('ArrowRight');
+  assert.ok(!(await p.$('.pres-att')), 'gone after the teacher closed attendance');
   await p.context().close();
 });
 

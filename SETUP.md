@@ -271,11 +271,16 @@ Script editor, choose **authorizeDriveAccess** in the function list and press �
 Sessions** (the Admin: every group; a personal teacher: only the modules assigned to them). Choose the **group** at the top.
 
 - **📅 Schedule a lecture** — title, module, chapter, date and time, duration, *Late after* (minutes; 0 = never late),
-  teacher, a **lecture-materials link** (optional, `https://…`), and **🔄 Rotating attendance code** (on by default).
+  teacher, a **lecture-materials link** (optional, `https://…`), and **🔄 Rotating attendance code** (off by default: one
+  code stays the same until you close attendance).
 - **▶ Open attendance** (on an upcoming lecture) or **▶ Start a lecture now** — the live screen shows the code in large
   letters (**⛶ Full screen** for the projector). With a rotating code it changes every 45 seconds, so a code sent to
   an absent friend stops working. Students type the code on their **group page** (or in the module's Attendance).
   The list updates every 5 seconds. Only one lecture per group can be live at a time.
+- **On your slides** — while attendance is open, the module's **Presentation** shows *Attendance Code: …* in the
+  bottom-right corner (teacher's screen only) on every slide, in fullscreen and over enlarged images. Nothing closes
+  attendance automatically (not time, slide changes, fullscreen or a lost connection); the code disappears only when
+  you close attendance.
 - **■ Close attendance** — students who did not check in become **Absent**. You can still correct anyone, also later
   (📋 Register in the history): **Present** (adds a real check-in), **Mark late / Mark present**, **Excused**,
   **Remove check-in** (e.g. someone who checked in from outside the room).

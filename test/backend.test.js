@@ -1685,6 +1685,47 @@ test('group page lectures: only a signed-in member of THIS group; own attendance
   assert.strictEqual(S.call({ module: 'portal', action: 'portalGroupSessions', g: 'razi-a-26', sessions: ses }).code, 'studentauth');
 });
 
+test('attendance stays open with the SAME code until the teacher closes it: time, polling and other events never close it; students cannot close it, change the code or reopen it', function () {
+  const S = tsSetup(), X = S.b.ctx, st = 'cellinjury-razi-a-26';
+  const L = S.ts('tsStart', { session: S.lect({ title: 'Long lecture', startAt: Date.now(), durationMin: 60, rotate: false }) }); assert.ok(L.ok, JSON.stringify(L));
+  const tsId = L.session.tsId, code = L.code;
+  // hours later (far past the lecture's 60 min) and after many teacher / student / presentation checks: still open, same code
+  const row = X.dirAll_('TeachingSessions').filter(function (x) { return x.tsId === tsId; })[0];
+  X.updateRow_('TeachingSessions', row._row, Object.assign(X.dirPublic_(row), { startAt: Date.now() - 6 * 3600e3, startedAt: Date.now() - 6 * 3600e3, codeAt: Date.now() - 6 * 3600e3 }));
+  const att = X.rpRows_('AttendanceSessions').filter(function (a) { return a.sessionId === row.attSessionId; })[0];
+  X.updateRow_('AttendanceSessions', att._row, Object.assign({}, att, { createdAt: Date.now() - 6 * 3600e3 }));
+  const mt = S.t('teacherOpen', S.ahmed.tok, { deliveryId: S.ci.deliveryId }); assert.ok(mt.ok, JSON.stringify(mt));   // the module page (Presentation Mode) as teacher
+  for (let i = 0; i < 5; i++) {
+    assert.strictEqual(S.ts('tsState', { tsId: tsId }).code, code);
+    const ls = S.call({ module: st, action: 'listAttendanceSessions', token: mt.token }); assert.ok(ls.ok, JSON.stringify(ls));
+    const a = ls.sessions.filter(function (x) { return x.status === 'active'; }); assert.strictEqual(a.length, 1); assert.strictEqual(a[0].code, code);
+    S.ts('tsList', { groupId: S.ra.groupId });
+  }
+  assert.strictEqual(S.ts('tsState', { tsId: tsId }).session.status, 'live');
+  // a student, with every token they can have, cannot close it, regenerate the code, start another session or read the teacher list
+  const stu = login(S, st, 'b1', 'basma-pass-1'); assert.ok(stu.ok);
+  [{ stoken: stu.token }, { token: stu.token }, {}].forEach(function (auth) {
+    ['closeAttendanceSession', 'regenerateAttendanceCode', 'getAttendanceTeacherState', 'listAttendanceSessions'].forEach(function (action) {
+      const r = S.call(Object.assign({ module: st, action: action, sessionId: row.attSessionId }, auth));
+      assert.strictEqual(r.ok, false, action + ' ' + JSON.stringify(auth)); assert.match(String(r.code), /^(auth|studentauth)$/, action);
+    });
+    assert.strictEqual(S.call(Object.assign({ module: st, action: 'startAttendanceSession', sessionTitle: 'x' }, auth)).ok, false);
+    ['tsClose', 'tsStart', 'tsCancel', 'tsMark', 'tsDelete'].forEach(function (action) {
+      const r = S.call(Object.assign({ module: 'portal', action: action, tsId: tsId, ttoken: auth.stoken || auth.token || '' }, auth));
+      assert.strictEqual(r.ok, false, action + ' ' + JSON.stringify(auth));
+    });
+  });
+  const ses = grpSessions(S, 'b1', 'basma-pass-1');
+  assert.ok(S.call({ module: 'portal', action: 'portalGroupCheckIn', g: 'razi-a-26', sessions: ses, code: code }).ok, 'checking in does not change anything either');
+  assert.strictEqual(S.ts('tsState', { tsId: tsId }).code, code);
+  assert.strictEqual(X.rpRows_('AttendanceSessions').filter(function (a) { return a.sessionId === row.attSessionId; })[0].status, 'active');
+  // only the teacher closes it
+  const c = S.ts('tsClose', { tsId: tsId }); assert.ok(c.ok, JSON.stringify(c)); assert.strictEqual(c.session.status, 'ended');
+  const after = S.call({ module: st, action: 'listAttendanceSessions', token: mt.token });
+  assert.strictEqual(after.sessions.filter(function (x) { return x.status === 'active'; }).length, 0);
+  assert.strictEqual(stuOf(c, 'b1').status, 'late', 'the record is kept (checked in 6 h after the start → late)');
+});
+
 test('group page check-in: right code → present (or late); twice → already; wrong codes limited; the rotated code works 20 s more', function () {
   const S = tsSetup(), X = S.b.ctx;
   const L = S.ts('tsStart', { session: S.lect({ title: 'Now', startAt: Date.now(), rotate: true }) }); assert.ok(L.ok);
