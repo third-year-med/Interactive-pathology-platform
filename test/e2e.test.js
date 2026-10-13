@@ -2355,4 +2355,84 @@ test('Presentation Mode attendance code — the Admin opens the module from Teac
   await p.context().close();
 });
 
+/* Slide emphasis: the slides use slide-only copies of the key points / must-know items with **key words** (and *scientific names*);
+   the learning-mode key points stay unchanged, nothing shows as literal markup, no bullet is bold from end to end. */
+test('Presentation Mode: key words in bold (scientific names in italics) on the slides only — learning mode unchanged, no literal markup, no whole-bullet bold', { skip: SKIP || ((!fs.existsSync(REAL[0][2]) || !REAL[0][3]) && 'module page or key not available') }, async function () {
+  const p = await presentPage(REAL[0]);
+  const i = await p.evaluate(function () { return Views.present.list().findIndex(function (s) { return s.title === 'Wet Gangrene & Gas Gangrene'; }); });
+  assert.ok(i >= 0, 'the Wet Gangrene slide');
+  await p.evaluate(function (n) { location.hash = '#/present/slide/' + n; }, i + 1);
+  await p.waitForFunction(function () { const h = document.querySelector('#pres-stage .slide h2'); return h && h.textContent === 'Wet Gangrene & Gas Gangrene'; });
+  const s = await p.evaluate(function () {
+    const b = document.querySelector('#pres-stage .slide .body');
+    return { strong: [].map.call(b.querySelectorAll('li strong'), function (x) { return x.textContent; }), em: [].map.call(b.querySelectorAll('li em'), function (x) { return x.textContent; }),
+      text: b.textContent, html: b.innerHTML, li: [].map.call(b.querySelectorAll('li'), function (li) { return { t: li.textContent, b: [].map.call(li.querySelectorAll('strong'), function (x) { return x.textContent; }).join('') }; }),
+      teal: getComputedStyle(b.querySelector('li'), '::marker').color, weight: getComputedStyle(b.querySelector('li strong')).fontWeight };
+  });
+  assert.deepStrictEqual(s.strong.slice(0, 3), ['Wet gangrene', 'moist organs', 'venous obstruction']);
+  assert.deepStrictEqual(s.em, ['Clostridium perfringens'], 'the scientific name in italics, not bold');
+  assert.ok(s.li.every(function (l) { return l.b.replace(/\s/g, '') !== l.t.replace(/\s/g, ''); }), 'no bullet is bold from end to end');
+  assert.ok(!/\*|<strong>|&lt;/.test(s.text) && !/<strong><strong>|<strong><em>|<em><strong>/.test(s.html), 'no literal markup, no nested bold/italic');
+  assert.strictEqual(s.text.replace(/\s+/g, ' ').trim().indexOf('Wet gangrene: moist organs (bowel); commonly venous obstruction'), 0, 'the words themselves are unchanged');
+  // learning mode keeps its plain key points; the slide copies only add ** / *
+  const d = await p.evaluate(function () {
+    let n = 0, bad = 0, plainStars = 0;
+    DATA.topics.forEach(function (t) { [[t.mustKnow, t.slideMustKnow]].concat((t.sections || []).map(function (sc) { return [sc.keyPoints, sc.slideKeyPoints]; })).forEach(function (pair) {
+      (pair[0] || []).forEach(function (k, j) { if (/\*/.test(k)) plainStars++; const e = pair[1] && pair[1][j]; if (typeof e === 'string') { n++; if (e.replace(/\*/g, '') !== k) bad++; } }); }); });
+    return { n: n, bad: bad, plainStars: plainStars };
+  });
+  assert.ok(d.n > 300, 'slide copies exist (' + d.n + ')'); assert.strictEqual(d.bad, 0); assert.strictEqual(d.plainStars, 0, 'learning-mode key points have no markup');
+  // a bullet the teacher edited (no longer identical) is shown as typed, and a teacher's own **bold** still works
+  const own = await p.evaluate(function () { return [slideEmph('Wet gangrene: moist organs (bowel).'), mdInline(esc(slideEmph('A **typed** word')))]; });
+  assert.deepStrictEqual(own, ['Wet gangrene: moist organs (bowel).', 'A <strong>typed</strong> word']);
+  await p.context().close();
+});
+
+/* Image insertion in the slide editor (it used to fail: the editor threw before it opened). File types and size are checked,
+   a damaged file is refused, the preview shows, size/position are kept, and the picture stays after reopening and a refresh. */
+test('Presentation Mode: Edit slide → add an image (file or link) → preview → size/position → save → on the slide → reopen → refresh', { skip: SKIP || ((!fs.existsSync(REAL[0][2]) || !REAL[0][3]) && 'module page or key not available') }, async function () {
+  const p = await presentPage(REAL[0]);
+  const picker = '.modal-back:last-of-type';
+  await p.evaluate(function () { const i = Views.present.list().findIndex(function (s) { return s.type === 'content' && !(s.images || []).length && !s.image; }); location.hash = '#/present/slide/' + (i + 1); });
+  await p.waitForTimeout(400);
+  const title = await p.textContent('#pres-stage .slide h2');
+  async function openEditor() { if (!(await p.$('.pres-edit:not(.hidden)'))) await p.click('.pres-toolbar button:has-text("Edit slides")'); await p.click('.pres-edit button:has-text("Edit this slide")'); await p.waitForSelector('.modal .img-mgr'); }
+  await openEditor();
+  await p.click('.modal button:has-text("Upload / paste image URL")'); await p.waitForSelector(picker + ' input[type=file]');
+  assert.match(await p.getAttribute(picker + ' input[type=file]', 'accept'), /image\/jpeg.*image\/png.*image\/webp/);
+  await p.setInputFiles(picker + ' input[type=file]', { name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('hello') });
+  await p.waitForFunction(function (s) { const m = document.querySelector(s + ' .msg'); return m && /Unsupported file/.test(m.textContent); }, picker);
+  await p.setInputFiles(picker + ' input[type=file]', { name: 'big.jpg', mimeType: 'image/jpeg', buffer: Buffer.alloc(16 * 1024 * 1024, 1) });
+  await p.waitForFunction(function (s) { const m = document.querySelector(s + ' .msg'); return m && /too large|MB/i.test(m.textContent); }, picker);
+  await p.setInputFiles(picker + ' input[type=file]', { name: 'broken.png', mimeType: 'image/png', buffer: Buffer.from('not really a png') });
+  await p.waitForFunction(function (s) { const m = document.querySelector(s + ' .msg'); return m && /could not be read/.test(m.textContent); }, picker);
+  await p.setInputFiles(picker + ' input[type=file]', { name: 'cell.png', mimeType: 'image/png', buffer: Buffer.from(PNG1, 'base64') });
+  await p.waitForSelector(picker + ' img[alt="Preview of the chosen image"]');
+  assert.strictEqual(await p.$(picker + ' .msg.bad'), null, 'no error once a good file is chosen');
+  await p.click(picker + ' button:has-text("Add")');
+  await p.waitForFunction(function () { return document.querySelectorAll('.modal .img-mgr .im img').length === 1; }, null, { timeout: 15000 });
+  await p.selectOption('.modal .img-mgr .im select[aria-label=Size]', 'l'); await p.selectOption('.modal .img-mgr .im select[aria-label=Position]', 'right');
+  await p.click('.modal button:has-text("Upload / paste image URL")'); await p.waitForSelector(picker + ' input[type=url]');
+  await p.fill(picker + ' input[type=url]', 'https://drive.google.com/thumbnail?id=e2eUrlImage&sz=w800');
+  await p.click(picker + ' button:has-text("Add")');
+  await p.waitForFunction(function () { return document.querySelectorAll('.modal .img-mgr .im img').length === 2; });
+  await p.click('.modal button:has-text("Save slide")');
+  await p.waitForFunction(function () { return !document.querySelector('.modal .img-mgr') && document.querySelectorAll('#pres-stage .slide-img img').length === 2; }, null, { timeout: 15000 });
+  async function onSlide() { return p.$$eval('#pres-stage .slide-img', function (x) { return x.map(function (f) { return { cls: f.className, src: f.querySelector('img').getAttribute('src') }; }); }); }
+  const saved = await onSlide();
+  assert.strictEqual(await p.textContent('#pres-stage .slide h2'), title, 'still the same slide');
+  const up = saved.filter(function (x) { return !/e2eUrlImage/.test(x.src); }), byUrl = saved.filter(function (x) { return /e2eUrlImage/.test(x.src); });
+  assert.strictEqual(up.length, 1); assert.strictEqual(byUrl.length, 1, 'the image added by link');
+  assert.match(up[0].cls, /\bsize-l\b/); assert.match(up[0].cls, /\bfloat-right\b/, 'size and position kept');
+  assert.match(up[0].src, /^https:\/\/drive\.google\.com\//, 'the uploaded file is stored on Drive (not inside the deck)');
+  await openEditor();
+  assert.strictEqual(await p.$$eval('.modal .img-mgr .im img', function (x) { return x.length; }), 2, 'both images in the reopened editor');
+  await p.click('.modal button:has-text("Cancel")');
+  await p.reload();
+  await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+  await p.waitForFunction(function () { return document.querySelectorAll('#pres-stage .slide-img img').length === 2; }, null, { timeout: 15000 });
+  assert.deepStrictEqual((await onSlide()).map(function (x) { return x.src; }), saved.map(function (x) { return x.src; }), 'the same pictures after a refresh');
+  await p.context().close();
+});
+
 test('no JavaScript errors', { skip: SKIP }, function () { assert.deepStrictEqual(errors, []); });
