@@ -2564,7 +2564,7 @@ test('pictures: a refused Drive address falls back to Google\'s other address; a
 
 /* A picture added in Learn mode after the deck was saved reaches that section's saved Images slide (a new Images slide when it is
    full); a picture the teacher removed from an Images slide stays removed. */
-test('Presentation Mode: a Learn picture added after the deck was saved appears on the section\'s Images slide; overflow makes a new one; a removed picture stays removed', { skip: SKIP || ((!fs.existsSync(REAL[0][2]) || !REAL[0][3]) && 'module page or key not available') }, async function () {
+test('Presentation Mode: a Learn picture added after the deck was saved gets its own Images slide (one picture per slide); a removed picture stays removed', { skip: SKIP || ((!fs.existsSync(REAL[0][2]) || !REAL[0][3]) && 'module page or key not available') }, async function () {
   const p = await presentPage(REAL[0]);
   const png = Buffer.from(PNG1, 'base64');
   await p.route('https://lh3.googleusercontent.com/**', function (r) { return r.fulfill({ status: 200, contentType: 'image/png', body: png }); });
@@ -2586,16 +2586,18 @@ test('Presentation Mode: a Learn picture added after the deck was saved appears 
   // one new Learn picture → on the existing Images slide
   await addMedia(1, 'NewPic');
   let g = await gal();
-  assert.strictEqual(g.length, 1); assert.ok(g[0].caps.indexOf('NewPic 0') >= 0, 'added to the saved Images slide: ' + JSON.stringify(g));
-  await p.evaluate(function (id) { location.hash = '#/present/slide/' + (Views.present.list().findIndex(function (x) { return x.id === id; }) + 1); }, g[0].id);
+  assert.strictEqual(g.length, 2, 'its own Images slide after the saved one: ' + JSON.stringify(g)); assert.deepStrictEqual(g[1].caps, ['NewPic 0']);
+  assert.ok(g[0].caps.indexOf('NewPic 0') < 0, 'not squeezed onto the saved slide');
+  await p.evaluate(function (id) { location.hash = '#/present/slide/' + (Views.present.list().findIndex(function (x) { return x.id === id; }) + 1); }, g[1].id);
   await p.waitForFunction(function () { return /NewPic 0/.test((document.querySelector('#pres-stage .slide') || {}).textContent || ''); }, null, { timeout: 15000 });
   // four more → the slide fills up and a new Images slide follows it
   await addMedia(4, 'More');
   g = await gal();
-  assert.ok(g.length >= 2, 'a second Images slide'); const all = [].concat.apply([], g.map(function (x) { return x.caps; }));
+  assert.strictEqual(g.length, 6, 'one Images slide per new picture'); g.slice(1).forEach(function (x) { assert.strictEqual(x.caps.length, 1, 'one picture per slide'); });
+  const all = [].concat.apply([], g.map(function (x) { return x.caps; }));
   ['NewPic 0', 'More 0', 'More 1', 'More 2', 'More 3'].forEach(function (c) { assert.strictEqual(all.filter(function (x) { return x === c; }).length, 1, c + ' exactly once'); });
   // the teacher removes "NewPic 0" from the Images slide (Edit slides → select → Delete) → it stays removed, even after a refresh
-  await p.evaluate(function (id) { location.hash = '#/present/slide/' + (Views.present.list().findIndex(function (x) { return x.id === id; }) + 1); }, g[0].id);
+  await p.evaluate(function (id) { location.hash = '#/present/slide/' + (Views.present.list().findIndex(function (x) { return x.id === id; }) + 1); }, g[1].id);
   await p.waitForFunction(function () { return /NewPic 0/.test((document.querySelector('#pres-stage .slide') || {}).textContent || ''); });
   await p.evaluate(function () { const f = [].find.call(document.querySelectorAll('#pres-stage [data-item]'), function (n) { return /NewPic 0/.test(n.textContent); }); PE.select(f); });
   await p.click('.pe-bar .btn-danger');
@@ -2608,6 +2610,103 @@ test('Presentation Mode: a Learn picture added after the deck was saved appears 
   assert.strictEqual(after.indexOf('NewPic 0'), -1, 'the removed picture is not added back');
   ['More 0', 'More 1', 'More 2', 'More 3'].forEach(function (c) { assert.ok(after.indexOf(c) >= 0, c + ' kept'); });
   assert.ok(await p.evaluate(function (id) { return (State.customMedia[id] || []).some(function (m) { return m.caption === 'NewPic 0'; }); }, sid), 'Learn mode still has it');
+  await p.context().close();
+});
+
+/* Pictures in the slide editor: one picture per slide with its own caption; Cut / Copy / Paste between slides (shortcuts and
+   toolbar); pictures from the computer by Insert, clipboard paste and drag-and-drop; no teacher label; all persists. */
+test('Slide editor pictures: no "Teacher" label; Insert (one slide each) → caption → Ctrl+C / Ctrl+V (same stored picture) → Ctrl+X / Paste (one save) → clipboard paste and drop from the computer → refused file → Delete → refresh keeps everything', { skip: SKIP || ((!fs.existsSync(REAL[0][2]) || !REAL[0][3]) && 'module page or key not available') }, async function () {
+  const p = await presentPage(REAL[0]);
+  const ups = [], deckSaves = [];
+  p.on('request', function (r) { if (!/script\.google\.com/.test(r.url())) return; try { const b = JSON.parse(r.postData() || '{}'); if (b.action === 'uploadImage') ups.push(1); if (b.action === 'upsert' && b.collection === 'presentationdeck') deckSaves.push(1); } catch (e) { } });
+  const png = Buffer.from(PNG1, 'base64');
+  const slideIds = function () { return p.evaluate(function () { return Views.present.list().map(function (x) { return x.id; }); }); };
+  const go = function (id) { return p.evaluate(function (i) { location.hash = '#/present/slide/' + (Views.present.list().findIndex(function (x) { return x.id === i; }) + 1); }, id); };
+  const cur = function () { return p.evaluate(function () { const s = Views.present.cur(); return { id: s.id, type: s.type, images: (s.images || []).map(function (im) { return { url: im.url, caption: im.caption || '', size: im.size, align: im.align }; }) }; }); };
+  // Task 3 in Learn: two pictures added to one section → two separate Images slides, one picture each, no label
+  const sec = await p.evaluate(async function () {
+    const t = getTopics()[2], s = t.sections[1];
+    await saveDoc('custommedia', s.id, { items: [{ id: 'm_a', type: 'image', url: 'https://drive.google.com/thumbnail?id=LEARNPICA123&sz=w2000', caption: 'Learn picture A' }, { id: 'm_b', type: 'image', url: 'https://drive.google.com/thumbnail?id=LEARNPICB123&sz=w2000', caption: 'Learn picture B' }] });
+    return s.id;
+  });
+  const lg = await p.evaluate(function (sid) { return Views.present.list().filter(function (x) { return x.type === 'gallery' && x.sectionId === sid; }).map(function (x) { return (x.items || []).filter(function (r) { return r.t === 'media'; }).length; }); }, sec);
+  assert.deepStrictEqual(lg.filter(function (n) { return n > 0; }), [1, 1], 'each Learn picture on its own Images slide');
+  await p.evaluate(function (sid) { location.hash = '#/present/slide/' + (Views.present.list().findIndex(function (x) { return x.type === 'gallery' && x.sectionId === sid && (x.items || []).some(function (r) { return r.t === 'media'; }); }) + 1); }, sec);
+  await p.waitForFunction(function () { return /Learn picture A/.test(document.querySelector('#pres-stage .slide').textContent); });
+  assert.doesNotMatch(await p.textContent('#pres-stage .slide'), /teacher/i, 'no "Teacher’s image" label');
+  // open the editor on a text slide
+  const textSlide = await p.evaluate(function () { const l = Views.present.list(); return l.filter(function (x) { return x.type === 'content' && (x.bullets || []).length && !(x.images || []).length; }).map(function (x) { return x.id; }); });
+  await go(textSlide[0]); await p.waitForTimeout(300);
+  await p.click('.pres-toolbar button:has-text("Edit slides")'); await p.waitForSelector('.pres-edit .pe-tools');
+  // 🖼 Insert pictures: three files → three new slides right after this one, one picture each
+  const before = await slideIds();
+  await p.setInputFiles('body > input[type=file][multiple]', [1, 2, 3].map(function (k) { return { name: 'pic' + k + '.png', mimeType: 'image/png', buffer: png }; }));
+  await p.waitForFunction(function (n) { return Views.present.list().length === n + 3; }, before.length, { timeout: 20000 });
+  const after = await slideIds(); const at = after.indexOf(textSlide[0]);
+  const ins = after.slice(at + 1, at + 4);
+  assert.ok(ins.every(function (id) { return /^img_/.test(id); }), 'three new picture slides after the current one');
+  const insImgs = await p.evaluate(function (ids) { return ids.map(function (id) { const s = Views.present.list().find(function (x) { return x.id === id; }); return (s.images || []).length; }); }, ins);
+  assert.deepStrictEqual(insImgs, [1, 1, 1], 'one picture per slide'); assert.strictEqual(ups.length, 3, 'each uploaded once');
+  // caption: select the picture, type, Enter
+  await go(ins[0]); await p.waitForTimeout(400);
+  await p.click('#pres-stage .slide-img'); await p.waitForSelector('.pe-bar .pe-cap');
+  await p.fill('.pe-bar .pe-cap', 'Acute appendicitis — neutrophils in the muscularis');
+  await p.press('.pe-bar .pe-cap', 'Enter');
+  await p.waitForFunction(function () { const c = document.querySelector('#pres-stage .slide-img figcaption'); return c && /Acute appendicitis/.test(c.textContent); });
+  const orig = (await cur()).images[0];
+  // Ctrl+C → a text slide → Ctrl+V: the same stored picture (no new upload) with its caption, beside the text
+  await p.click('#pres-stage .slide-img'); await p.waitForSelector('.pe-bar');
+  await p.keyboard.press('Control+c');
+  await go(textSlide[1]); await p.waitForTimeout(400);
+  await p.locator('body').press('Control+v');
+  await p.waitForFunction(function () { return (Views.present.cur().images || []).length === 1; }, null, { timeout: 15000 });
+  let c = await cur();
+  assert.strictEqual(c.images[0].url, orig.url, 'the same stored picture'); assert.strictEqual(c.images[0].caption, orig.caption, 'its caption came along');
+  assert.strictEqual(c.images[0].align, 'right', 'beside the text'); assert.strictEqual(ups.length, 3, 'nothing uploaded again');
+  // the copy's caption is edited on its own
+  await p.click('#pres-stage .slide-img'); await p.fill('.pe-bar .pe-cap', 'My own caption for the copy'); await p.press('.pe-bar .pe-cap', 'Enter');
+  await p.waitForFunction(function () { return /My own caption/.test(document.querySelector('#pres-stage .slide-img figcaption').textContent); });
+  assert.strictEqual((await p.evaluate(function (id) { return Views.present.list().find(function (x) { return x.id === id; }).images[0].caption; }, ins[0])), orig.caption, 'the original keeps its caption');
+  // Ctrl+X on the second inserted picture → another slide → 📋 Paste: moved, in ONE deck save; the emptied picture slide goes
+  await go(ins[1]); await p.waitForTimeout(400);
+  await p.click('#pres-stage .slide-img'); await p.keyboard.press('Control+x');
+  assert.ok(await p.$('#pres-stage .slide-img.pe-cut'), 'marked as cut; still on its slide until pasted');
+  const cutUrl = (await cur()).images[0].url;
+  await go(textSlide[2]); await p.waitForTimeout(400);
+  const saves0 = deckSaves.length;
+  await p.click('.pe-tools button:has-text("Paste")');
+  await p.waitForFunction(function (id) { return !Views.present.list().some(function (x) { return x.id === id; }); }, ins[1], { timeout: 15000 });
+  c = await cur(); assert.strictEqual(c.images[0].url, cutUrl, 'the cut picture is here');
+  await p.waitForTimeout(500); assert.strictEqual(deckSaves.length - saves0, 1, 'added and removed in one save');
+  // a picture from the computer: clipboard paste, then drag and drop
+  const n0 = (await slideIds()).length;
+  await p.evaluate(function (b64) { const bin = atob(b64), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+    const dt = new DataTransfer(); dt.items.add(new File([u], 'clip.png', { type: 'image/png' })); document.body.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })); }, PNG1);
+  await p.waitForFunction(function (n) { return Views.present.list().length === n + 1; }, n0, { timeout: 20000 });
+  assert.strictEqual(ups.length, 4, 'the pasted picture was uploaded');
+  await p.evaluate(function (b64) { const bin = atob(b64), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+    const dt = new DataTransfer(); dt.items.add(new File([u], 'drop.png', { type: 'image/png' })); const o = document.querySelector('.pres-stage-outer');
+    o.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true })); o.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })); }, PNG1);
+  await p.waitForFunction(function (n) { return Views.present.list().length === n + 2; }, n0, { timeout: 20000 });
+  assert.strictEqual(ups.length, 5, 'the dropped picture was uploaded');
+  // a file that is not a picture is refused with a message, nothing added
+  const n1 = (await slideIds()).length;
+  await p.setInputFiles('body > input[type=file][multiple]', [{ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('x') }]);
+  await p.waitForFunction(function () { return [].some.call(document.querySelectorAll('.toast'), function (t) { return /Not added: notes\.txt: not a JPEG/.test(t.textContent); }); });
+  assert.strictEqual((await slideIds()).length, n1);
+  // Delete removes only the selected picture (the copy on the text slide); the slide text stays
+  await go(textSlide[1]); await p.waitForTimeout(400);
+  await p.click('#pres-stage .slide-img'); await p.keyboard.press('Delete');
+  await p.click('.modal button:has-text("Delete")');
+  await p.waitForFunction(function () { return !(Views.present.cur().images || []).length; }, null, { timeout: 15000 });
+  assert.ok(await p.$('#pres-stage .slide .body li'), 'the text is still there');
+  // refresh: everything as left
+  const keep = await p.evaluate(function () { return Views.present.list().filter(function (x) { return (x.images || []).length; }).map(function (x) { return x.id + '=' + x.images.map(function (i) { return i.url + '|' + (i.caption || ''); }).join(','); }).sort(); });
+  await p.reload();
+  await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+  await p.waitForSelector('#pres-stage .slide');
+  assert.deepStrictEqual(await p.evaluate(function () { return Views.present.list().filter(function (x) { return (x.images || []).length; }).map(function (x) { return x.id + '=' + x.images.map(function (i) { return i.url + '|' + (i.caption || ''); }).join(','); }).sort(); }), keep, 'same pictures and captions after a refresh');
+  assert.ok(keep.some(function (k) { return /Acute appendicitis — neutrophils/.test(k); }));
   await p.context().close();
 });
 
