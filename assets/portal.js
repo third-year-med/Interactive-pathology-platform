@@ -1768,7 +1768,7 @@
             var warn = aff.length ? '\n\nNote: ' + aff.length + ' item(s) you changed or removed are changed or hidden locally by a group, so that group will NOT see your update of those items (see “Group local changes”):\n' + aff.slice(0, 8).map(function (a) { return '• ' + a.storage + ': ' + a.item + (a.hidden ? ' (hidden)' : ''); }).join('\n') : '';
             var notes = window.prompt('Publish the draft of ' + m.title + ' as a new version for every group.' + warn + '\n\nWhat changed? (shown in the version history — optional)', ''); if (notes == null) return;
             bPub.disabled = true;
-            dirCall('contentPublish', { moduleId: m.moduleId, notes: notes }).then(function (x) { bPub.disabled = false; if (!x.ok) return toast(x.error); toast('Version ' + x.label + ' published (' + x.added + ' added, ' + x.changed + ' changed, ' + x.removed + ' removed). Every group receives it at its next sync.'); draw(); });
+            dirCall('contentPublish', { moduleId: m.moduleId, notes: notes }).then(function (x) { bPub.disabled = false; if (!x.ok) return toast(x.error); var lr = (x.localRemoved || []).length; toast('Version ' + x.label + ' published (' + x.added + ' added, ' + x.changed + ' changed, ' + x.removed + ' removed). Every group receives it at its next sync.' + (lr ? ' ' + lr + ' group cop' + (lr === 1 ? 'y' : 'ies') + ' copied to the master ' + (lr === 1 ? 'was' : 'were') + ' removed — ' + (lr === 1 ? 'that group follows' : 'those groups follow') + ' the master again.' : '')); draw(); });
           };
           var bChg = $('[data-a=chg]', card);
           if (bChg) bChg.onclick = function () {
@@ -1793,7 +1793,7 @@
               x.groups.forEach(function (g) {
                 var sec = h('<div class="loc-g"><p class="small"><b>' + esc(g.label) + '</b> <code>' + esc(g.storage) + '</code> — ' + g.counts.addition + ' addition(s), ' + g.counts.hidden + ' hidden, ' + g.counts.override + ' changed master item(s)' + (g.counts.same ? ', ' + g.counts.same + ' same as master' : '') + '</p>' +
                   '<div class="tbl-wrap"><table class="dir-tbl"><thead><tr><th>Kind</th><th>Item</th><th>Last change</th><th></th></tr></thead><tbody>' +
-                  g.items.map(function (it, i) { var k = KIND[it.kind] || [it.kind, '']; return '<tr><td title="' + esc(k[1]) + '">' + esc(k[0]) + '</td><td>' + esc(it.collection) + ' · <code>' + esc(it.id) + '</code></td><td>' + esc(fmtDay(it.updatedAt)) + '</td><td class="roster-btns">' +
+                  g.items.map(function (it, i) { var k = KIND[it.kind] || [it.kind, '']; return '<tr><td title="' + esc(k[1]) + '">' + esc(k[0]) + (it.promoted ? '<div class="small muted">Copied to the master draft — removed automatically when you publish</div>' : '') + '</td><td>' + esc(it.collection) + ' · <code>' + esc(it.id) + '</code></td><td>' + esc(fmtDay(it.updatedAt)) + '</td><td class="roster-btns">' +
                     '<button class="btn" type="button" data-i="' + i + '" data-pv="1" aria-expanded="false">👁 Preview</button>' +
                     '<button class="btn" type="button" data-i="' + i + '" data-op="rm">' + (it.kind === 'hidden' ? 'Show it again' : it.kind === 'addition' ? 'Remove' : 'Use the master again') + '</button>' +
                     (it.kind === 'addition' || it.kind === 'override' ? '<button class="btn" type="button" data-i="' + i + '" data-op="pr">Copy to master draft</button>' : '') + '</td></tr>'; }).join('') + '</tbody></table></div></div>');
@@ -1813,9 +1813,9 @@
                 $$('button[data-op]', sec).forEach(function (b) {
                   b.onclick = function () {
                     var it = g.items[Number(b.dataset.i)], rm = b.dataset.op === 'rm';
-                    if (!window.confirm(rm ? 'Remove this local item for ' + g.label + '? That group then gets the master version (or no longer has an item only it had).' : 'Copy this item from ' + g.label + ' into the master DRAFT? Every group receives it when you publish the draft.')) return;
+                    if (!window.confirm(rm ? 'Remove this local item for ' + g.label + '? That group then gets the master version (or no longer has an item only it had).' : 'Copy this item from ' + g.label + ' into the master DRAFT? Every group receives it when you publish the draft, and ' + g.label + '’s own copy is then removed automatically, so it follows the master again (unless it is changed before you publish).')) return;
                     b.disabled = true;
-                    dirCall(rm ? 'contentLocalRemove' : 'contentLocalPromote', { storage: g.storage, collection: it.collection, id: it.id }).then(function (r) { b.disabled = false; if (!r.ok) return toast(r.error); toast(rm ? 'Done — the group gets the master version at its next sync.' : 'Copied to the master draft — publish the draft to deliver it.'); draw(); });
+                    dirCall(rm ? 'contentLocalRemove' : 'contentLocalPromote', { storage: g.storage, collection: it.collection, id: it.id }).then(function (r) { b.disabled = false; if (!r.ok) return toast(r.error); toast(rm ? 'Done — the group gets the master version at its next sync.' : 'Copied to the master draft — publish the draft to deliver it. The group’s own copy is removed automatically when you publish.'); draw(); });
                   };
                 });
                 w.appendChild(sec);

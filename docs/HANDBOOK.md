@@ -73,7 +73,8 @@ The tests still use the name `vulva` for a simulated second backend; that is onl
 - When ON, any edit made inside a module from a group link — **including the normal link** — goes to that storage's
   local layer, never the master. The master changes only via **✏️ Edit master draft** → **⬆ Publish draft**.
 - Group local changes: additions, hidden items, overrides. Content tab → **Group local changes** lists them with
-  **👁 Preview** (read-only), "Use the master again", "Copy to master draft". Copying only affects the draft.
+  **👁 Preview** (read-only), "Use the master again", "Copy to master draft". Copying only affects the draft;
+  publishing then removes the copied group item automatically (2.13), unless the group changed it after the copy.
 - Version history with Restore (publishes a copy as a new version — history is never rewritten) and Freeze.
 - Assessments, exams, results, attendance, student accounts are never part of versioned content.
 - Only the Admin publishes (for now).

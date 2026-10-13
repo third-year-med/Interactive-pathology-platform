@@ -176,6 +176,8 @@ hiding a master topic hides it for that group only, and editing a master item gi
 master copy is never modified by a group. Content tab → **Group local changes** lists, per group:
 - *Local addition* — only this group has it; it stays when you publish new master versions. **Copy to master draft**
   puts it in the master draft (every group gets it after you publish); **Remove** deletes it for the group.
+  From Portal.gs 2.13 the group's own copy is **removed automatically when you publish**, so that group follows the master
+  again (and receives your later corrections). A copy the group changed after you copied it is kept.
 - *Hidden for this group* — **Show it again** gives the group the master item back.
 - *⚠ Changes a master item* — the group sees its own version, so your later corrections of that item do not reach it.
   **Use the master again** removes the group's version; **Copy to master draft** adopts it for everyone.

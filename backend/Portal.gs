@@ -185,7 +185,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.12';
+var PORTAL_VERSION = '2.13';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -1556,8 +1556,23 @@ function contentPublish_(p) {
   if (!d.count) return dirErr_('The draft has no changes compared with the published version.');
   var notes = String(p.notes || '').trim() || (d.added.length + ' added, ' + d.changed.length + ' changed, ' + d.removed.length + ' removed');
   var r = cvPublishMap_(M, cvLive_(rows, M + '@draft'), notes, p.label);
-  if (r.ok) { r.added = d.added.length; r.changed = d.changed.length; r.removed = d.removed.length; }
+  if (r.ok) { r.added = d.added.length; r.changed = d.changed.length; r.removed = d.removed.length; r.localRemoved = cvApplyPromoted_(M, r.version); }
   return r;
+}
+/* 2.13: "Copy to master draft" remembers what it copied; publishing then removes those group copies, so the group follows
+   the master again. A copy the group changed after it was copied, or an item the published master no longer has, is kept. */
+function cvPromotedList_(M) { try { var a = JSON.parse(getSetting_('content:promoted:' + M) || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+function cvApplyPromoted_(M, N) {
+  var list = cvPromotedList_(M), V = M + '@v' + N, done = []; if (!list.length) return done;
+  list.forEach(function (x) {
+    var r = cvLocalRow_(x.s, x.c, x.id); if (!r || isTrue_(r.deleted)) return;
+    if (sha256Hex_(cvJson_(r)) !== x.h) return;                                  // changed in the group after it was copied: keep
+    var mr = findContentRow_(V, x.c, x.id); if (!mr || isTrue_(mr.deleted)) return;   // not in the published master: keep
+    deleteRow_(SHEETS.CONTENT, r._row); done.push({ storage: x.s, collection: x.c, id: x.id });
+  });
+  setSetting_('content:promoted:' + M, '');
+  if (done.length) cvTouch_(M);   // those groups get a complete refresh and see the master version
+  return done;
 }
 function cvResetDraftTo_(M, V) {
   var rows = readAll_(SHEETS.CONTENT), now = Date.now();
@@ -1567,7 +1582,7 @@ function cvResetDraftTo_(M, V) {
 }
 function contentDiscardDraft_(p) {
   var M = String(p.moduleId || ''), N = getSetting_('content:pub:' + M); if (!N) return dirErr_('No master copy yet.');
-  cvResetDraftTo_(M, M + '@v' + N);
+  cvResetDraftTo_(M, M + '@v' + N); setSetting_('content:promoted:' + M, '');
   return { ok: true };
 }
 function contentRestore_(p) {
@@ -1577,7 +1592,7 @@ function contentRestore_(p) {
   var map = cvLive_(readAll_(SHEETS.CONTENT), M + '@v' + K);
   if (cvFingerprint_(map) !== ver.fingerprint) return dirErr_('Version ' + ver.label + ' does not match its fingerprint — it cannot be restored safely.');
   var r = cvPublishMap_(M, map, 'Restored from version ' + ver.label + (p.notes ? ' — ' + String(p.notes) : ''), '');
-  if (r.ok) cvResetDraftTo_(M, M + '@v' + r.version);
+  if (r.ok) { cvResetDraftTo_(M, M + '@v' + r.version); setSetting_('content:promoted:' + M, ''); }
   return r;
 }
 function contentFreeze_(p) {
@@ -1602,12 +1617,14 @@ function contentLocal_(p) {
   dirAll_(DIR.DELIV).forEach(function (d) { bm[d.backendModule] = d; });
   var gname = {}; dirAll_(DIR.GROUP).forEach(function (g) { gname[g.groupId] = g; });
   var inst = {}; dirAll_(DIR.INST).forEach(function (i) { inst[i.institutionId] = i; });
-  var by = {};
+  var by = {}, prom = {};
+  cvPromotedList_(M).forEach(function (x) { prom[x.s + '|' + x.c + '|' + x.id] = x.h; });
   rows.forEach(function (r) {
     var m = String(r.module || ''); if (!/@local$/.test(m) || !cvKey_(r.collection)) return;
     var S = m.replace(/@local$/, ''); if (cvBaseOf_(S) !== M) return;
     var kind = cvLocalKind_(r, pub); if (kind === 'removed-addition') return;
-    (by[S] = by[S] || []).push({ collection: r.collection, id: String(r.id), kind: kind, updatedAt: Number(r.updatedAt) || 0 });
+    var ph = prom[S + '|' + r.collection + '|' + r.id];
+    (by[S] = by[S] || []).push({ collection: r.collection, id: String(r.id), kind: kind, updatedAt: Number(r.updatedAt) || 0, promoted: !!ph && ph === sha256Hex_(cvJson_(r)) });
   });
   Object.keys(by).sort().forEach(function (S) {
     var d = bm[S], g = d && gname[d.groupId], i = g && inst[g.institutionId];
@@ -1649,6 +1666,10 @@ function contentLocalPromote_(p) {
   var row = cvCopy_(r, D, now); row.updatedBy = 'promoted from ' + S;
   if (ex) updateRow_(SHEETS.CONTENT, ex._row, row); else appendRow_(SHEETS.CONTENT, row);
   if (p.removeLocal) { var again = cvLocalRow_(S, r.collection, r.id); if (again) deleteRow_(SHEETS.CONTENT, again._row); cvTouch_(M); }
+  else {   // 2.13: removed automatically when the draft is published
+    var list = cvPromotedList_(M).filter(function (x) { return !(x.s === S && x.c === r.collection && x.id === String(r.id)); });
+    list.push({ s: S, c: r.collection, id: String(r.id), h: sha256Hex_(cvJson_(r)) }); setSetting_('content:promoted:' + M, JSON.stringify(list));
+  }
   return { ok: true };
 }
 

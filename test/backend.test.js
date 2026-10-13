@@ -1031,6 +1031,39 @@ test('local changes: listed by kind; draft warns about affected groups; remove �
   assert.strictEqual(S.dir('contentLocalRemove', { storage: 'cellinjury@v1', collection: 'x', id: 'y' }).ok, false, 'internal storages refused');
 });
 
+/* 2.13: "Copy to master draft" → the group's own copy is removed automatically when the draft is published */
+test('local changes: a copied group item is removed automatically on publish (the group then follows the master); kept if changed after copying; discard cancels', function () {
+  const S = contentSetup();
+  S.cdir('contentMigrate', { decisions: {} });   // Al-Razi keeps T2 (addition) and C1 (its own version) locally
+  S.cdir('contentSetMode', { mode: 'on' });
+  const local = function () { return (S.cdir('contentLocal').groups.filter(function (g) { return g.storage === 'cellinjury-razi-a-26'; })[0] || { items: [] }).items; };
+  const item = function (id) { return local().filter(function (x) { return x.id === id; })[0]; };
+  // discard cancels: copy T2, discard the draft, publish something else → T2 stays local
+  assert.ok(S.dir('contentLocalPromote', { storage: 'cellinjury-razi-a-26', collection: 'topicsections', id: 'T2' }).ok);
+  assert.strictEqual(item('T2').promoted, true, 'shown as copied');
+  assert.ok(S.cdir('contentDiscardDraft').ok);
+  assert.strictEqual(item('T2').promoted, false);
+  // copy T2 and C1; Al-Razi then changes C1 again before publishing
+  assert.ok(S.dir('contentLocalPromote', { storage: 'cellinjury-razi-a-26', collection: 'topicsections', id: 'T2' }).ok);
+  assert.ok(S.dir('contentLocalPromote', { storage: 'cellinjury-razi-a-26', collection: 'customtopics', id: 'C1' }).ok);
+  assert.ok(item('T2') && item('C1'), 'still local until the publish');
+  assert.deepStrictEqual(S.view(S.get('cellinjury-razi-a-26', S.tRa))['topicsections|T2'], { sections: ['razi local'] }, 'Al-Razi keeps seeing it meanwhile');
+  pause(); S.up('cellinjury-razi-a-26', S.tRa, 'customtopics', 'C1', { title: 'Razi changed it again' });
+  assert.strictEqual(item('C1').promoted, false, 'changed after copying → no longer marked');
+  const pub = S.cdir('contentPublish', { notes: 'with Al-Razi items' }); assert.ok(pub.ok, JSON.stringify(pub));
+  assert.deepStrictEqual(pub.localRemoved, [{ storage: 'cellinjury-razi-a-26', collection: 'topicsections', id: 'T2' }]);
+  assert.ok(!item('T2'), 'T2 is no longer a local copy'); assert.ok(item('C1'), 'C1 (changed after copying) is kept');
+  const ra = S.view(S.get('cellinjury-razi-a-26', S.tRa)), mi = S.view(S.get('cellinjury-misrata-a-26', S.tMa));
+  assert.deepStrictEqual(ra['topicsections|T2'], { sections: ['razi local'] }, 'Al-Razi now gets T2 from the master');
+  assert.deepStrictEqual(mi['topicsections|T2'], { sections: ['razi local'] }, 'and so does every other group');
+  assert.deepStrictEqual(ra['customtopics|C1'], { title: 'Razi changed it again' });
+  // a later master correction of T2 now reaches Al-Razi
+  const dt = S.cdir('contentEditDraft').token;
+  S.up('cellinjury', dt, 'topicsections', 'T2', { sections: ['corrected in master'] });
+  const p2 = S.cdir('contentPublish', { notes: 'correction' }); assert.ok(p2.ok); assert.deepStrictEqual(p2.localRemoved, []);
+  assert.deepStrictEqual(S.view(S.get('cellinjury-razi-a-26', S.tRa))['topicsections|T2'], { sections: ['corrected in master'] });
+});
+
 /* ---------------- Step 10: results & attendance overviews ---------------- */
 test('overviews: per delivery, read-only; teachers see only their own groups; students matched by ID / email / name', function () {
   const S = teachersSetup(), D = S.dl, X = S.b.ctx;

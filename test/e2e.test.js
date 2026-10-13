@@ -1067,10 +1067,18 @@ test('Step 9: Group local changes — hidden / local addition listed; "Show it a
     // show the hidden master topic again
     await p.waitForSelector(card + ' [data-a=loc]'); await p.click(card + ' [data-a=loc]');
     await p.waitForSelector(card + ' .loc-g tr:has-text("draft-test") button[data-op=rm]');
+    assert.match(await p.textContent(card + ' .loc-g tr:has-text("loc-add")'), /Copied to the master draft — removed automatically when you publish/);
     assert.match(await p.textContent(card + ' .loc-g tr:has-text("draft-test") button[data-op=rm]'), /Show it again/);
     await p.click(card + ' .loc-g tr:has-text("draft-test") button[data-op=rm]');
     await p.waitForFunction(function () { return /gets the master version/.test((document.querySelector('.toast') || {}).textContent || ''); });
     assert.ok(has('draft-test'), 'the group sees the master topic again');
+    // publishing the draft removes the group's copied item: the group now follows the master
+    const pubR = main.call({ module: 'portal', action: 'contentPublish', token: t, moduleId: M[0], notes: 'e2e copy' });
+    assert.ok(pubR.ok, JSON.stringify(pubR)); assert.strictEqual(pubR.localRemoved.length, 1);
+    await p.waitForSelector(card + ' [data-a=loc]'); await p.click(card + ' [data-a=loc]');
+    await p.waitForFunction(function (c) { const r = document.querySelector(c + ' .report'); return r && !/Loading/.test(r.textContent); }, card);
+    assert.strictEqual(await p.$(card + ' .loc-g tr:has-text("loc-add")'), null, 'no longer a local copy');
+    assert.ok(has('loc-add'), 'the group still has it — now from the master');
     await p.context().close();
   } finally {
     main.call({ module: 'portal', action: 'contentDiscardDraft', token: t, moduleId: M[0] });
@@ -2470,7 +2478,8 @@ test('Group A: a teacher adds a picture to a slide (versioned content on) → a 
   main.ctx.CONTENT_KEYS[M[0]] = M[3];
   main.call({ module: 'portal', action: 'setup', password: TPW });
   const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
-  assert.ok(main.call({ module: 'portal', action: 'contentMigrate', token: t, moduleId: M[0], decisions: {} }).ok);
+  const mig = main.call({ module: 'portal', action: 'contentMigrate', token: t, moduleId: M[0], decisions: {} });   // an earlier test may already have made the master copy
+  assert.ok(mig.ok || /already/i.test(mig.error || ''), JSON.stringify(mig));
   assert.ok(main.call({ module: 'portal', action: 'contentSetMode', token: t, moduleId: M[0], mode: 'on' }).ok);
   try {
     const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: [{ module: M[0], group: 'tr-a' }] }).modules[M[0] + '-tr-a'];
@@ -2510,7 +2519,7 @@ test('Group A: a teacher adds a picture to a slide (versioned content on) → a 
     await sp.context().close();
   } finally {
     main.call({ module: 'portal', action: 'contentSetMode', token: t, moduleId: M[0], mode: 'off' });
-    main.call({ module: 'portal', action: 'contentUndoMigration', token: t, moduleId: M[0] });
+    if (mig.ok) main.call({ module: 'portal', action: 'contentUndoMigration', token: t, moduleId: M[0] });
   }
 });
 
