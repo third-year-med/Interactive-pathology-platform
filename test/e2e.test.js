@@ -2523,4 +2523,42 @@ test('Group A: a teacher adds a picture to a slide (versioned content on) → a 
   }
 });
 
+/* Pictures that do not load at the first try: retried without the referrer and through Google's other addresses for a Drive
+   file before the slide gives up; a pasted link is checked (and a Drive share link converted) before it is added. */
+test('pictures: a refused Drive address falls back to Google\'s other address; a site that blocks embedding loads without the referrer; a pasted web page is refused with a clear message', { skip: SKIP || ((!fs.existsSync(REAL[0][2]) || !REAL[0][3]) && 'module page or key not available') }, async function () {
+  const p = await presentPage(REAL[0]);
+  const png = Buffer.from(PNG1, 'base64'), seen = [];
+  await p.route('https://drive.google.com/thumbnail?id=REFUSED1234*', function (r) { seen.push('thumb'); return r.fulfill({ status: 403, body: '' }); });
+  await p.route('https://lh3.googleusercontent.com/**', function (r) { seen.push('lh3'); return r.fulfill({ status: 200, contentType: 'image/png', body: png }); });
+  await p.route('https://pics.example.org/**', function (r) {
+    const u = r.request().url(), ref = r.request().headers().referer;
+    if (/page\.html/.test(u)) return r.fulfill({ status: 200, contentType: 'text/html', body: '<html>a web page</html>' });
+    seen.push('pics ' + (ref ? 'with referrer' : 'no referrer'));
+    return ref ? r.fulfill({ status: 403, body: '' }) : r.fulfill({ status: 200, contentType: 'image/png', body: png });
+  });
+  // a slide that already holds such pictures (as saved earlier) shows them
+  await p.evaluate(async function () {
+    await Views.present.mutate(function (sl) { const i = sl.findIndex(function (s) { return s.type === 'content'; }); sl[i] = Object.assign({}, sl[i], { images: [{ url: 'https://drive.google.com/thumbnail?id=REFUSED1234567&sz=w2000', size: 'm' }, { url: 'https://pics.example.org/heart.jpg', size: 'm' }] }); window.__ci = i; }, 'test');
+    location.hash = '#/present/slide/' + (window.__ci + 1);
+  });
+  await p.waitForFunction(function () { const im = document.querySelectorAll('#pres-stage .slide-img img'); return im.length === 2 && [].every.call(im, function (i) { return i.complete && i.naturalWidth > 0; }); }, null, { timeout: 15000 });
+  assert.strictEqual(await p.$('#pres-stage .img-broken'), null, 'no "could not be loaded" notice');
+  assert.ok(seen.indexOf('thumb') >= 0 && seen.indexOf('lh3') >= 0, 'Drive: refused address, then Google\'s other address');
+  assert.ok(seen.indexOf('pics with referrer') >= 0 && seen.indexOf('pics no referrer') >= 0, 'site: refused with the referrer, shown without');
+  // the picture box: a web page is refused with a clear message; a Drive share link is converted and added
+  if (!(await p.$('.pres-edit:not(.hidden)'))) await p.click('.pres-toolbar button:has-text("Edit slides")');
+  await p.click('.pres-edit button:has-text("Edit this slide")'); await p.waitForSelector('.modal .img-mgr');
+  const picker = '.modal-back:last-of-type';
+  await p.click('.modal button:has-text("Upload / paste image URL")'); await p.waitForSelector(picker + ' input[type=url]');
+  await p.fill(picker + ' input[type=url]', 'https://pics.example.org/page.html');
+  await p.click(picker + ' button:has-text("Add")');
+  await p.waitForFunction(function (s) { const m = document.querySelector(s + ' .msg.bad'); return m && /does not open as a picture/.test(m.textContent); }, picker, { timeout: 20000 });
+  await p.fill(picker + ' input[type=url]', 'https://drive.google.com/file/d/SHARELINK123456/view?usp=sharing');
+  await p.click(picker + ' button:has-text("Add")');
+  await p.waitForFunction(function () { return document.querySelectorAll('.modal .img-mgr .im img').length === 3; }, null, { timeout: 20000 });
+  assert.match(await p.getAttribute('.modal .img-mgr .im:last-child img', 'src'), /^https:\/\/drive\.google\.com\/thumbnail\?id=SHARELINK123456&sz=w2000$/, 'share link → picture address');
+  await p.click('.modal button:has-text("Cancel")');
+  await p.context().close();
+});
+
 test('no JavaScript errors', { skip: SKIP }, function () { assert.deepStrictEqual(errors, []); });
