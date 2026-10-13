@@ -2435,4 +2435,32 @@ test('Presentation Mode: Edit slide → add an image (file or link) → preview 
   await p.context().close();
 });
 
+/* Flicker: a background sync that only brings back what the page already has (its own saves echoed, or the whole master
+   draft re-sent on every check) must not rebuild the page; a real change from elsewhere still appears. */
+test('background sync: unchanged content never rebuilds the page (no flicker, scroll/slide kept); a real change still appears', { skip: SKIP || ((!fs.existsSync(REAL[0][2]) || !REAL[0][3]) && 'module page or key not available') }, async function () {
+  const p = await presentPage(REAL[0]);
+  await p.evaluate(function () { location.hash = '#/present/slide/4'; });
+  await p.waitForTimeout(400);
+  // one save from the slide editor's own path, then count every page rebuild from here on
+  await p.evaluate(async function () {
+    await saveDoc('presentationdeck', 'deck', { slides: getDeckSlides().map(function (x) { return Object.assign({}, x); }) });
+    window.__rb = 0; const r0 = window.refreshAllContentViews; window.refreshAllContentViews = function () { window.__rb++; return r0.apply(this, arguments); };
+    const st = document.getElementById('pres-stage'); window.__sr = 0;
+    new MutationObserver(function (ms) { if (ms.some(function (m) { return [].some.call(m.addedNodes, function (n) { return n.classList && n.classList.contains('slide'); }); })) window.__sr++; }).observe(st, { childList: true });
+  });
+  // the next checks bring back the saved deck (incremental), then everything (a full re-download, as after a publish / in a draft session)
+  for (const full of [false, false, true, true]) await p.evaluate(function (f) { return Backend.syncFromBackend({ full: f }); }, full);
+  assert.deepStrictEqual(await p.evaluate(function () { return [window.__rb, window.__sr]; }), [0, 0], 'no rebuild, the slide stays still');
+  assert.match(p.url(), /#\/present\/slide\/4$/);
+  // a real change made elsewhere (another device) still reaches the open page
+  const tk = await p.evaluate(function () { return Backend.token(); });
+  const d = main.call({ module: REAL[0][0], action: 'getAllContent', since: 0, token: tk }).items.filter(function (x) { return x.collection === 'presentationdeck'; })[0];
+  const sl = d.data.slides.slice(); sl[3] = Object.assign({}, sl[3], { title: 'Changed on another device' });
+  assert.ok(main.call({ module: REAL[0][0], action: 'upsert', token: tk, collection: 'presentationdeck', id: 'deck', data: { slides: sl } }).ok);
+  await p.evaluate(function () { return Backend.syncFromBackend(); });
+  await p.waitForFunction(function () { const h = document.querySelector('#pres-stage .slide h2'); return h && h.textContent === 'Changed on another device'; });
+  assert.strictEqual(await p.evaluate(function () { return window.__rb; }), 1, 'exactly one rebuild, for the real change');
+  await p.context().close();
+});
+
 test('no JavaScript errors', { skip: SKIP }, function () { assert.deepStrictEqual(errors, []); });
