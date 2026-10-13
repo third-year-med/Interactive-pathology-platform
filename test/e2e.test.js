@@ -2463,4 +2463,55 @@ test('background sync: unchanged content never rebuilds the page (no flicker, sc
   await p.context().close();
 });
 
+/* A picture a teacher adds to a slide in Group A (versioned content on) reaches the students of Group A. */
+test('Group A: a teacher adds a picture to a slide (versioned content on) → a Group A student sees it on the same slide', { skip: SKIP || ((!fs.existsSync(REAL[0][2]) || !REAL[0][3]) && 'module page or key not available') }, async function () {
+  const M = REAL[0];
+  groupFixture();
+  main.ctx.CONTENT_KEYS[M[0]] = M[3];
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  assert.ok(main.call({ module: 'portal', action: 'contentMigrate', token: t, moduleId: M[0], decisions: {} }).ok);
+  assert.ok(main.call({ module: 'portal', action: 'contentSetMode', token: t, moduleId: M[0], mode: 'on' }).ok);
+  try {
+    const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: [{ module: M[0], group: 'tr-a' }] }).modules[M[0] + '-tr-a'];
+    const tp = await realPage(M, []);
+    await tp.addInitScript(function (v) { localStorage.setItem('ci_tr-a_backend_token_v1', v); }, JSON.stringify({ token: tt.token, expiresAt: tt.expiresAt }));
+    await tp.goto('https://third-year-med.github.io/' + M[1] + '/?g=tr-a#/present/slide/1');
+    await tp.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+    assert.strictEqual(await tp.evaluate(function () { return window.NEO_BOOT.module; }), M[0] + '-tr-a');
+    const n = await tp.evaluate(function () { return Views.present.list().findIndex(function (s) { return s.type === 'content' && !(s.images || []).length; }) + 1; });
+    await tp.evaluate(function (k) { location.hash = '#/present/slide/' + k; }, n); await tp.waitForTimeout(400);
+    const title = await tp.textContent('#pres-stage .slide h2');
+    if (!(await tp.$('.pres-edit:not(.hidden)'))) await tp.click('.pres-toolbar button:has-text("Edit slides")');
+    await tp.click('.pres-edit button:has-text("Edit this slide")'); await tp.waitForSelector('.modal .img-mgr');
+    await tp.click('.modal button:has-text("Upload / paste image URL")');
+    await tp.setInputFiles('.modal-back:last-of-type input[type=file]', { name: 'incubation.png', mimeType: 'image/png', buffer: Buffer.from(PNG1, 'base64') });
+    await tp.waitForSelector('.modal-back:last-of-type img[alt="Preview of the chosen image"]');
+    await tp.click('.modal-back:last-of-type button:has-text("Add")');
+    await tp.waitForFunction(function () { return document.querySelectorAll('.modal .img-mgr .im img').length === 1; }, null, { timeout: 15000 });
+    await tp.click('.modal button:has-text("Save slide")');
+    await tp.waitForFunction(function () { return document.querySelectorAll('#pres-stage .slide-img img').length === 1; }, null, { timeout: 15000 });
+    const src = await tp.getAttribute('#pres-stage .slide-img img', 'src');
+    assert.match(src, /^https:\/\/drive\.google\.com\//, 'uploaded to Drive');
+    assert.strictEqual(await tp.evaluate(function () { return Backend.pending().length; }), 0, 'nothing left waiting on the teacher\'s device');
+    await tp.context().close();
+    // the Group A student
+    const sp = await realPage(M, []);
+    await sp.goto(HOME + '?g=tr-a');
+    await sp.waitForSelector('.mod[data-id="' + M[0] + '"]');
+    await signIn(sp, 'ahmed', PW);
+    await sp.waitForSelector('.mod[data-id="' + M[0] + '"] .go'); await sp.click('.mod[data-id="' + M[0] + '"] .go');
+    await sp.waitForURL(new RegExp(M[1]));
+    await sp.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'student'; }, null, { timeout: 20000 });
+    await sp.waitForFunction(function () { return State.deck && State.deck.slides && State.deck.slides.some(function (s) { return (s.images || []).length; }); }, null, { timeout: 15000 });
+    await sp.evaluate(function (k) { location.hash = '#/present/slide/' + k; }, n);
+    await sp.waitForFunction(function (tl) { const h = document.querySelector('#pres-stage .slide h2'); return h && h.textContent === tl; }, title);
+    assert.strictEqual(await sp.getAttribute('#pres-stage .slide-img img', 'src'), src, 'the student sees the same picture on the same slide');
+    await sp.context().close();
+  } finally {
+    main.call({ module: 'portal', action: 'contentSetMode', token: t, moduleId: M[0], mode: 'off' });
+    main.call({ module: 'portal', action: 'contentUndoMigration', token: t, moduleId: M[0] });
+  }
+});
+
 test('no JavaScript errors', { skip: SKIP }, function () { assert.deepStrictEqual(errors, []); });
