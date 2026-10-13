@@ -2364,6 +2364,112 @@ test('Presentation Mode attendance code — the Admin opens the module from Teac
   await p.context().close();
 });
 
+/* The master draft (✏ Edit master draft) is a teacher session of the module's main storage: its Presentation Mode shows the
+   codes of the live lectures of the module's groups, like the main page. */
+test('Presentation Mode attendance code — inside ✏ Edit master draft (versioned content on) the code of the live group lecture is shown', { skip: SKIP || ((!fs.existsSync(REAL[0][2]) || !REAL[0][3]) && 'module page or key not available') }, async function () {
+  const M = REAL[0];
+  groupFixture();
+  main.ctx.CONTENT_KEYS[M[0]] = M[3];
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const A = function (action, o) { return main.call(Object.assign({ module: 'portal', action: action, token: t }, o || {})); };
+  const mig = A('contentMigrate', { moduleId: M[0], decisions: {} }); assert.ok(mig.ok || /already/i.test(mig.error || ''), JSON.stringify(mig));
+  assert.ok(A('contentSetMode', { moduleId: M[0], mode: 'on' }).ok);
+  const dir = A('dirGet'), g = dir.groups.filter(function (x) { return x.linkCode === 'tr-a'; })[0];
+  const d = dir.deliveries.filter(function (x) { return x.groupId === g.groupId && x.moduleId === M[0]; })[0];
+  (A('tsList', { groupId: g.groupId }).sessions || []).filter(function (x) { return x.status === 'live'; }).forEach(function (x) { A('tsClose', { tsId: x.tsId }); });
+  const L = A('tsStart', { session: { groupId: g.groupId, deliveryId: d.deliveryId, title: 'Draft lecture', startAt: Date.now() } }); assert.ok(L.ok, JSON.stringify(L));
+  try {
+    const dr = A('contentEditDraft', { moduleId: M[0] }); assert.ok(dr.ok, JSON.stringify(dr));
+    const calls = [], answers = [];
+    const p = await realPage(M, calls);
+    p.on('response', async function (res) { if (/script\.google\.com/.test(res.url())) { try { const j = await res.json(); answers.push(j); } catch (e) { } } });
+    await p.addInitScript(function (a) { localStorage.setItem(a.k, a.v); sessionStorage.setItem('pf_draft:' + a.m, '1'); }, { k: dr.storagePrefix + 'backend_token_v1', v: JSON.stringify({ token: dr.token, expiresAt: dr.expiresAt }), m: M[0] });
+    await p.goto('https://third-year-med.github.io/' + M[1] + '/#/present/slide/1');
+    await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+    await p.waitForSelector('#pres-stage .slide');
+    try { await p.waitForFunction(function (c) { const e = document.querySelector('.pres-att .pa-c'); return e && e.textContent === c; }, L.code, { timeout: 15000 }); }
+    catch (e) {
+      const tc = calls.filter(function (c) { return c.action === 'tsPresentCodes' || c.action === 'listAttendanceSessions'; }).map(function (c) { return c.action + ' ' + c.module + ' ' + (c.storage || ''); });
+      throw new Error('no attendance code in the draft. requests: ' + JSON.stringify(tc.slice(0, 4)) + ' answers: ' + JSON.stringify(answers.filter(function (a) { return a && ('live' in a || 'sessions' in a || a.code === 'auth' || a.ok === false); }).slice(0, 4)).slice(0, 900));
+    }
+    for (let i = 0; i < 3; i++) await p.keyboard.press('ArrowRight');
+    assert.strictEqual(await p.textContent('.pres-att .pa-c'), L.code, 'stays while changing slides');
+    await p.context().close();
+  } finally {
+    A('tsClose', { tsId: L.session.tsId });
+    A('contentDiscardDraft', { moduleId: M[0] });
+    A('contentSetMode', { moduleId: M[0], mode: 'off' });
+    if (mig.ok) A('contentUndoMigration', { moduleId: M[0] });
+  }
+});
+
+/* The attendance code must not vanish when one of the two checks behind it fails (a slow or busy Apps Script): each source
+   counts on its own; with no answer at all the teacher sees a short "retrying" notice instead of nothing. */
+test('Presentation Mode attendance code — still shown when one server check fails; a "retrying" notice when none answers; back when the server answers', { skip: SKIP || ((!fs.existsSync(REAL[0][2]) || !REAL[0][3]) && 'module page or key not available') }, async function () {
+  const M = REAL[0];
+  groupFixture();
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const A = function (action, o) { return main.call(Object.assign({ module: 'portal', action: action, token: t }, o || {})); };
+  const dir = A('dirGet'), g = dir.groups.filter(function (x) { return x.linkCode === 'tr-a'; })[0];
+  const d = dir.deliveries.filter(function (x) { return x.groupId === g.groupId && x.moduleId === M[0]; })[0];
+  (A('tsList', { groupId: g.groupId }).sessions || []).filter(function (x) { return x.status === 'live'; }).forEach(function (x) { A('tsClose', { tsId: x.tsId }); });
+  const L = A('tsStart', { session: { groupId: g.groupId, deliveryId: d.deliveryId, title: 'Busy-server lecture', startAt: Date.now() } }); assert.ok(L.ok, JSON.stringify(L));
+  try {
+    const p = await presentPage(M);   // the module's main page as teacher: the group lecture comes from the platform check
+    const fail = { own: true, platform: false };
+    await p.route('https://script.google.com/**', async function (route) {
+      let b = {}; try { b = JSON.parse(route.request().postData() || '{}'); } catch (e) { }
+      if ((fail.own && b.action === 'listAttendanceSessions') || (fail.platform && b.action === 'tsPresentCodes')) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: false, error: 'Service invoked too many times for one day: urlfetch.' }) });
+      return route.fallback();
+    });
+    await p.evaluate(function () { return window.__presAttendance.poll(); });
+    await p.waitForFunction(function (c) { const e = document.querySelector('.pres-att .pa-c'); return e && e.textContent === c; }, L.code, { timeout: 20000 });
+    for (let i = 0; i < 3; i++) await p.keyboard.press('ArrowRight');
+    assert.strictEqual(await p.textContent('.pres-att .pa-c'), L.code, 'shown although the module\'s own check failed');
+    // nothing answers: the last code stays (it is still open on the server)
+    fail.platform = true;
+    await p.evaluate(function () { return window.__presAttendance.poll(); });
+    assert.strictEqual(await p.textContent('.pres-att .pa-c'), L.code, 'the last code stays while the server does not answer');
+    await p.context().close();
+    // a page that never got an answer: a short "retrying" notice instead of nothing, then the code when the server answers
+    main.ctx.CONTENT_KEYS[M[0]] = M[3];
+    const open = async function (fails) {   // a page whose checks fail from the very first one
+      const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: [M[0]] }).modules[M[0]];
+      const pg = await realPage(M, []);
+      await pg.route('https://script.google.com/**', async function (route) {
+        let b = {}; try { b = JSON.parse(route.request().postData() || '{}'); } catch (e) { }
+        if (fails[b.action]) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: false, error: 'timeout' }) });
+        return route.fallback();
+      });
+      await pg.addInitScript(function (v) { localStorage.setItem('ci_backend_token_v1', v); }, JSON.stringify({ token: tt.token, expiresAt: tt.expiresAt }));
+      await pg.goto('https://third-year-med.github.io/' + M[1] + '/#/present/slide/2');
+      await pg.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+      return pg;
+    };
+    // the module's own check fails from the start, the Teaching Sessions check answers → the code is shown (before: never)
+    const p1 = await open({ listAttendanceSessions: true });
+    await p1.waitForFunction(function (c) { const e = document.querySelector('.pres-att .pa-c'); return e && e.textContent === c; }, L.code, { timeout: 20000 });
+    await p1.context().close();
+    const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: [M[0]] }).modules[M[0]];
+    const p2 = await realPage(M, []);
+    const f2 = { on: true };
+    await p2.route('https://script.google.com/**', async function (route) {   // failing from the very first check
+      let b = {}; try { b = JSON.parse(route.request().postData() || '{}'); } catch (e) { }
+      if (f2.on && (b.action === 'listAttendanceSessions' || b.action === 'tsPresentCodes')) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: false, error: 'timeout' }) });
+      return route.fallback();
+    });
+    await p2.addInitScript(function (v) { localStorage.setItem('ci_backend_token_v1', v); }, JSON.stringify({ token: tt.token, expiresAt: tt.expiresAt }));
+    await p2.goto('https://third-year-med.github.io/' + M[1] + '/#/present/slide/2');
+    await p2.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+    await p2.waitForFunction(function () { const e = document.querySelector('.pres-att'); return e && /can.t reach the class server/.test(e.textContent); }, null, { timeout: 30000 });
+    f2.on = false;
+    await p2.waitForFunction(function (c) { const e = document.querySelector('.pres-att .pa-c'); return e && e.textContent === c; }, L.code, { timeout: 20000 });
+    await p2.context().close();
+  } finally { A('tsClose', { tsId: L.session.tsId }); }
+});
+
 /* Slide emphasis: the slides use slide-only copies of the key points / must-know items with **key words** (and *scientific names*);
    the learning-mode key points stay unchanged, nothing shows as literal markup, no bullet is bold from end to end. */
 test('Presentation Mode: key words in bold (scientific names in italics) on the slides only — learning mode unchanged, no literal markup, no whole-bullet bold', { skip: SKIP || ((!fs.existsSync(REAL[0][2]) || !REAL[0][3]) && 'module page or key not available') }, async function () {
