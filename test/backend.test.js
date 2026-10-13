@@ -1944,16 +1944,14 @@ test('group classroom: the platform guards it — no identity guessing, no other
   assert.strictEqual(S.lcall(tch, 'liveSync', { full: true }).code, 'auth');
 });
 
-test('group classroom: lecture started / ended announcements with the module; the live lecture is shown on opening', function () {
+test('group classroom: no "lecture started / ended" announcements; the live lecture is shown on opening', function () {
   const S = liveSetup();
   const L = S.ts('tsStart', { session: S.lect({ title: 'Lecture 4 — Necrosis', chapter: 'Chapter 2', startAt: Date.now(), teacher: 'Dr. W' }) }); assert.ok(L.ok);
   const b1 = S.lopen('b1', 'basma-pass-1');
   assert.deepStrictEqual([b1.lecture.title, b1.lecture.module], ['Lecture 4 — Necrosis', 'Cell Injury & Cell Death']);
   S.ts('tsClose', { tsId: L.session.tsId });
   const sy = S.lcall(b1, 'liveSync', { full: true });
-  assert.deepStrictEqual(sy.messages.map(function (m) { return m.kind + ': ' + m.body; }), [
-    'announcement: 🔴 Lecture started: Lecture 4 — Necrosis — Cell Injury & Cell Death · Chapter 2 (Dr. W). Check in with the attendance code on your group page.',
-    'announcement: ■ Lecture ended: Lecture 4 — Necrosis — Cell Injury & Cell Death. Attendance is closed.']);
+  assert.deepStrictEqual(sy.messages.map(function (m) { return m.kind + ': ' + m.body; }), [], 'no "Lecture started" / "Lecture ended" announcements (2.14)');
   assert.strictEqual(S.lopen('b1', 'basma-pass-1').lecture, null);
 });
 

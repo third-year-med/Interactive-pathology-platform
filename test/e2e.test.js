@@ -1814,7 +1814,7 @@ test('Group Live Classroom: a student (group page) and the teacher (dashboard) c
   await s.click('#ts-stu [data-a=live]');
   await s.waitForSelector('.lc .lc-form');
   assert.match(await s.textContent('.lc-lect'), /Live lecture: Lecture 5 — Chronic inflammation — 🔥 Inflammation & Healing/);
-  await s.waitForFunction(function () { return /Lecture started: Lecture 5/.test(document.querySelector('.lc-msgs').textContent); });
+  assert.doesNotMatch(await s.textContent('.lc-msgs'), /Lecture started/, 'no "Lecture started" announcement (2.14) — the banner above shows the live lecture');
   await s.fill('.lc textarea', 'Hello Doctor, I have a question about granulomas');
   await s.press('.lc textarea', 'Enter');
   await s.waitForFunction(function () { return /question about granulomas/.test(document.querySelector('.lc-msgs').textContent); });
@@ -1859,9 +1859,10 @@ test('Group Live Classroom: a student (group page) and the teacher (dashboard) c
   await s.waitForSelector('.lc-m.ann:has-text("Good question") .lc-chip.on');
   if (process.env.SHOTS) await s.screenshot({ path: path.join(process.env.SHOTS, 'classroom-student.png') });
   assert.ok(await s.evaluate(function () { return document.documentElement.scrollWidth - window.innerWidth; }) <= 1, 'fits a phone');
-  // closing the lecture posts "Lecture ended"; back returns to the group page
+  // closing the lecture posts no announcement either (2.14); back returns to the group page
   A('tsClose', { tsId: L.session.tsId });
-  await s.waitForFunction(function () { return /Lecture ended: Lecture 5/.test(document.querySelector('.lc-msgs').textContent); }, null, { timeout: 15000 });
+  await s.waitForTimeout(7000);   // several classroom checks
+  assert.doesNotMatch(await s.textContent('.lc-msgs'), /Lecture ended|Lecture started/);
   await s.click('.lc [data-a=back]');
   await s.waitForSelector('#ts-stu');
   await s.context().close(); await tp.context().close();

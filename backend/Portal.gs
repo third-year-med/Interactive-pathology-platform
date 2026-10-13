@@ -185,7 +185,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.13';
+var PORTAL_VERSION = '2.14';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -2520,7 +2520,7 @@ function tsStart_(who, p) {
     var at = Number(r.startAt) || 0, keep = at && at <= now + 3600e3 && at >= now - 12 * 3600e3;
     tsWrite_(r, { status: 'live', attSessionId: a.sessionId, startedAt: now, codeAt: now, startAt: keep ? at : now });
   });
-  livePostSystem_(f.row.groupId, '🔴 Lecture started: ' + f.row.title + ' — ' + (mod.title || f.row.moduleId) + (f.row.chapter ? ' · ' + f.row.chapter : '') + (f.row.teacher ? ' (' + f.row.teacher + ')' : '') + '. Check in with the attendance code on your group page.', 'ts-' + tsId + '-start');
+  // 2.14: no "Lecture started" announcement in the group's classroom (the classroom still shows the live lecture banner)
   return tsState_(who, { tsId: tsId });
 }
 /** The live screen: the current code (a rotating code is renewed when due), the check-ins and who has not checked in yet. */
@@ -2553,7 +2553,7 @@ function tsClose_(who, p) {
   if (att && att.status === 'active') { var c = actionCloseAttendance_(f.row.backendModule, { sessionId: f.row.attSessionId }); if (!c || !c.ok) return c || dirErr_('Attendance could not be closed.'); }
   var now = Date.now();
   rosterWrite_(function () { var r = tsFind_(who, p.tsId).row; tsWrite_(r, { status: 'ended', endedAt: now }); });
-  livePostSystem_(f.row.groupId, '■ Lecture ended: ' + f.row.title + ' — ' + f.mod.title + '. Attendance is closed.', 'ts-' + p.tsId + '-end');
+  // 2.14: no "Lecture ended" announcement in the group's classroom
   return tsState_(who, { tsId: p.tsId });
 }
 /** Presentation Mode (2.12): the codes of the live lectures a module page may show, for a TEACHER session of that page's storage
@@ -2724,7 +2724,7 @@ function tsStudentCheckIn_(p) {
  *     a teacher session of that storage, recorded in PortalGrants, so removing the teacher's access ends it);
  *   • only the Live Classroom actions work on a "live-…" storage (no content, accounts, attendance or exams there),
  *     and joining with the classroom code directly is refused.
- * Teaching Sessions post "Lecture started / ended" announcements (with the module) into the group's classroom. */
+ * 2.14: Teaching Sessions no longer post "Lecture started / ended" announcements; the classroom shows the live lecture banner. */
 var LIVE_MODULE = 'live';
 var LIVE_ACTIONS = { liveSync: 1, liveHistory: 1, liveContext: 1, livePost: 1, liveEdit: 1, liveDelete: 1, livePin: 1, liveReact: 1, liveSearch: 1, liveMembers: 1,
   liveNotifications: 1, liveMarkRead: 1, liveSetPrefs: 1, liveTyping: 1, liveUploadInit: 1, liveUploadChunk: 1, liveUploadStatus: 1, liveFileChunk: 1 };
