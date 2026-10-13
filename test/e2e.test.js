@@ -2562,4 +2562,53 @@ test('pictures: a refused Drive address falls back to Google\'s other address; a
   await p.context().close();
 });
 
+/* A picture added in Learn mode after the deck was saved reaches that section's saved Images slide (a new Images slide when it is
+   full); a picture the teacher removed from an Images slide stays removed. */
+test('Presentation Mode: a Learn picture added after the deck was saved appears on the section\'s Images slide; overflow makes a new one; a removed picture stays removed', { skip: SKIP || ((!fs.existsSync(REAL[0][2]) || !REAL[0][3]) && 'module page or key not available') }, async function () {
+  const p = await presentPage(REAL[0]);
+  const png = Buffer.from(PNG1, 'base64');
+  await p.route('https://lh3.googleusercontent.com/**', function (r) { return r.fulfill({ status: 200, contentType: 'image/png', body: png }); });
+  // save the deck (any slide edit does this) — the Images slides are now part of the saved deck
+  const sid = await p.evaluate(async function () {
+    await Views.present.mutate(function () { }, 'save');
+    const g = State.deck.slides.filter(function (x) { return x.type === 'gallery' && x.sectionId && !x.pracId; })
+      .find(function (x) { return (x.items || []).length > 0 && (x.items || []).length < 4 && !State.deck.slides.some(function (y) { return y !== x && y.type === 'gallery' && y.sectionId === x.sectionId; }); });
+    return g && g.sectionId;
+  });
+  assert.ok(sid, 'a section with one saved Images slide that has room');
+  const addMedia = function (n, cap) { return p.evaluate(async function (a) {
+    const items = (State.customMedia[a.sid] || []).slice();
+    for (let k = 0; k < a.n; k++) items.push({ id: 'm_e2e_' + a.cap + k, type: 'image', url: 'https://drive.google.com/thumbnail?id=E2E' + a.cap + k + 'xxxxxx&sz=w2000', caption: a.cap + ' ' + k });
+    await saveDoc('custommedia', a.sid, { items: items });
+  }, { sid: sid, n: n, cap: cap }); };
+  const gal = function () { return p.evaluate(function (id) { return Views.present.list().filter(function (x) { return x.type === 'gallery' && x.sectionId === id; }).map(function (x) {
+    return { id: x.id, caps: (x.items || []).map(function (r) { const o = pmResolve(r, id); return (o && (o.caption || (o.m && o.m.caption) || o.title)) || ''; }) }; }); }, sid); };
+  // one new Learn picture → on the existing Images slide
+  await addMedia(1, 'NewPic');
+  let g = await gal();
+  assert.strictEqual(g.length, 1); assert.ok(g[0].caps.indexOf('NewPic 0') >= 0, 'added to the saved Images slide: ' + JSON.stringify(g));
+  await p.evaluate(function (id) { location.hash = '#/present/slide/' + (Views.present.list().findIndex(function (x) { return x.id === id; }) + 1); }, g[0].id);
+  await p.waitForFunction(function () { return /NewPic 0/.test((document.querySelector('#pres-stage .slide') || {}).textContent || ''); }, null, { timeout: 15000 });
+  // four more → the slide fills up and a new Images slide follows it
+  await addMedia(4, 'More');
+  g = await gal();
+  assert.ok(g.length >= 2, 'a second Images slide'); const all = [].concat.apply([], g.map(function (x) { return x.caps; }));
+  ['NewPic 0', 'More 0', 'More 1', 'More 2', 'More 3'].forEach(function (c) { assert.strictEqual(all.filter(function (x) { return x === c; }).length, 1, c + ' exactly once'); });
+  // the teacher removes "NewPic 0" from the Images slide (Edit slides → select → Delete) → it stays removed, even after a refresh
+  await p.evaluate(function (id) { location.hash = '#/present/slide/' + (Views.present.list().findIndex(function (x) { return x.id === id; }) + 1); }, g[0].id);
+  await p.waitForFunction(function () { return /NewPic 0/.test((document.querySelector('#pres-stage .slide') || {}).textContent || ''); });
+  await p.evaluate(function () { const f = [].find.call(document.querySelectorAll('#pres-stage [data-item]'), function (n) { return /NewPic 0/.test(n.textContent); }); PE.select(f); });
+  await p.click('.pe-bar .btn-danger');
+  await p.click('.modal button:has-text("Delete")');
+  await p.waitForFunction(function () { return !/NewPic 0/.test((document.querySelector('#pres-stage .slide') || {}).textContent || ''); }, null, { timeout: 15000 });
+  await p.reload();
+  await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+  await p.waitForSelector('#pres-stage .slide');
+  const after = [].concat.apply([], (await gal()).map(function (x) { return x.caps; }));
+  assert.strictEqual(after.indexOf('NewPic 0'), -1, 'the removed picture is not added back');
+  ['More 0', 'More 1', 'More 2', 'More 3'].forEach(function (c) { assert.ok(after.indexOf(c) >= 0, c + ' kept'); });
+  assert.ok(await p.evaluate(function (id) { return (State.customMedia[id] || []).some(function (m) { return m.caption === 'NewPic 0'; }); }, sid), 'Learn mode still has it');
+  await p.context().close();
+});
+
 test('no JavaScript errors', { skip: SKIP }, function () { assert.deepStrictEqual(errors, []); });
