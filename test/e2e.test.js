@@ -1745,7 +1745,7 @@ test('Teaching Sessions: the Admin deletes an ENDED lecture from the history (ty
   answer = 'DELETE';
   await p.click(row + ' [data-a=delx]');
   await p.waitForFunction(function () { return !/Trial lecture — delete me/.test((document.querySelector('#t-sessions .ts-lists') || {}).textContent || ''); });
-  assert.ok(await p.isVisible('#t-sessions .ts-block:has(h3:text("history")) .dir-row:has-text("Real lecture — keep")'));
+  await p.waitForSelector('#t-sessions .ts-block:has(h3:text("history")) .dir-row:has-text("Real lecture — keep")', { state: 'visible', timeout: 10000 });   // the history is redrawn after the delete
   assert.strictEqual(main.ctx.dirAll_('TeachingSessions').filter(function (x) { return x.tsId === del.tsId; }).length, 0);
   assert.strictEqual(main.ctx.rpRows_('AttendanceSessions').filter(function (a) { return a.sessionId === del.attSessionId; }).length, 0);
   assert.strictEqual(recs(del.attSessionId), 0);
@@ -2867,6 +2867,71 @@ test('Learning Mode: 🖨️ Print Entire Chapter — every topic and section ex
   const n = await p.evaluate(function () { const d = document.querySelector('iframe[aria-hidden="true"]').contentDocument; return { secs: d.querySelectorAll('.print-section').length, auto: /window\.print\(\)/.test(d.documentElement.innerHTML) }; });
   assert.strictEqual(n.secs, allSecs.length, 'the whole chapter in the fallback frame'); assert.strictEqual(n.auto, false, 'printed once, by the page');
   await p.context().close();
+});
+
+/* Last-Minute Review → High-Yield Facts → Print: a clean handout of unit headings and bulleted facts — every fact, whatever filter
+   is on screen, no Learning Block references; the references stay on screen. */
+test('High-Yield Facts print: every fact (even with a filter on), unit headings, bullets, no Learning Block tags on paper; the tags stay on screen', { skip: SKIP || ((!fs.existsSync(REAL[0][2]) || !REAL[0][3]) && 'module page or key not available') }, async function () {
+  const p = await presentPage(REAL[0]);
+  await p.evaluate(function () { location.hash = '#/review/facts'; });
+  await p.waitForSelector('.lmr-fact');
+  const screen = await p.evaluate(function () {
+    return { facts: [].map.call(document.querySelectorAll('.lmr-fact .lmr-ftext'), function (n) { return n.textContent.replace(/\s+/g, ' ').trim(); }),
+      tags: document.querySelectorAll('.lmr-fact .lmr-lb').length, units: [].map.call(document.querySelectorAll('.lmr-list h3, .lmr-list .lmr-unit, .lmr-list h4'), function (n) { return n.textContent.trim(); }) };
+  });
+  assert.ok(screen.facts.length > 10, 'facts on screen'); assert.ok(screen.tags >= screen.facts.length, 'each fact has its Learning Block tag on screen');
+  // flag one fact and show only "⚑ Review again": the printout must still contain every fact
+  await p.click('.lmr-fact .lmr-flag');
+  await p.click('.lmr-tabs button:has-text("Review again")');
+  await p.waitForTimeout(300);
+  const shown = await p.$$eval('.lmr-fact', function (x) { return x.length; });
+  assert.ok(shown < screen.facts.length, 'the filter shows fewer facts (' + shown + ')');
+  const [pop] = await Promise.all([p.waitForEvent('popup'), p.click('.lmr-part-head button:has-text("Print"), button:has-text("🖨 Print")')]);
+  await pop.waitForLoadState('load');
+  const pr = await pop.evaluate(function () {
+    return { facts: [].map.call(document.querySelectorAll('.lmr-p li'), function (n) { return n.textContent.replace(/\s+/g, ' ').trim(); }),
+      units: [].map.call(document.querySelectorAll('.lmr-p h2'), function (n) { return n.textContent.trim(); }),
+      text: document.querySelector('.print-body').textContent, refs: document.querySelectorAll('.lmr-p .ref, .lmr-p a').length,
+      bullet: getComputedStyle(document.querySelector('.lmr-p ul')).listStyleType, unsplit: getComputedStyle(document.querySelector('.lmr-p li')).breakInside,
+      std: !!document.querySelector('.hy-std'), bold: document.querySelectorAll('.lmr-p li strong').length,
+      boldWeight: document.querySelector('.lmr-p li strong') ? getComputedStyle(document.querySelector('.lmr-p li strong')).fontWeight : '' };
+  });
+  assert.ok(pr.std, 'the shared platform standard (platform block) printed it');
+  assert.strictEqual(await p.evaluate(function () { return window.lmrPrintFacts.__platform === true; }), true);
+  const boldOnScreen = await p.$$eval('.lmr-fact .lmr-ftext strong', function (x) { return x.length; });
+  assert.ok(pr.bold > 0 && pr.bold >= boldOnScreen, 'key words in bold (' + pr.bold + ')'); assert.ok(+pr.boldWeight >= 700);
+  assert.deepStrictEqual(pr.facts, screen.facts, 'every fact, same wording and order');
+  assert.ok(pr.units.length >= 1, 'unit headings'); assert.strictEqual(new Set(pr.units).size, pr.units.length, 'each unit once');
+  assert.doesNotMatch(pr.text, /Learning Block/, 'no source tags on paper'); assert.doesNotMatch(pr.text, /→\s*Learning/, 'no source arrows'); assert.strictEqual(pr.refs, 0);
+  assert.strictEqual(pr.facts.filter(function (f) { return /→/.test(f); }).length, screen.facts.filter(function (f) { return /→/.test(f); }).length, 'arrows only where the fact itself has them');
+  assert.strictEqual(pr.bullet, 'disc'); assert.strictEqual(pr.unsplit, 'avoid', 'a fact is not split across pages');
+  await pop.close();
+  // on screen the tags are still there
+  await p.click('.lmr-tabs button:has-text("All")');
+  assert.strictEqual(await p.$$eval('.lmr-fact .lmr-lb', function (x) { return x.length; }), screen.tags, 'the Learning Block tags stay on screen');
+  await p.context().close();
+});
+
+/* A future module that does not share the current modules' code still gets the same High-Yield handout from the platform block. */
+test('High-Yield Facts print standard in the platform block: a new module without its own print code gets the same clean handout (headings, bullets, bold, no tags)', { skip: SKIP }, async function () {
+  const p = await page();
+  const nav = fs.readFileSync(path.join(ROOT, 'modules', 'platform-nav.js'), 'utf8');
+  await p.setContent('<!DOCTYPE html><html><head><title>New Module</title></head><body><h1>New module</h1><script id="platform-nav">' + nav.replace(/<\/script>/g, '<\\/script>') + '</script></body></html>');
+  assert.strictEqual(await p.evaluate(function () { return typeof window.PlatformHY.print; }), 'function');
+  const [pop] = await Promise.all([p.waitForEvent('popup'), p.evaluate(function () {
+    window.PlatformHY.print([
+      { md: 'Hypoxia is the **commonest cause** of cell injury.', unit: 'Unit 1 · Cell injury', blocks: [{ section: 's1' }] },
+      { md: 'Ischaemia is worse than hypoxia: *nutrients* are also lost.', unit: 'Unit 1 · Cell injury' },
+      { md: 'Granuloma = **epithelioid macrophages** + lymphocyte cuff.', unit: 'Unit 2 · Inflammation' }]);
+  })]);
+  await pop.waitForLoadState('load');
+  const r = await pop.evaluate(function () { return { h2: [].map.call(document.querySelectorAll('.hy-std h2'), function (n) { return n.textContent; }), li: document.querySelectorAll('.hy-std li').length,
+    strong: [].map.call(document.querySelectorAll('.hy-std li strong'), function (n) { return n.textContent; }), em: document.querySelectorAll('.hy-std li em').length, text: document.body.textContent,
+    bullet: getComputedStyle(document.querySelector('.hy-std ul')).listStyleType }; });
+  assert.deepStrictEqual(r.h2, ['Unit 1 · Cell injury', 'Unit 2 · Inflammation']); assert.strictEqual(r.li, 3);
+  assert.deepStrictEqual(r.strong, ['commonest cause', 'epithelioid macrophages']); assert.strictEqual(r.em, 1);
+  assert.doesNotMatch(r.text, /Learning Block|\*\*/); assert.strictEqual(r.bullet, 'disc');
+  await p.close();
 });
 
 test('no JavaScript errors', { skip: SKIP }, function () { assert.deepStrictEqual(errors, []); });

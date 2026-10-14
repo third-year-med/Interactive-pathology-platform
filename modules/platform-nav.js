@@ -195,3 +195,60 @@
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();
+/* ==========================================================================
+   High-Yield Facts print standard (2026-10-14) — one print layout for every module.
+   Last-Minute Review → High-Yield Facts → 🖨 Print gives a clean revision handout:
+     • every fact of the module (never only the facts the on-screen filter shows), in course order;
+     • the unit headings, each fact one bullet, its **key words in bold** (the fact's own markup);
+     • no Learning Block references, source labels or navigation — those stay on screen only;
+     • a fact is never split across pages, a heading stays with its first facts.
+   It replaces the module's own print function (lmrPrintFacts) once the page has loaded, so every module prints
+   the same way, and it uses the module's own print window (printHTML). A module built differently can call
+   window.PlatformHY.print(facts, { unitOf, inline, title }) — facts = [{ md, … }] — to get the same handout.
+   Nothing is changed on screen or in the course data.
+   ========================================================================== */
+(function () {
+  'use strict';
+  var CSS = '.hy-std h2{font-size:13pt;margin:16pt 0 5pt;color:#0b2a4a;border-bottom:1px solid #cfd8e3;padding-bottom:2pt;break-after:avoid;page-break-after:avoid}' +
+    '.hy-std ul{margin:0 0 8pt 0;padding:0 0 0 18pt;list-style:disc}' +
+    '.hy-std li{margin:0 0 6pt;padding-left:2pt;line-height:1.45;font-size:10.5pt;break-inside:avoid;page-break-inside:avoid}' +
+    '.hy-std li::marker{color:#0f4d67}.hy-std strong,.hy-std b{font-weight:700;color:#0b2a4a}.hy-std em{font-style:italic}';
+  function escText(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function inlineMd(s) {   // the module's own renderer when present (same bold/italic as on screen), else **bold** / *italic*
+    try { if (typeof mdInline === 'function' && typeof esc === 'function') return mdInline(esc(String(s || ''))); } catch (e) { }
+    return escText(s).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  }
+  function unitOfFact(f) { try { if (typeof lmrUnitOf === 'function') return lmrUnitOf(f); } catch (e) { } return f && (f.unit || f.topicTitle) || ''; }
+  function courseTitle() { try { if (typeof COURSE !== 'undefined' && COURSE.title) return COURSE.title; } catch (e) { } return document.title || ''; }
+  function allFacts(given) {   // the complete list from the module's Last-Minute Review data
+    try { if (typeof LMR !== 'undefined' && LMR && typeof LMR.data === 'function') { var d = LMR.data(); if (d && d.facts && d.facts.length) return d.facts; } } catch (e) { }
+    return given || [];
+  }
+  function print(facts, opts) {
+    var o = opts || {}, unit = o.unitOf || unitOfFact, inl = o.inline || inlineMd, cur = null, n = 0;
+    var html = '<style>' + CSS + '</style><div class="lmr-p hy-std">';
+    (facts || []).forEach(function (f) {
+      if (!f || !f.md) return;
+      var g = unit(f) || ''; if (g !== cur) { if (cur !== null) html += '</ul>'; html += (g ? '<h2>' + escText(g) + '</h2>' : '') + '<ul>'; cur = g; }
+      html += '<li>' + inl(f.md) + '</li>'; n++;   // the fact only — no source reference on paper
+    });
+    if (cur !== null) html += '</ul>';
+    html += '</div>';
+    var title = o.title || 'High-Yield Facts', sub = courseTitle() + ' · Last-Minute Review · ' + n + ' fact' + (n === 1 ? '' : 's');
+    if (typeof printHTML === 'function') return printHTML(title, sub, html);
+    var w = window.open('', '_blank'); if (!w) return;
+    w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + escText(title) + '</title><style>@page{size:A4;margin:16mm 14mm}body{font-family:Georgia,serif;color:#111;max-width:800px;margin:0 auto;padding:1.2rem}h1,h2{font-family:Arial,sans-serif}</style></head><body><h1>' + escText(title) + '</h1><div style="font:10pt Arial;color:#555">' + escText(sub) + '</div>' + html + '<script>window.onload=function(){window.print();}<\/script></body></html>');
+    w.document.close();
+  }
+  window.PlatformHY = { print: print, css: CSS };
+  function install() {
+    if (typeof window.lmrPrintFacts !== 'function') return false;
+    if (window.lmrPrintFacts.__platform) return true;
+    var std = function (list) { return print(allFacts(list)); };
+    std.__platform = true;
+    window.lmrPrintFacts = std;
+    return true;
+  }
+  // the module's app code starts only after sign-in (it is added to the page then), so wait for it, then take over once
+  if (!install()) { var tries = 0, iv = setInterval(function () { if (install() || ++tries > 2600) clearInterval(iv); }, 700); }
+})();

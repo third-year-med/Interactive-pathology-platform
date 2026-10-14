@@ -87,6 +87,11 @@ The tests still use the name `vulva` for a simulated second backend; that is onl
   for different material; no duplicate IDs; a substantially changed question gets a new ID.
 - Module pages carry `NEO_CONFIG.build` (shown in the Content tab) and the shared **platform block**
   (`modules/platform-nav.js`, written into each module with `tools/module-release.js refresh`).
+- The platform block also holds the **High-Yield Facts print standard** (2026-10-14): Last-Minute Review → High-Yield
+  Facts → 🖨 Print prints every fact of the module (whatever the on-screen filter), grouped under the unit headings, one
+  bullet each with its own **bold** key words, and no Learning Block tags (they stay on screen). It takes over the
+  module's `lmrPrintFacts` once the app has started; other modules use `window.PlatformHY.print(facts, { unitOf })`.
+  Change the layout only there, then `refresh` every module — never per module.
 
 **Results & attendance (Step 10):** read-only overviews per delivery — Admin (Results & attendance tab: all deliveries)
 and personal teachers (📊 button: own deliveries); per-student table, attendance register, CSV. Students are matched to
