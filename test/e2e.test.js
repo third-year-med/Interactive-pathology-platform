@@ -2934,4 +2934,28 @@ test('High-Yield Facts print standard in the platform block: a new module withou
   await p.close();
 });
 
+/* Last-Minute Review → 15-minute review → 🖨 Print: the whole list (every item once, in order, with its label and content), no
+   checkboxes, timer, buttons or Learning Block links; the screen keeps its progress and links. */
+test('15-minute review: 🖨 Print gives the whole list (every item once, labels, tables) without checkboxes, timer or Learning Block links; the screen is unchanged', { skip: SKIP || ((!fs.existsSync(REAL[0][2]) || !REAL[0][3]) && 'module page or key not available') }, async function () {
+  const p = await presentPage(REAL[0]);
+  await p.evaluate(function () { location.hash = '#/review/quick'; });
+  await p.waitForSelector('.lmr-quick .lmr-q');
+  await p.click('.lmr-quick .lmr-q input[type=checkbox]');   // one item done: the printout still has every item
+  const screen = await p.evaluate(function () { return { n: document.querySelectorAll('.lmr-quick .lmr-q').length, kinds: [].map.call(document.querySelectorAll('.lmr-quick .lmr-q .lmr-q-k'), function (k) { return k.textContent; }), links: document.querySelectorAll('.lmr-quick .lmr-lb').length, done: document.querySelectorAll('.lmr-quick .lmr-q.done').length }; });
+  assert.ok(screen.n > 5 && screen.done === 1);
+  const [pop] = await Promise.all([p.waitForEvent('popup'), p.click('.lmr-head button:has-text("🖨 Print")')]);
+  await pop.waitForLoadState('load');
+  const pr = await pop.evaluate(function () { const b = document.querySelector('.print-body');
+    return { title: document.querySelector('header.print-head h1').textContent, meta: document.querySelector('header.print-head .meta').textContent,
+      n: b.querySelectorAll('.lmr-q').length, kinds: [].map.call(b.querySelectorAll('.lmr-q .lmr-q-k'), function (k) { return k.textContent; }),
+      ui: b.querySelectorAll('input, button, .lmr-actions, .lmr-timer').length, text: b.textContent, tables: b.querySelectorAll('table').length }; });
+  assert.strictEqual(pr.title, '15-Minute Review'); assert.match(pr.meta, new RegExp(screen.n + ' items'));
+  assert.strictEqual(pr.n, screen.n, 'every item once'); assert.deepStrictEqual(pr.kinds, screen.kinds, 'same order, with their labels');
+  assert.strictEqual(pr.ui, 0, 'no checkboxes, buttons or timer'); assert.doesNotMatch(pr.text, /Learning Block/, 'no block links on paper');
+  if (screen.kinds.indexOf('COMPARISON') >= 0) assert.ok(pr.tables > 0, 'comparison tables printed');
+  await pop.close();
+  assert.deepStrictEqual(await p.evaluate(function () { return [document.querySelectorAll('.lmr-quick .lmr-q.done').length, document.querySelectorAll('.lmr-quick .lmr-lb').length, !!document.querySelector('.lmr-timer')]; }), [1, screen.links, true], 'progress, links and timer stay on screen');
+  await p.context().close();
+});
+
 test('no JavaScript errors', { skip: SKIP }, function () { assert.deepStrictEqual(errors, []); });
