@@ -2816,4 +2816,57 @@ test('Slide editor pictures: no "Teacher" label; Insert (one slide each) → cap
   await p.context().close();
 });
 
+/* Learning Mode: "Print Entire Chapter" prints every topic and section exactly once (collapsed ones too) in a clean document;
+   the per-topic Print keeps printing one topic; a blocked pop-up falls back to a hidden frame. */
+test('Learning Mode: 🖨️ Print Entire Chapter — every topic and section exactly once, chapter title, contents, page numbers, no interface; per-topic Print unchanged; works when pop-ups are blocked', { skip: SKIP || ((!fs.existsSync(REAL[0][2]) || !REAL[0][3]) && 'module page or key not available') }, async function () {
+  const p = await presentPage(REAL[0]);
+  const info = await p.evaluate(function () { return { title: COURSE.title, topics: getTopics().filter(function (t) { return (t.sections || []).length; }).map(function (t) { return { id: t.id, n: t.sections.length, secs: t.sections.map(function (s) { return s.id; }), mk: (t.mustKnow || []).length }; }), first: getTopics()[1].id }; });
+  await p.evaluate(function (id) { location.hash = '#/explain/' + id; }, info.first);
+  await p.waitForSelector('.topic-hero .print-chapter-btn');
+  assert.match(await p.textContent('.topic-hero .print-chapter-btn'), /Print Entire Chapter/);
+  assert.ok(await p.isVisible('.topic-hero .print-chapter-btn'), 'visible at the top of the topic page');
+  assert.ok(await p.$('.topic-hero button:text("🖨 Print")'), 'the per-topic Print button is still there');
+  const read = async function (pg) { return pg.evaluate(function () {
+    const d = document, vis = function (n) { return getComputedStyle(n).display !== 'none' && getComputedStyle(n).visibility !== 'hidden'; };
+    return { title: (d.querySelector('header.print-head h1') || {}).textContent, meta: (d.querySelector('header.print-head .meta') || {}).textContent,
+      topics: [].map.call(d.querySelectorAll('.print-topic'), function (t) { return t.dataset.topic; }),
+      sections: [].map.call(d.querySelectorAll('.print-section'), function (s) { return s.dataset.section || s.querySelector('h2').textContent; }),
+      toc: d.querySelectorAll('.print-toc li').length, mk: d.querySelectorAll('.mustknow-card').length, tables: d.querySelectorAll('table').length,
+      visibleUi: [].filter.call(d.querySelectorAll('button, input, textarea, select, .notes-box, .edit-bar, .sec-actions, nav.app-nav, #app-nav'), vis).length,
+      css: [].map.call(d.querySelectorAll('style'), function (x) { return x.textContent; }).join(''), lazy: d.querySelectorAll('img[loading="lazy"]').length };
+  }); };
+  // 🖨️ Print Entire Chapter → the print window
+  const [pop] = await Promise.all([p.waitForEvent('popup'), p.click('.topic-hero .print-chapter-btn')]);
+  await pop.waitForLoadState('load');
+  let r = await read(pop);
+  const allSecs = [].concat.apply([], info.topics.map(function (t) { return t.secs; }));
+  assert.strictEqual(r.title, info.title, 'chapter title first');
+  assert.match(r.meta, new RegExp('Entire chapter · ' + info.topics.length + ' topics · ' + allSecs.length + ' sections'));
+  assert.deepStrictEqual(r.topics, info.topics.map(function (t) { return t.id; }), 'every topic once, in course order');
+  assert.deepStrictEqual(r.sections, allSecs, 'every section exactly once, in order');
+  assert.strictEqual(r.toc, info.topics.length, 'a contents list');
+  assert.strictEqual(r.mk, info.topics.filter(function (t) { return t.mk; }).length, 'the Must-know lists');
+  assert.ok(r.tables > 0, 'syllabus tables included');
+  assert.strictEqual(r.visibleUi, 0, 'no buttons, notes, teacher tools or navigation on paper');
+  assert.ok(/@bottom-center\s*\{\s*content:\s*"Page " counter\(page\)/.test(r.css) && /\.print-topic\{break-before:page/.test(r.css), 'page numbers and a new page per topic');
+  assert.strictEqual(r.lazy, 0, 'pictures load before printing');
+  await pop.close();
+  // the per-topic Print still prints just its topic
+  const [pop2] = await Promise.all([p.waitForEvent('popup'), p.click('.topic-hero button:text("🖨 Print")')]);
+  await pop2.waitForLoadState('load');
+  r = await read(pop2);
+  assert.strictEqual(r.topics.length, 0); assert.strictEqual(r.sections.length, info.topics[1].n, 'one topic only');
+  await pop2.close();
+  // the overview has the button too
+  await p.evaluate(function () { location.hash = '#/explain/overview'; });
+  await p.waitForSelector('.topic-hero .print-chapter-btn');
+  // pop-ups blocked → the same document prints from a hidden frame in the page
+  await p.evaluate(function () { window.__printed = 0; window.open = function () { return null; }; });
+  await p.click('.topic-hero .print-chapter-btn');
+  await p.waitForFunction(function () { const f = document.querySelector('iframe[aria-hidden="true"]'); return f && f.contentDocument && f.contentDocument.querySelectorAll('.print-section').length > 0 && f.contentDocument.readyState === 'complete'; }, null, { timeout: 15000 });
+  const n = await p.evaluate(function () { const d = document.querySelector('iframe[aria-hidden="true"]').contentDocument; return { secs: d.querySelectorAll('.print-section').length, auto: /window\.print\(\)/.test(d.documentElement.innerHTML) }; });
+  assert.strictEqual(n.secs, allSecs.length, 'the whole chapter in the fallback frame'); assert.strictEqual(n.auto, false, 'printed once, by the page');
+  await p.context().close();
+});
+
 test('no JavaScript errors', { skip: SKIP }, function () { assert.deepStrictEqual(errors, []); });
