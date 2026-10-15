@@ -67,6 +67,9 @@
 
   /* ---------------- rendering ---------------- */
   var CREATED = CFG.createdBy || 'Created by Dr. Wesam Alzwawy';
+  /* The group Live Classroom (2.9) is switched off on the front page (2026-10-15): the modules' own Live Classroom is used.
+     true brings back the student button on the group page, #/live and the teacher's "Group Live Classroom" button. */
+  var GROUP_CLASSROOM = false;
   var PENDING = null;   // module the student clicked before signing in (opened after a successful sign-in)
   /* pathology-themed icons for the known chapters (other modules use their emoji) */
   var ICONS = {
@@ -167,7 +170,7 @@
   /* ---------------- Group page: 🎓 Teaching Sessions card (2.8) — live lecture + check-in, upcoming, my attendance ---------------- */
   function stuTokens(s) { var o = {}, mods = (s && s.modules) || {}; Object.keys(mods).forEach(function (k) { if (mods[k] && mods[k].access && mods[k].token) o[k] = mods[k].token; }); return o; }
   function lecturesSection(s) {
-    var sec = h('<section class="t-sec ts-stu" id="ts-stu" hidden tabindex="-1"><div class="sec-head"><h2>🎓 Teaching Sessions</h2><span class="roster-btns"><a class="btn primary small" href="#/live" data-a="live">💬 Live Classroom</a><button class="btn small" type="button" data-a="r">↻ Refresh</button></span></div><div class="ts-stu-body"></div></section>');
+    var sec = h('<section class="t-sec ts-stu" id="ts-stu" hidden tabindex="-1"><div class="sec-head"><h2>🎓 Teaching Sessions</h2><span class="roster-btns">' + (GROUP_CLASSROOM ? '<a class="btn primary small" href="#/live" data-a="live">💬 Live Classroom</a>' : '') + '<button class="btn small" type="button" data-a="r">↻ Refresh</button></span></div><div class="ts-stu-body"></div></section>');
     var body = $('.ts-stu-body', sec), timer = null;
     $('[data-a=r]', sec).onclick = function () { load(); };
     function call(action, o) { return post(CFG.backendUrl, Object.assign({ module: 'portal', action: action, g: GINFO.group.linkCode, sessions: stuTokens(session()) }, o || {})); }
@@ -984,9 +987,9 @@
       }
       var sb = $('[data-a=set]', top); if (sb) sb.onclick = function () { settingsForm(top); };
       body.appendChild(top);
-      var bar = h('<div class="roster-tools"><button class="btn primary" type="button" data-a="new">📅 Schedule a lecture</button><button class="btn" type="button" data-a="now">▶ Start a lecture now</button><button class="btn" type="button" data-a="live">💬 Group Live Classroom</button></div>');
+      var bar = h('<div class="roster-tools"><button class="btn primary" type="button" data-a="new">📅 Schedule a lecture</button><button class="btn" type="button" data-a="now">▶ Start a lecture now</button>' + (GROUP_CLASSROOM ? '<button class="btn" type="button" data-a="live">💬 Group Live Classroom</button>' : '') + '</div>');
       body.appendChild(bar);
-      $('[data-a=live]', bar).onclick = function () { openClassroomTeacher(call, g, this); };
+      var lvb = $('[data-a=live]', bar); if (lvb) lvb.onclick = function () { openClassroomTeacher(call, g, this); };
       var formBox = h('<div class="ts-form-box"></div>'); body.appendChild(formBox);
       $('[data-a=new]', bar).onclick = function () { lectureForm(formBox, null, false); };
       $('[data-a=now]', bar).onclick = function () { lectureForm(formBox, null, true); };
@@ -2159,7 +2162,11 @@
     lastHash = location.hash;
     header();
     if (toTeacher) { if (!dashShow()) viewTeacher(); }
-    else { DASH = null; if (GINFO && location.hash === '#/live') viewLive(); else viewHome(); }
+    else {
+      DASH = null;
+      if (GINFO && location.hash === '#/live' && GROUP_CLASSROOM) viewLive();
+      else { if (location.hash === '#/live') try { history.replaceState(null, '', '#/'); } catch (e) { } viewHome(); }   // an old bookmark → the group page
+    }
     window.scrollTo(0, 0);
   }
   window.addEventListener('beforeunload', function (e) { if (dashDirtyViews().length) { e.preventDefault(); e.returnValue = ''; } });

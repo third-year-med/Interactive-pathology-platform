@@ -133,6 +133,11 @@ line per session, tally in the summary). A live lecture moves the panel right un
 scrolling). The page before sign-in keeps the full hero and the full cards. Element names the tests use are unchanged.
 **Portal.gs 2.16:** `portalGroupSessions` returns the student's whole `recent` history (was the last 6) with `recentAll: true`;
 the page labels it "N sessions" ("last N" with an older backend) and scrolls the opened list inside the box.
+**Group Live Classroom switched off on the front page (2026-10-15, user's request — the modules' own Live Classroom is used):**
+`GROUP_CLASSROOM = false` in portal.js hides the student button on the group page and the teacher's "Group Live Classroom"
+button; `#/live` on a group page opens the group page. Backend (`liveOpen`, `liveTeacherOpen`, storage `live-<link>`) and
+its messages are untouched; `true` brings it back (the old e2e test is skipped with that reason). The modules' Live
+Classroom needs the Teaching Sessions setting "module Live/Attendance: shown" (`ts:modulelive` = show).
 
 **Results & attendance (Step 10):** read-only overviews per delivery — Admin (Results & attendance tab: all deliveries)
 and personal teachers (📊 button: own deliveries); per-student table, attendance register, CSV. Students are matched to

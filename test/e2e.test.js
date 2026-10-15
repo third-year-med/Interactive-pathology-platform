@@ -1798,7 +1798,27 @@ test('Teaching Sessions on the group page: the student sees the live lecture, ch
   await p.context().close();
 });
 
-test('Group Live Classroom: a student (group page) and the teacher (dashboard) chat in ONE classroom — message, announcement, reply, reaction, file, picture, lecture banner', { skip: SKIP }, async function () {
+test('group Live Classroom switched off (2026-10-15): no button for students or teachers; an old #/live link opens the group page', { skip: SKIP }, async function () {
+  groupFixture();
+  const s = await page({ width: 390, height: 844 });
+  await s.goto(url + '?g=tr-a');
+  await signIn(s, 'ahmed', PW);
+  await s.waitForSelector('#ts-stu:not([hidden]) [data-a=r]');
+  assert.strictEqual(await s.$('#ts-stu [data-a=live]'), null, 'no Live Classroom button on the group page');
+  assert.ok(!/Live Classroom/.test(await s.textContent('main')));
+  await s.evaluate(function () { location.hash = '#/live'; });
+  await s.waitForFunction(function () { return location.hash === '#/' && document.querySelector('.grid.compact'); });
+  assert.strictEqual(await s.$('.lc'), null, 'the classroom is not opened');
+  await s.context().close();
+  const tp = await page();
+  await tp.goto(url + '#/teacher'); await tp.fill('#t-p', TPW); await tp.click('form.card button[type=submit]');
+  await dash(tp, 'sessions');
+  await tp.waitForSelector('#t-sessions [data-a=now]');
+  assert.strictEqual(await tp.$('#t-sessions [data-a=live]'), null, 'no Group Live Classroom button for the teacher');
+  await tp.context().close();
+});
+
+test('Group Live Classroom: a student (group page) and the teacher (dashboard) chat in ONE classroom — message, announcement, reply, reaction, file, picture, lecture banner', { skip: SKIP || 'group Live Classroom switched off on the front page (GROUP_CLASSROOM = false in portal.js)' }, async function () {
   groupFixture();
   main.call({ module: 'portal', action: 'setup', password: TPW });
   const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;

@@ -349,6 +349,12 @@ The attendance of a lecture is the module's own attendance (the same as the modu
 Drive copy, and **Results & attendance**), so nothing changes for the modules. The schedule and the teacher's marks
 are kept in the new sheet **TeachingSessions** (created automatically the first time you save a lecture).
 
+## Group Live Classroom — switched off (2026-10-15)
+
+Students and teachers use each **module's own 🔴 Live Classroom** (Teaching Sessions → ⚙ Change → module Live/Attendance:
+**shown**). The group page no longer offers the group classroom, and the teacher's **💬 Group Live Classroom** button is gone;
+its old messages stay stored. To bring it back, ask for `GROUP_CLASSROOM = true` in `assets/portal.js`.
+
 ## Overall Pathology Attendance (Portal.gs 2.15)
 
 Keep taking attendance inside each module (Teacher Portal → 📋 Attendance) or with Teaching Sessions — nothing about that
