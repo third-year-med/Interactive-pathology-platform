@@ -187,7 +187,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.16';
+var PORTAL_VERSION = '2.17';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -744,8 +744,12 @@ function portalGroup_(code) {
   if (!inst || !inst.active) return null;
   var mods = {}; dirAll_(DIR.MOD).forEach(function (m) { mods[m.moduleId] = m; });
   var now = Date.now(), order = dirAll_(DIR.MOD).map(function (m) { return m.moduleId; });
+  // 2.17: curricular order = the front-page module list (Teacher Dashboard → Teacher Management, arranged with ↑/↓);
+  // modules missing from that list follow in directory order; Official Exams always comes last (never between modules)
+  var reg = {}; portalRegistry_().forEach(function (r, i) { [r.moduleKey, r.id].forEach(function (k) { if (k && !(k in reg)) reg[k] = i; }); });
+  var rank = function (id) { return id === EXAM_MODULE ? 1e9 : id in reg ? reg[id] : 1e6 + order.indexOf(id); };
   var list = dirAll_(DIR.DELIV).filter(function (d) { return d.groupId === g.groupId && d.active && mods[d.moduleId] && mods[d.moduleId].active; })
-    .sort(function (a, b) { return order.indexOf(a.moduleId) - order.indexOf(b.moduleId); })
+    .sort(function (a, b) { return rank(a.moduleId) - rank(b.moduleId) || order.indexOf(a.moduleId) - order.indexOf(b.moduleId); })
     .map(function (d) {
       var m = mods[d.moduleId], st = d.status, note = '';
       if (st === 'available' && d.openFrom && now < Number(d.openFrom)) { st = 'ready'; note = 'opens'; }

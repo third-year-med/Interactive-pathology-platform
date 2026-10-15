@@ -2146,3 +2146,27 @@ test('group page history (2.16): the student gets EVERY ended session, newest fi
   assert.strictEqual(me.mine.counted, 9);
   assert.ok(me.recent.every(function (x, i, a) { return !i || a[i - 1].startAt >= x.startAt; }), 'newest first');
 });
+
+test('group page order (2.17): modules follow the front-page list (Teacher Management); unknown ones after; Official Exams always last', function () {
+  const S = examsSetup();   // Al-Razi A: cellinjury, inflhealing, then exams — Introduction delivered LATER (as on the live platform)
+  const ids = function () { const r = S.call({ module: 'portal', action: 'portalGroupInfo', g: 'razi-a-26' }); assert.ok(r.ok, JSON.stringify(r)); return r.modules.map(function (m) { return m.id; }); };
+  if (!S.dir('dirGet').modules.some(function (m) { return m.moduleId === 'intropath'; })) assert.ok(S.save('module', { moduleId: 'intropath', title: 'Introduction to Pathology', url: 'https://third-year-med.github.io/introduction-to-pathology/', storagePrefix: 'ip_' }, { create: true }).ok);
+  assert.ok(S.save('delivery', { groupId: S.ra.groupId, moduleId: 'intropath', status: 'available' }).ok);
+  assert.deepStrictEqual(ids(), ['intropath', 'cellinjury', 'inflhealing', 'exams']);
+  // a new teaching module added after the exams: it goes before Official Exams, never after it
+  assert.ok(S.save('module', { moduleId: 'neoplasia', title: 'Neoplasia', url: 'https://third-year-med.github.io/neoplasia/', storagePrefix: 'np_' }, { create: true }).ok);
+  assert.ok(S.save('delivery', { groupId: S.ra.groupId, moduleId: 'neoplasia', status: 'available' }).ok);
+  assert.deepStrictEqual(ids(), ['intropath', 'cellinjury', 'inflhealing', 'neoplasia', 'exams']);
+  // its curricular place comes from the front-page list: put it after Cell Injury there → the group page follows
+  const reg = S.call({ module: 'portal', action: 'portalInfo' }).modules;
+  const neo = { id: 'neoplasia', title: 'Neoplasia', status: 'available', url: 'https://third-year-med.github.io/neoplasia/', moduleKey: 'neoplasia', handoff: 'neo', storagePrefix: 'np_' };
+  const list = reg.slice(); list.splice(list.findIndex(function (m) { return m.id === 'cellinjury'; }) + 1, 0, neo);
+  assert.ok(S.dir('portalAdminSave', { modules: list }).ok);
+  assert.deepStrictEqual(ids(), ['intropath', 'cellinjury', 'neoplasia', 'inflhealing', 'exams']);
+  // even an "exams" entry placed first on the front-page list cannot move Official Exams between the teaching modules
+  assert.ok(S.dir('portalAdminSave', { modules: [{ id: 'exams', title: 'Official Exams', moduleKey: 'exams', status: 'available' }].concat(list) }).ok);
+  assert.strictEqual(ids().slice(-1)[0], 'exams');
+  // the other group is unaffected (its own deliveries only)
+  const mi = S.call({ module: 'portal', action: 'portalGroupInfo', g: 'misrata-a-26' });
+  assert.deepStrictEqual(mi.modules.map(function (m) { return m.id; }), ['cellinjury', 'cardio']);
+});

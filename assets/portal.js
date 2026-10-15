@@ -121,7 +121,7 @@
     else if (m.status === 'closed') { msg = 'This module is closed for your group.'; cta = '<button class="btn" type="button" disabled>Closed</button>'; }
     else { msg = 'This chapter is in preparation.'; cta = '<button class="btn" type="button" disabled>Coming soon</button>'; }
     var d = descOf(m);
-    var el = h('<article class="mod ' + state + ' st-' + esc(m.status) + '" style="--c:' + esc(m.color) + '" data-id="' + esc(m.id) + '"' + (d ? ' title="' + esc(d) + '"' : '') + '>' +
+    var el = h('<article class="mod ' + state + ' st-' + esc(m.status) + (m.moduleKey === 'exams' ? ' exam' : '') + '" style="--c:' + esc(m.color) + '" data-id="' + esc(m.id) + '"' + (d ? ' title="' + esc(d) + '"' : '') + '>' +
       '<div class="mod-top"><div class="mod-ico">' + iconHtml(m) + '</div>' + pill + '</div>' +
       '<div class="mod-body">' + (m.subtitle ? '<div class="cat">' + esc(m.subtitle) + '</div>' : '') + '<h3>' + esc(m.title) + '</h3>' + (d ? '<p class="desc">' + esc(d) + '</p>' : '') +
       (msg ? '<p class="msg">' + esc(msg) + '</p>' : '') + '<div class="act">' + cta + '</div>' + alt + '</div></article>');
@@ -144,8 +144,11 @@
   function viewHome() {
     var s = session();
     main.innerHTML = '';
-    var avail = MODULES.filter(function (m) { return m.status === 'available'; }).length;
-    var mine = s ? MODULES.filter(function (m) { var a = s.modules && s.modules[m.moduleKey]; return m.status === 'available' && a && a.access; }).length : 0;
+    // teaching modules (in the order the server sends: the curricular order) and, separately, Official Exams — never mixed
+    var isExam = function (m) { return m.moduleKey === 'exams' || m.id === 'exams'; };
+    var teach = MODULES.filter(function (m) { return !isExam(m); }), exams = MODULES.filter(isExam);
+    var avail = teach.filter(function (m) { return m.status === 'available'; }).length;
+    var mine = s ? teach.filter(function (m) { var a = s.modules && s.modules[m.moduleKey]; return m.status === 'available' && a && a.access; }).length : 0;
     var note = ''; try { note = sessionStorage.getItem('pp_note') || ''; sessionStorage.removeItem('pp_note'); } catch (e) { }
     var shown = GROUP_NOTICE || (GINFO ? note : '');   // the redirect note is shown once
     if (shown) main.appendChild(h('<div class="note grp-notice" role="status">' + esc(shown) + '</div>'));
@@ -153,17 +156,22 @@
     var slim = !!s;   // 2.15 redesign: a signed-in student gets a slim welcome strip — the modules come first
     var hero = h('<section class="hero' + (slim ? ' slim' : '') + '"><div class="hero-txt"><div class="eyebrow">' + (GINFO ? esc(GINFO.institution.shortName || GINFO.institution.name) + ' · Pathology' : 'Medical education · Pathology') + '</div><h1>' + esc(CFG.title || 'Interactive Pathology Teaching Platform') + '</h1>' + gh + '<p class="by">' + esc(CREATED) + '</p>' +
       '<p class="lead">Interactive lectures, practice questions, case-based learning and assessments for every pathology chapter, in one place.</p>' +
-      '<ul class="facts"><li><b>' + MODULES.length + '</b> chapter' + (MODULES.length === 1 ? '' : 's') + '</li><li><b>' + avail + '</b> available now</li><li>🔒 Secure student sign-in</li></ul></div><div class="hero-side"></div></section>');
+      '<ul class="facts"><li><b>' + teach.length + '</b> chapter' + (teach.length === 1 ? '' : 's') + '</li><li><b>' + avail + '</b> available now</li><li>🔒 Secure student sign-in</li></ul></div><div class="hero-side"></div></section>');
     var side = $('.hero-side', hero);
     if (s) side.appendChild(h('<div class="card welcome"><div class="small muted">Signed in as</div><div class="wname">' + esc(s.student.name || s.student.username) + '</div><div class="small muted">Student ID ' + esc(s.student.username) + '</div><p>You can open <b>' + mine + '</b> of the ' + avail + ' available module' + (avail === 1 ? '' : 's') + '.</p>' +
       '<p class="small muted w-help">Modules not registered for your account stay locked — ask your teacher if one is missing.</p><div class="att-chip-box"></div></div>'));
     else side.appendChild(signInForm());
     main.appendChild(hero);
-    main.appendChild(h('<div class="sec-head' + (slim ? ' mods-head' : '') + '"><h2>' + (slim ? 'My modules' : GINFO ? 'Modules for ' + esc(GINFO.group.name) : 'Pathology modules') + '</h2><div class="legend"><span class="pill available">● Available</span><span class="pill ready">◆ Completed – not yet released</span><span class="pill soon">○ Coming soon</span>' + (MODULES.some(function (m) { return m.status === 'closed'; }) ? '<span class="pill locked">■ Closed</span>' : '') + '</div></div>'));
+    main.appendChild(h('<div class="sec-head' + (slim ? ' mods-head' : '') + '"><h2>' + (slim ? 'My learning modules' : GINFO ? 'Modules for ' + esc(GINFO.group.name) : 'Pathology modules') + '</h2><div class="legend"><span class="pill available">● Available</span><span class="pill ready">◆ Completed – not yet released</span><span class="pill soon">○ Coming soon</span>' + (MODULES.some(function (m) { return m.status === 'closed'; }) ? '<span class="pill locked">■ Closed</span>' : '') + '</div></div>'));
     var grid = h('<div class="grid' + (slim ? ' compact' : '') + '" aria-label="Pathology modules"></div>');
-    MODULES.forEach(function (m) { grid.appendChild(card(m, s)); });
-    if (!MODULES.length) grid.appendChild(h('<p class="muted">No modules yet.</p>'));
+    teach.forEach(function (m) { grid.appendChild(card(m, s)); });
+    if (!teach.length) grid.appendChild(h('<p class="muted">No modules yet.</p>'));
     main.appendChild(grid);
+    if (exams.length) {   // Official Exams: its own section below every teaching module
+      var xs = h('<section class="exams-sec" aria-labelledby="exams-h"><div class="sec-head"><h2 id="exams-h">📝 Exams &amp; Assessments</h2></div><div class="grid' + (slim ? ' compact' : '') + ' exams-grid"></div></section>');
+      exams.forEach(function (m) { $('.exams-grid', xs).appendChild(card(m, s)); });
+      main.appendChild(xs);
+    }
     if (s && GINFO) main.appendChild(lecturesSection(s));   // after the modules; a live lecture moves itself up (no scrolling to check in)
     if (s && GINFO) refreshNewModules(s);
   }
@@ -193,9 +201,9 @@
         sec.hidden = false; sec.dataset.drawn = '1';
         draw(r);
         // a live lecture comes right under the welcome strip (no scrolling to check in); otherwise the panel sits below the modules
-        var hero = sec.parentNode && $('.hero', sec.parentNode), grid = sec.parentNode && $('.grid', sec.parentNode);
+        var root = sec.parentNode, hero = root && $('.hero', root), after = root && ($('.exams-sec', root) || $('.grid', root));   // below the modules AND the exams
         if (hero && r.live.length) { if (hero.nextElementSibling !== sec) hero.after(sec); }
-        else if (grid && grid.nextElementSibling !== sec) grid.after(sec);
+        else if (after && after.nextElementSibling !== sec) after.after(sec);
         var soon = r.upcoming.some(function (x) { return !x.cancelled && x.startAt - r.serverTime < 30 * 60e3; });
         var wait = function () { if (!sec.isConnected) return; if (!document.hidden) load(); else timer = setTimeout(wait, 30000); };   // hidden tab: no requests
         timer = setTimeout(wait, r.live.length ? 30000 : soon ? 60000 : 120000);

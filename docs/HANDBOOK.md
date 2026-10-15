@@ -141,6 +141,12 @@ Classroom needs the Teaching Sessions setting "module Live/Attendance: shown" (`
 **No Refresh button on the group page (2026-10-15):** the Teaching Sessions panel polls by itself — 30 s while a lecture is
 live, 60 s when one starts within 30 min, otherwise 120 s; no requests while the tab is hidden — and reloads at once on
 `visibilitychange` (tab shown again, at most every 3 s). This also catches an unscheduled "Start a lecture now".
+**Module order + Exams & Assessments (Portal.gs 2.17):** `portalGroup_` sorts a group's modules by the front-page module list
+(Teacher Dashboard → Teacher Management, ↑/↓ — the explicit curricular order, matched by moduleKey or id); modules missing
+from that list follow in directory order; Official Exams (`EXAM_MODULE`) always last. The page splits `exams` off into its own
+section `.exams-sec` ("📝 Exams & Assessments", card `.mod.exam`) below the teaching grid, then the Teaching Sessions panel;
+facts and "You can open N of M" count teaching modules only. **New module:** add its card in Teacher Management at its
+chapter position (HANDBOOK §5 step 5) — that position is its place on every group page.
 
 **Results & attendance (Step 10):** read-only overviews per delivery — Admin (Results & attendance tab: all deliveries)
 and personal teachers (📊 button: own deliveries); per-student table, attendance register, CSV. Students are matched to
@@ -218,7 +224,7 @@ Give **only the lines to add, and where**.
    with ✅ (it checks the Portal line, the speed lines, every module's key, the front-page list and the directory,
    and opens every module link to confirm it is that module's page; it never prints a key). Then **Deploy → Manage deployments → Edit → New version → Deploy**.
    If anything breaks after a deploy: **Manage deployments → Edit → Version: the previous one → Deploy** first, fix after.
-5. **Front-page card** (the cards are DATA on the backend, not HTML): Teacher Dashboard → module list → ＋ Add a module
+5. **Front-page card** (the cards are DATA on the backend, not HTML; their order is also the module order on every group page): Teacher Dashboard → module list → ＋ Add a module
    (title, subtitle, icon, link, status Available; Advanced: module key, hand-off "Platform modules", storage prefix)
    → ↑ to its chapter position → 💾 Save. (`PORTAL_DEFAULT` in Portal.gs only matters on a fresh install.)
 6. **Groups**: Platform directory → **Modules** → Add (id = module key) → **Deliveries** for each group; accounts are

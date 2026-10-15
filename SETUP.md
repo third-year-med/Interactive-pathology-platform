@@ -349,6 +349,13 @@ The attendance of a lecture is the module's own attendance (the same as the modu
 Drive copy, and **Results & attendance**), so nothing changes for the modules. The schedule and the teacher's marks
 are kept in the new sheet **TeachingSessions** (created automatically the first time you save a lecture).
 
+## Module order on the student page (Portal.gs 2.17)
+
+The teaching modules on every group page appear in the order of the **front-page module list** (Teacher Dashboard →
+**Teacher Management**, arrange with ↑ / ↓, then 💾 Save) — e.g. Introduction to Pathology, Cell Injury & Cell Death,
+Inflammation & Healing. A new module goes where you put its card in that list. **Official Exams** always has its own
+section, **📝 Exams & Assessments**, below the teaching modules — it can never land between them.
+
 ## Group Live Classroom — switched off (2026-10-15)
 
 Students and teachers use each **module's own 🔴 Live Classroom** (Teaching Sessions → ⚙ Change → module Live/Attendance:

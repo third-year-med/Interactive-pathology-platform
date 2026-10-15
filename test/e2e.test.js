@@ -3261,3 +3261,80 @@ test('Overall Pathology Attendance: every module together, all registered studen
   await q2.context().close();
   main.call({ module: 'portal', action: 'logout', token: t });
 });
+
+/* ---------------- Student homepage: curricular module order + Exams & Assessments (2.17) ---------------- */
+test('student homepage: modules in curricular order (front-page list), Official Exams in its own section below them — also after a new module is added', { skip: SKIP }, async function () {
+  groupFixture();   // the Al-Razi test group (tr-a) — to check that other groups are untouched
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const A = function (action, o) { const r = main.call(Object.assign({ module: 'portal', action: action, token: t }, o || {})); assert.ok(r.ok, action + ' ' + JSON.stringify(r)); return r; };
+  const sv = function (kind, record, extra) { return A('dirSave', Object.assign({ kind: kind, record: record }, extra || {})).record; };
+  const have = A('dirGet').modules.map(function (m) { return m.moduleId; });
+  const mod = function (r) { if (have.indexOf(r.moduleId) < 0) { sv('module', r, { create: true }); have.push(r.moduleId); } };
+  mod({ moduleId: 'intropath', title: 'Introduction to Pathology', url: 'https://third-year-med.github.io/introduction-to-pathology/', storagePrefix: 'ip_' });
+  mod({ moduleId: 'exams', title: 'Official Exams', url: 'https://third-year-med.github.io/pathology-exams/', storagePrefix: 'xm_', icon: '📝' });
+  // as in the real Code.gs (HANDBOOK §5): these modules have student accounts
+  main.ctx.STUDENT_AUTH_MODULES.intropath = true; main.ctx.STUDENT_AUTH_MODULES.neotest = true;
+  const inst = sv('institution', { name: 'Order Test University', shortName: 'OTU2' });
+  const g = sv('group', { institutionId: inst.institutionId, name: 'Group R', academicYear: '2026-27', linkCode: 'ord-a' });
+  // delivered in the "wrong" order, as on the live platform: Introduction only after Official Exams
+  ['cellinjury', 'inflhealing', 'exams', 'intropath'].forEach(function (m) { sv('delivery', { groupId: g.groupId, moduleId: m, status: 'available' }); });
+  A('rosterAdd', { groupId: g.groupId, mustChange: false, students: [{ studentId: 'ord1', name: 'Order Student', password: 'order-pass-1' }] });
+  const teachIds = function (p) { return p.$$eval('main > .grid:not(.exams-grid) .mod', function (x) { return x.map(function (e) { return e.dataset.id; }); }); };
+
+  // before sign-in: the same order, the exams in their own section
+  const p = await page();
+  await p.goto(url + '?g=ord-a');
+  await p.waitForSelector('main > .grid .mod');
+  assert.deepStrictEqual(await teachIds(p), ['intropath', 'cellinjury', 'inflhealing']);
+  assert.deepStrictEqual(await p.$$eval('.exams-sec .mod', function (x) { return x.map(function (e) { return e.dataset.id; }); }), ['exams']);
+  assert.match(await p.textContent('.hero .facts'), /3 chapters/);
+  // signed in
+  await signIn(p, 'ord1', 'order-pass-1');
+  await p.waitForSelector('.card.welcome');
+  await p.waitForSelector('#ts-stu:not([hidden])');
+  assert.deepStrictEqual(await teachIds(p), ['intropath', 'cellinjury', 'inflhealing']);
+  assert.match(await p.textContent('.mods-head h2'), /My learning modules/);
+  assert.match(await p.textContent('.exams-sec h2'), /Exams & Assessments/);
+  assert.match(await p.textContent('.card.welcome'), /You can open 3 of the 3 available modules/, 'the exam card is not counted as a module');
+  // page order: welcome → modules → exams → teaching sessions
+  const order = await p.evaluate(function () { return Array.prototype.map.call(document.querySelectorAll('main > .hero, main > .mods-head, main > .grid, main > .exams-sec, main > #ts-stu'), function (e) { return e.id || e.className.split(' ')[0]; }); });
+  assert.deepStrictEqual(order, ['hero', 'sec-head', 'grid', 'exams-sec', 'ts-stu']);
+  // links and access unchanged: a module opens in the group's storage; the exam card links to the exam page
+  const before = navigations.length;
+  await p.click('main > .grid .mod[data-id="intropath"] .go');
+  await p.waitForTimeout(300);
+  assert.ok(navigations.slice(before).some(function (u) { return /introduction-to-pathology\/\?g=ord-a$/.test(u); }), navigations.slice(before).join(' '));
+  await p.goto(url + '?g=ord-a'); await p.waitForSelector('.exams-sec .mod.exam a.btn');
+  assert.match(await p.getAttribute('.exams-sec .mod.exam a.btn', 'href'), /pathology-exams\//);
+
+  // a teaching module added LATER (after Official Exams): it joins the module grid; Official Exams stays apart
+  mod({ moduleId: 'neotest', title: 'Neoplasia (test)', url: 'https://third-year-med.github.io/neo-test/', storagePrefix: 'nt_', icon: '🧬' });
+  sv('delivery', { groupId: g.groupId, moduleId: 'neotest', status: 'available' });
+  A('rosterSync', { groupId: g.groupId });
+  await p.reload(); await p.waitForSelector('#ts-stu:not([hidden])');
+  assert.deepStrictEqual(await teachIds(p), ['intropath', 'cellinjury', 'inflhealing', 'neotest']);
+  assert.deepStrictEqual(await p.$$eval('.exams-sec .mod', function (x) { return x.map(function (e) { return e.dataset.id; }); }), ['exams']);
+  assert.strictEqual(await p.$('main > .grid:not(.exams-grid) .mod.exam'), null, 'never inside the module grid');
+  // its place comes from the front-page list (Teacher Management): moved after Cell Injury there → the page follows
+  const reg = main.call({ module: 'portal', action: 'portalInfo' }).modules;
+  const list = reg.slice(); list.splice(list.findIndex(function (m) { return m.id === 'cellinjury'; }) + 1, 0, { id: 'neotest', title: 'Neoplasia (test)', status: 'available', url: 'https://third-year-med.github.io/neo-test/', moduleKey: 'neotest', handoff: 'neo', storagePrefix: 'nt_' });
+  A('portalAdminSave', { modules: list });
+  await p.reload(); await p.waitForSelector('#ts-stu:not([hidden])');
+  assert.deepStrictEqual(await teachIds(p), ['intropath', 'cellinjury', 'neotest', 'inflhealing']);
+  // group separation: another group's page is unchanged
+  const other = main.call({ module: 'portal', action: 'portalGroupInfo', g: 'tr-a' }); assert.ok(other.ok, JSON.stringify(other));
+  assert.ok(!other.modules.some(function (m) { return m.id === 'neotest'; }));
+  assert.deepStrictEqual(other.modules.filter(function (m) { return m.id !== 'exams'; }).map(function (m) { return m.id; }), ['cellinjury', 'inflhealing']);
+  // desktop, tablet and phone: no sideways scrolling
+  for (const vp of [[1280, 900, 'desktop'], [820, 1180, 'tablet'], [390, 844, 'phone']]) {
+    await p.setViewportSize({ width: vp[0], height: vp[1] });
+    await p.waitForTimeout(150);
+    assert.ok(await p.evaluate(function () { return document.documentElement.scrollWidth - window.innerWidth; }) <= 1, vp[2] + ' fits');
+    if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'student-order-' + vp[2] + '.png'), fullPage: true });
+  }
+  // restore the front-page list for the other tests
+  A('portalAdminSave', { modules: reg });
+  await p.context().close();
+  main.call({ module: 'portal', action: 'logout', token: t });
+});
