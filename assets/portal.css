@@ -304,3 +304,21 @@ code.pw{font-size:14px;font-weight:700;letter-spacing:.03em}
 .dash-view .rep-block{margin-top:26px;padding-top:6px;border-top:1px solid var(--line)}
 #t-pwbox:not(:empty){margin:14px 0 0}
 @media (max-width:640px){.dash-grid{grid-template-columns:1fr;gap:10px}.dash-card{min-height:0;padding:13px 34px 13px 13px}.dc-ico{flex-basis:38px;height:38px;font-size:19px}.dv-h{font-size:18px}}
+/* Overall Pathology Attendance (2.15) */
+.ov-kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin:12px 0}
+.ov-kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:9px 12px;display:flex;flex-direction:column;gap:1px;min-width:0}
+.ov-kpi span{font-size:12.5px;color:var(--muted);font-weight:600}.ov-kpi b{font-size:22px;color:var(--navy);line-height:1.25}.ov-kpi small{font-size:12px;color:var(--muted)}
+.ov-kpi-warn{border-color:#f0b9b4;background:var(--bad-soft)}.ov-kpi-warn b{color:var(--bad)}
+.ov-chip{display:inline-block;background:var(--teal-soft);color:var(--teal-2);border-radius:999px;padding:1px 10px;margin:2px 2px 2px 0;font-weight:600;white-space:nowrap}
+.ov-method{max-width:900px}
+.ov-filter{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 14px;margin:0 0 8px}
+.ov-filter label{margin:0;font-size:13px}.ov-filter input,.ov-filter select{display:block;margin-top:3px;padding:6px 9px;border:1px solid var(--line);border-radius:9px;font:inherit;font-size:14px;background:#fff;min-width:0}
+.ov-filter input{width:min(240px,100%)}
+.ov-tbl td.n,.ov-tbl th.n,.ov-modtbl td.n,.ov-modtbl th.n,.ov-stu td.n,.ov-stu th.n{text-align:center}
+.ov-badge{font-size:12px;padding:2px 9px}
+.ov-detail:not(:empty){margin-top:14px}
+.ov-stu{background:var(--card);border-color:var(--line)}.ov-stu:focus{outline:2px solid var(--teal);outline-offset:2px}
+.ov-stu-h{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;gap:8px}
+.ov-warn-msg{font-weight:700;margin:8px 0 0}
+.ov-reg{margin-top:10px}
+.ts-mine-mods{margin:2px 0 0}

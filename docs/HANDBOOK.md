@@ -106,6 +106,21 @@ The tests still use the name `vulva` for a simulated second backend; that is onl
   Code.gs change; stored records, codes, group separation and the Drive copy are unchanged. New modules keep the model
   modules' attendance code (`reportCard`, `attRegister`, `loadRoster`, `exportCSV`, `printReport`).
 
+**Overall Pathology Attendance (Portal.gs 2.15, 2026-10-15):** Teacher Dashboard view `overall` (`overallSection` in
+portal.js, Excel via `assets/xlsx.js` — a hand-written stored-zip .xlsx writer, since the CSP allows only own scripts).
+Backend `attOverall {groupId}` (a TS action: Admin all modules of the group; personal teacher only their deliveries →
+`partial: true`) → `attOverallCompute_`: every AttendanceSessions row of the group's teaching deliveries, keyed
+`storage|sessionId` (a Teaching Session only points at the module's row via attSessionId → never double-counted); a
+TS-linked row keeps the TS rules (`tsStatus_`, `tsRegister_`: late, marks, cancelled/scheduled skipped), a module-only row is
+present/absent once closed. Per-student figures = `attSummary_` = the tsList_ formula (attended = present + late; counted =
+attended + absent; pct = round(attended ÷ counted × 100); absencePct = 100 − pct; warn = pct < ts:threshold) on the summed
+counts, never an average of module %. Roster = active StudentMemberships (`tsMembers_`); `state` none / missed / mixed /
+full. The student group card (`portalGroupSessions` → `mine`) now shows the same overall figure (`mine.overall`,
+`absencePct`, `modules`) and lists module-only classes in `recent`; nothing is sent (no duplicate warnings; a class-chat
+post would expose a student's attendance to the class). Exports: CSV = the old "attendance-by-student" columns + Absence %
++ Status; xlsx sheets Overall / By module / Sessions / Register / Report info. Tests: 2 backend (equality with tsList_ on
+TS-only data; module + TS mix over two modules, isolation, access, student card), 1 e2e.
+
 **Results & attendance (Step 10):** read-only overviews per delivery — Admin (Results & attendance tab: all deliveries)
 and personal teachers (📊 button: own deliveries); per-student table, attendance register, CSV. Students are matched to
 the roster by Student ID, then email, then unique name; unmatched records are listed under "Also found".

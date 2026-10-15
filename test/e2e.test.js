@@ -2212,7 +2212,7 @@ test('Presentation Mode attendance code: the open code stays in the corner on ev
   await p.context().close();
 });
 
-test('Teacher Dashboard: compact cards first; each card opens its full management view; Back / browser Back / deep links; typed input is kept and unsaved changes are protected; a personal teacher gets four cards', { skip: SKIP }, async function () {
+test('Teacher Dashboard: compact cards first; each card opens its full management view; Back / browser Back / deep links; typed input is kept and unsaved changes are protected; a personal teacher gets five cards', { skip: SKIP }, async function () {
   groupFixture();
   main.call({ module: 'portal', action: 'setup', password: TPW });
   const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
@@ -2226,16 +2226,16 @@ test('Teacher Dashboard: compact cards first; each card opens its full managemen
   await p.goto(url + '#/teacher');
   await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
   await p.waitForSelector('.dash-grid .dash-card');
-  // only the six cards are on screen — no management form or table
+  // only the seven cards are on screen — no management form or table
   assert.deepStrictEqual(await p.$$eval('.dash-card', function (c) { return c.map(function (x) { return x.dataset.view + '|' + x.querySelector('.dc-t').textContent; }); }),
-    ['modules|Teaching Modules', 'sessions|Teaching Sessions', 'attendance|Student Attendance', 'exams|Official Exams', 'manage|Teacher Management', 'directory|Platform Directory']);
+    ['modules|Teaching Modules', 'sessions|Teaching Sessions', 'attendance|Student Attendance', 'overall|Overall Pathology Attendance', 'exams|Official Exams', 'manage|Teacher Management', 'directory|Platform Directory']);
   assert.strictEqual(await p.$$eval('.dash-view', function (v) { return v.filter(function (x) { return !x.hidden; }).length; }), 0);
-  for (const sel of ['#t-modules', '#t-sessions', '#t-att', '#t-exams', '#t-manage', '#t-dir', 'form.ts-form', '.modrow', 'table']) assert.ok(!(await p.isVisible(sel)), sel + ' hidden on the dashboard');
+  for (const sel of ['#t-modules', '#t-sessions', '#t-att', '#t-overall', '#t-exams', '#t-manage', '#t-dir', 'form.ts-form', '.modrow', 'table']) assert.ok(!(await p.isVisible(sel)), sel + ' hidden on the dashboard');
   // summaries from the data the sections already loaded
   await p.waitForFunction(function () { return /module/.test(document.querySelector('.dash-card[data-view=modules] .dc-sum').textContent) && /module card/.test(document.querySelector('.dash-card[data-view=manage] .dc-sum').textContent) && /exam place|No exam/.test(document.querySelector('.dash-card[data-view=exams] .dc-sum').textContent); });
   assert.match(await p.textContent('.dash-card[data-view=modules] .dc-sum'), /^\d+ modules? · \d+ open to students$/);
   // every card opens its view (address #/teacher/<view>), with Back to Dashboard
-  const expect = { modules: '#t-modules .mod .t-open', sessions: '#t-sessions .ts-top select', attendance: '#t-att .ts-top select', exams: '#t-exams .ex-row', manage: '#t-manage .modrow', directory: '#t-dir .dir-tabs' };
+  const expect = { modules: '#t-modules .mod .t-open', sessions: '#t-sessions .ts-top select', attendance: '#t-att .ts-top select', overall: '#t-overall .ts-top select', exams: '#t-exams .ex-row', manage: '#t-manage .modrow', directory: '#t-dir .dir-tabs' };
   for (const v of Object.keys(expect)) {
     await p.click('.dash-card[data-view=' + v + ']');
     await p.waitForSelector(expect[v], { state: 'visible', timeout: 15000 });
@@ -2311,7 +2311,7 @@ test('Teacher Dashboard: compact cards first; each card opens its full managemen
   await p.waitForSelector('#t-exams .ex-row', { state: 'visible' });
   assert.strictEqual(await p.evaluate(function () { return document.activeElement && document.activeElement.id; }), 'dv-h-exams', 'focus moves to the view title');
   await p.context().close();
-  // a personal teacher: four cards (no Teacher Management / Platform Directory)
+  // a personal teacher: five cards (no Teacher Management / Platform Directory)
   const un = 'dash.teacher', cr = A('teacherSave', { create: true, record: { username: un, name: 'Dr. Dash', password: 'dash-teacher-1' } }); assert.ok(cr.ok, JSON.stringify(cr));
   assert.ok(A('teacherAssign', { userId: cr.teacher.userId, deliveryIds: [d.deliveryId] }).ok);
   const lg = main.call({ module: 'portal', action: 'teacherLogin', username: un, password: 'dash-teacher-1' });
@@ -2320,7 +2320,7 @@ test('Teacher Dashboard: compact cards first; each card opens its full managemen
   await q.goto(url + '#/teacher');
   await q.fill('#t-u', un); await q.fill('#t-p', 'dash-teacher-2'); await q.click('form.card button[type=submit]');
   await q.waitForSelector('.dash-card');
-  assert.deepStrictEqual(await q.$$eval('.dash-card', function (c) { return c.map(function (x) { return x.dataset.view; }); }), ['modules', 'sessions', 'attendance', 'exams']);
+  assert.deepStrictEqual(await q.$$eval('.dash-card', function (c) { return c.map(function (x) { return x.dataset.view; }); }), ['modules', 'sessions', 'attendance', 'overall', 'exams']);
   await q.waitForFunction(function () { return /1 module in 1 group/.test(document.querySelector('.dash-card[data-view=modules] .dc-sum').textContent); });
   await dash(q, 'modules'); await q.waitForSelector('#t-mine .mod[data-id="cellinjury"] .t-open', { state: 'visible' });
   await q.click('.dash-view[data-view=modules] .dv-back');
@@ -3083,3 +3083,141 @@ test('module Live Classroom: a signed-in registered student goes straight in (no
 });
 
 test('no JavaScript errors', { skip: SKIP }, function () { assert.deepStrictEqual(errors, []); });
+
+/* ---------------- Overall Pathology Attendance (2.15) ---------------- */
+test('Overall Pathology Attendance: every module together, all registered students, % and absence %, 75% warning, report, Excel / CSV / print, student card', { skip: SKIP }, async function () {
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const A = function (action, o) { const r = main.call(Object.assign({ module: 'portal', action: action, token: t }, o || {})); assert.ok(r.ok, action + ' ' + JSON.stringify(r)); return r; };
+  const sv = function (kind, record) { return A('dirSave', { kind: kind, record: record }).record; };
+  A('dirGet');
+  const inst = sv('institution', { name: 'Overall Test University', shortName: 'OTU' });
+  const g = sv('group', { institutionId: inst.institutionId, name: 'Group O', academicYear: '2026-27', linkCode: 'ov-a' });
+  sv('delivery', { groupId: g.groupId, moduleId: 'cellinjury', status: 'available' }); sv('delivery', { groupId: g.groupId, moduleId: 'inflhealing', status: 'available' });
+  const SP = { o1: 'pass-o1-xyz', o2: 'pass-o2-xyz', o3: 'pass-o3-xyz', o4: 'pass-o4-xyz' };
+  A('rosterAdd', { groupId: g.groupId, mustChange: false, students: [
+    { studentId: '26010001', name: 'وصال سليمان عوين', password: SP.o1 }, { studentId: '26010002', name: 'جبريل محمود حسين', password: SP.o2 },
+    { studentId: '26010003', name: 'Rand Murad', password: SP.o3 }, { studentId: '26010004', name: 'Nader Kleib', password: SP.o4 }] });
+  const pw = { '26010001': SP.o1, '26010002': SP.o2, '26010003': SP.o3, '26010004': SP.o4 };
+  const dl = A('dirGet').deliveries.filter(function (d) { return d.groupId === g.groupId; });
+  const ci = dl.filter(function (d) { return d.moduleId === 'cellinjury'; })[0], ih = dl.filter(function (d) { return d.moduleId === 'inflhealing'; })[0];
+
+  const p = await page();
+  await p.goto(url + '#/teacher'); await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+  await dash(p, 'overall');
+  await p.waitForSelector('#t-overall .ts-top select');
+  await p.selectOption('#t-overall .ts-top select', g.groupId);
+  // no class yet: the whole register is listed, nobody is "absent", nobody is warned
+  await p.waitForFunction(function () { return document.querySelectorAll('#t-overall .ov-tbl tbody tr[data-student]').length === 4; });
+  assert.deepStrictEqual(await p.$$eval('#t-overall .ov-tbl tbody tr', function (r) { return r.map(function (x) { return x.cells[9].textContent; }); }), ['No sessions counted yet', 'No sessions counted yet', 'No sessions counted yet', 'No sessions counted yet']);
+  assert.strictEqual(await p.$$eval('#t-overall .ov-tbl tr.ts-warn', function (r) { return r.length; }), 0);
+
+  // classes: two Teaching Sessions + two classes whose attendance was taken INSIDE the modules
+  const ts = function (title, d, marks) {
+    const s = A('tsStart', { session: { groupId: g.groupId, deliveryId: d.deliveryId, title: title, startAt: Date.now() } });
+    Object.keys(marks).forEach(function (id) { A('tsMark', { tsId: s.session.tsId, studentId: id, mark: marks[id] }); });
+    A('tsClose', { tsId: s.session.tsId });
+  };
+  const inModule = function (storage, title, ids) {
+    main.call({ module: storage, action: 'setup', password: 'teacher-' + storage + '-1' });
+    const tok = main.call({ module: storage, action: 'login', password: 'teacher-' + storage + '-1' }).token;
+    const s = main.call({ module: storage, action: 'startAttendanceSession', token: tok, sessionTitle: title }); assert.ok(s.ok, JSON.stringify(s));
+    ids.forEach(function (id) {
+      const st = main.call({ module: storage, action: 'studentLogin', username: id, password: pw[id] }).token;
+      assert.ok(main.call({ module: storage, action: 'submitAttendanceByCode', stoken: st, code: s.code }).ok);
+    });
+    assert.ok(main.call({ module: storage, action: 'closeAttendanceSession', token: tok, sessionId: s.sessionId }).ok);
+  };
+  ts('L1 Cell injury', ci, { 26010001: 'present', 26010002: 'present', 26010003: 'present' });
+  inModule(ci.backendModule, 'M1 inside Cell Injury', ['26010001']);
+  inModule(ih.backendModule, 'M2 inside Inflammation', ['26010001', '26010002', '26010003']);
+  ts('L2 Inflammation', ih, { 26010001: 'present', 26010003: 'late' });
+  await p.click('#t-overall [data-a=r]');
+  await p.waitForFunction(function () { var c = document.querySelector('#t-overall .ov-kpi b'); return c && /Sessions counted/.test(document.querySelector('#t-overall .ov-kpis').textContent) && document.querySelectorAll('#t-overall .ov-kpi')[1].textContent.indexOf('4') >= 0; });
+  // sorted as the previous report: lowest % first; columns attended · late · excused · absent · counted · attendance · absence
+  const rows = await p.$$eval('#t-overall .ov-tbl tbody tr', function (r) { return r.map(function (x) { return [x.dataset.student].concat([2, 3, 4, 5, 6, 7, 8].map(function (i) { return x.cells[i].textContent; })).concat([x.classList.contains('ts-warn') ? 'warn' : '', x.cells[9].textContent]); }); });
+  assert.deepStrictEqual(rows, [
+    ['26010004', '0', '0', '0', '4', '4', '0%', '100%', 'warn', '⚠ Below 75%'],
+    ['26010002', '2', '0', '0', '2', '4', '50%', '50%', 'warn', '⚠ Below 75%'],
+    ['26010003', '3', '1', '0', '1', '4', '75%', '25%', '', '✓ 75% or above'],
+    ['26010001', '4', '0', '0', '0', '4', '100%', '0%', '', '✓ Full attendance']]);
+  assert.match(await p.textContent('#t-overall .ov-kpis'), /Class attendance56%[\s\S]*Class absence44%[\s\S]*Below 75%⚠ 2/);
+  assert.match(await p.textContent('#t-overall .ov-mods'), /Cell Injury[^·]*· 2 sessions[\s\S]*Inflammation[^·]*· 2 sessions/);
+  // module-by-module: 26010002 → Cell Injury 1/2 (50 %), Inflammation 1/2 (50 %)
+  assert.match(await p.textContent('#t-overall .ov-modtbl'), /جبريل محمود حسين 26010002\s*1\/2 · 50%\s*1\/2 · 50%\s*50% ⚠/);
+  // the dashboard card shows the warning count
+  await p.click('.dash-view[data-view=overall] .dv-back');
+  await p.waitForSelector('.dash-grid', { state: 'visible' });
+  await p.waitForFunction(function () { return /⚠ 2 below 75%/.test(document.querySelector('.dash-card[data-view=overall]').textContent); });
+  assert.match(await p.textContent('.dash-card[data-view=overall] .dc-sum'), /Group O[\s\S]*4 students · 4 sessions in 2 modules/);
+  await dash(p, 'overall');
+  // filter: only the students below 75 %
+  await p.selectOption('#t-overall .ov-show', 'warn');
+  assert.deepStrictEqual(await p.$$eval('#t-overall .ov-tbl tbody tr', function (r) { return r.map(function (x) { return x.dataset.student; }); }), ['26010004', '26010002']);
+  await p.fill('#t-overall .ov-q', 'جبريل');
+  assert.deepStrictEqual(await p.$$eval('#t-overall .ov-tbl tbody tr', function (r) { return r.map(function (x) { return x.dataset.student; }); }), ['26010002']);
+  // the individual report
+  await p.click('#t-overall tr[data-student="26010002"] button');
+  await p.waitForSelector('#t-overall .ov-stu');
+  const det = await p.textContent('#t-overall .ov-stu');
+  assert.match(det, /⚠ Attendance is below 75% \(50%\)/);
+  assert.match(det, /All modules\s*2\s*0\s*0\s*2\s*4\s*50%\s*50%/);
+  assert.match(det, /M1 inside Cell Injury❌ Absent/); assert.match(det, /L1 Cell injury \(Teaching Session\)✅ Present/);
+  await p.fill('#t-overall .ov-q', ''); await p.selectOption('#t-overall .ov-show', 'all');
+
+  // CSV: the reference columns of the previous report first, then Absence % and Status
+  const [dc] = await Promise.all([p.waitForEvent('download'), p.click('#t-overall [data-a=csv]')]);
+  assert.match(dc.suggestedFilename(), /^overall-attendance-ov-a-\d{4}-\d\d-\d\d\.csv$/);
+  const csvTxt = fs.readFileSync(await dc.path(), 'utf8');
+  const lines = csvTxt.replace(/^﻿/, '').split('\r\n');
+  assert.strictEqual(lines[0], 'Student ID,Name,Attended,Late,Excused,Absent,Lectures counted,Attendance %,Below 75%,Absence %,Status');
+  assert.strictEqual(lines[1], '26010004,Nader Kleib,0,0,0,4,4,0,yes,100,Below 75% — attendance warning');
+  assert.strictEqual(lines[3], '26010003,Rand Murad,3,1,0,1,4,75,,25,Attended some');
+  // Excel: a real .xlsx (opened with unzip; the Overall sheet has the same rows, the warning rows are shaded)
+  const [dx] = await Promise.all([p.waitForEvent('download'), p.click('#t-overall [data-a=xlsx]')]);
+  assert.match(dx.suggestedFilename(), /\.xlsx$/);
+  const xp = await dx.path(), cp = require('child_process');
+  const list = cp.execFileSync('unzip', ['-Z1', xp]).toString().trim().split('\n').sort();
+  assert.deepStrictEqual(list, ['[Content_Types].xml', '_rels/.rels', 'xl/_rels/workbook.xml.rels', 'xl/styles.xml', 'xl/workbook.xml', 'xl/worksheets/sheet1.xml', 'xl/worksheets/sheet2.xml', 'xl/worksheets/sheet3.xml', 'xl/worksheets/sheet4.xml', 'xl/worksheets/sheet5.xml']);
+  assert.ok(cp.spawnSync('unzip', ['-tq', xp]).status === 0, 'archive CRCs are valid');
+  const wb = cp.execFileSync('unzip', ['-p', xp, 'xl/workbook.xml']).toString();
+  assert.match(wb, /name="Overall"[\s\S]*name="By module"[\s\S]*name="Sessions"[\s\S]*name="Register"[\s\S]*name="Report info"/);
+  const s1 = cp.execFileSync('unzip', ['-p', xp, 'xl/worksheets/sheet1.xml']).toString();
+  assert.match(s1, /<row r="2"><c r="A2" s="2" t="inlineStr"><is><t xml:space="preserve">26010004<\/t><\/is><\/c>/);
+  assert.match(s1, /<c r="H5"><v>100<\/v><\/c>/, 'percentages are numbers');
+  assert.ok(s1.indexOf('وصال سليمان عوين') > 0, 'Arabic names kept');
+  if (process.env.XLSX_OUT) fs.copyFileSync(xp, process.env.XLSX_OUT);
+  // print-friendly report (hidden frame)
+  await p.click('#t-overall [data-a=print]');
+  await p.waitForFunction(function () { var f = document.querySelector('iframe.ov-print'); return f && f.contentDocument && /Overall Pathology Attendance Report/.test(f.contentDocument.body.textContent); });
+  const pr = await p.evaluate(function () { var d = document.querySelector('iframe.ov-print').contentDocument; return { text: d.body.textContent, warn: d.querySelectorAll('tr.warn').length, html: d.documentElement.outerHTML }; });
+  assert.match(pr.text, /OTU · Group O \(2026-27\)/); assert.match(pr.text, /Students below 75% \(2\)/); assert.match(pr.text, /Head of Department/);
+  assert.strictEqual(pr.warn, 4, '2 students × (class table + module table)');
+  if (process.env.SHOTS) {
+    fs.writeFileSync(path.join(process.env.SHOTS, 'overall-print.html'), pr.html);
+    await p.screenshot({ path: path.join(process.env.SHOTS, 'overall.png'), fullPage: true });
+    await p.setViewportSize({ width: 390, height: 844 }); await p.screenshot({ path: path.join(process.env.SHOTS, 'overall-phone.png'), fullPage: true });
+    await p.setViewportSize({ width: 1280, height: 900 });
+  }
+  await p.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await p.evaluate(function () { return document.documentElement.scrollWidth - window.innerWidth; }) <= 1, 'fits a phone');
+  await p.context().close();
+
+  // the student's group page: the overall figure with the same warning (shown, never sent)
+  const q = await page();
+  await q.goto(url + '?g=ov-a'); await signIn(q, '26010002', SP.o2);
+  await q.waitForFunction(function () { var e = document.querySelector('#ts-stu .ts-mine'); return e && /50%/.test(e.textContent); }, null, { timeout: 15000 });
+  const mine = await q.textContent('#ts-stu .ts-block:has(.ts-mine)');
+  assert.match(mine, /My attendance — all pathology modules/);
+  assert.match(mine, /50% attended · 50% absent — 2 of 4 session\(s\) attended · 2 absent · ⚠ below 75% — please talk to your teacher/);
+  assert.match(mine, /Cell Injury[^:]*: 1\/2 \(50%\)/);
+  assert.ok(await q.$eval('#ts-stu .ts-mine', function (e) { return e.classList.contains('warn-t'); }));
+  if (process.env.SHOTS) await (await q.$('#ts-stu')).screenshot({ path: path.join(process.env.SHOTS, 'overall-student.png') });
+  await q.context().close();
+  const q2 = await page();
+  await q2.goto(url + '?g=ov-a'); await signIn(q2, '26010003', SP.o3);
+  await q2.waitForFunction(function () { var e = document.querySelector('#ts-stu .ts-mine'); return e && /75%/.test(e.textContent); }, null, { timeout: 15000 });
+  assert.ok(!/below/.test(await q2.textContent('#ts-stu .ts-mine')), '75 % is not below 75 %');
+  await q2.context().close();
+  main.call({ module: 'portal', action: 'logout', token: t });
+});

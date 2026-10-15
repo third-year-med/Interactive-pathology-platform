@@ -42,8 +42,8 @@ There is **one teacher account** for the whole platform: Platform Home → **Tea
    *If it says a teacher password already exists:* your main backend still has the old shared teacher password from
    before per-module passwords — sign in with that one.
 2. After signing in you are on the **Teacher Dashboard** — a page of compact cards (Admin: **Teaching Modules**, **Teaching
-   Sessions**, **Student Attendance**, **Official Exams**, **Teacher Management**, **Platform Directory**; a personal teacher
-   gets the first four). Each card shows a short summary (e.g. a live lecture, upcoming lectures, students below the
+   Sessions**, **Student Attendance**, **Overall Pathology Attendance**, **Official Exams**, **Teacher Management**, **Platform Directory**; a personal teacher
+   gets the first five). Each card shows a short summary (e.g. a live lecture, upcoming lectures, students below the
    attendance threshold); clicking it opens that area (address `#/teacher/<area>`, so it can be bookmarked), and
    **← Back to Dashboard** (or the browser's Back button) returns to the cards. What you type in one area is kept while you
    visit another; a card marked **● Unsaved changes** has a form you have not saved yet, and leaving the dashboard, signing
@@ -53,6 +53,11 @@ There is **one teacher account** for the whole platform: Platform Home → **Tea
      module's own Teacher Portal (students, content, results, assessments, attendance …).
    - **Teacher Management** — the front-page list (below).
    - **Student Attendance** — the attendance-by-student table of a group (CSV) and **📊 Results & attendance** of every module.
+   - **📊 Overall Pathology Attendance** (Portal.gs 2.15) — one report per group over **every** teaching module: each
+     registered student's attended / late / excused / absent, Attendance % and Absence %, the **⚠ Below 75%** warning,
+     a module-by-module table, **Report →** for one student (with 🖨 print), **⬇ Excel (.xlsx)**, **⬇ CSV** and
+     **🖨 Print report** (signature lines). Attendance taken inside a module and Teaching Sessions are both counted, each
+     class once. A personal teacher sees only the modules assigned to them (the page says so). Read-only.
 3. Teachers no longer use a module's own teacher password: on the modules' sign-in page the *Teacher* tab, and the
    module's Teacher Portal page, now point to this Teacher Sign-In.
 4. **Sign out** (top right) ends the dashboard and the module teacher sessions opened from it.
@@ -342,6 +347,26 @@ attendance is still open; the student table and the CSV have **Late** and **Excu
 The attendance of a lecture is the module's own attendance (the same as the module's Attendance tab, its Google
 Drive copy, and **Results & attendance**), so nothing changes for the modules. The schedule and the teacher's marks
 are kept in the new sheet **TeachingSessions** (created automatically the first time you save a lecture).
+
+## Overall Pathology Attendance (Portal.gs 2.15)
+
+Keep taking attendance inside each module (Teacher Portal → 📋 Attendance) or with Teaching Sessions — nothing about that
+changes. Teacher Dashboard → **📊 Overall Pathology Attendance** → choose the group.
+- **Which classes count:** every attendance session of every teaching module of the group, once it is closed (an open one
+  shows as "+ N still open"). A Teaching Session and the module attendance it opened are the same class — counted once.
+  Cancelled lectures never count. Another group's classes never count.
+- **The calculation (unchanged from the "Attendance by student" table):** late counts as attended; excused does not count;
+  Attendance % = attended ÷ (attended + absent), rounded to a whole number; Absence % = 100 − Attendance %. The overall
+  figure comes from all the classes together — it is not an average of the module percentages.
+- **Warning:** Attendance % below the platform threshold (Teaching Sessions → ⚙ Change; 75 % by default). Exactly 75 % is
+  not below 75 %.
+- **Every registered student** (active in the group's student list) is listed. "No sessions counted yet" means no class has
+  been counted for them yet — different from absent.
+- **Students** see the same overall figure and warning under **📋 My attendance — all pathology modules** on their group
+  page. It is worked out when they open the page; no message is sent, so a warning can never arrive twice.
+- **Update:** paste Portal.gs (2.15) into the Apps Script file **Portal** (raw link above) → save → run **platformCheck** →
+  **Deploy → Manage deployments → ✏️ Edit → New version → Deploy**. No Code.gs change. Until then the card says "Update
+  Portal.gs (2.15)" and everything else works as before.
 
 ## Before every Deploy: run the self-check
 

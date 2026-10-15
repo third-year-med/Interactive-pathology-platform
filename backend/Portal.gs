@@ -65,6 +65,8 @@
  *                     deletes its attendance session and every check-in with it)
  *   tsMark {tsId, studentId, mark: present|late|excused|clear|remove, recordId?}   the teacher's corrections
  *   tsSettings        Admin: platform time zone and attendance warning threshold
+ *   attOverall {groupId}  2.15: Overall Pathology Attendance — every student of the group over EVERY teaching module
+ *                     (sessions taken inside the modules and Teaching Sessions alike, each counted once), same % and warning
  *   Sheet TeachingSessions (created on first use). Attendance itself stays in AttendanceSessions/AttendanceRecords.
  *   Group Live Classroom (2.9): storage live-<link code>, Code.gs's Live Classroom engine unchanged.
  *   liveOpen {g, sessions}        student (group sessions + active membership) → joined; secret-derived identity
@@ -185,7 +187,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.14';
+var PORTAL_VERSION = '2.15';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -2316,7 +2318,7 @@ var TS_GRACE_MS = 20000;                        // …and the code it replaced i
 var TS_FAIL_MAX = 10, TS_FAIL_WINDOW_S = 600;  // per student and group: 10 wrong codes → wait 10 minutes
 var TS_STATUSES = { scheduled: 1, live: 1, ended: 1, cancelled: 1 };
 var TS_MARKS = { present: 1, late: 1, excused: 1 };
-var TS_ACTIONS = { tsGroups: 1, tsList: 1, tsSave: 1, tsStart: 1, tsState: 1, tsClose: 1, tsCancel: 1, tsDelete: 1, tsMark: 1, tsSettings: 1 };
+var TS_ACTIONS = { tsGroups: 1, tsList: 1, tsSave: 1, tsStart: 1, tsState: 1, tsClose: 1, tsCancel: 1, tsDelete: 1, tsMark: 1, tsSettings: 1, attOverall: 1 };
 
 function tsRoute_(p) {
   if (p.ttoken) return tAuthed_(p, function (u) {
@@ -2340,6 +2342,7 @@ function tsDo_(p, who) {
     case 'tsCancel': return tsCancel_(who, p);
     case 'tsDelete': return tsDelete_(who, p);
     case 'tsMark': return tsMark_(who, p);
+    case 'attOverall': return attOverall_(who, p);
     case 'tsSettings': return who.admin ? rosterWrite_(function () { return tsSettingsSave_(p); }) : { ok: false, code: 'forbidden', error: 'Only the platform administrator can change these settings.' };
   }
   return { ok: false, code: 'badaction', error: 'Unknown action.' };
@@ -2670,8 +2673,8 @@ function tsStuLecture_(r, m) {
 }
 function tsStudentSessions_(p) {
   var S = tsStudent_(p); if (S.error) return S.error;
-  var now = Date.now(), rows = tsStudentRows_(S), att = {}, mine = {};
-  rpRows_(SHEETS.ATT_SESSIONS).forEach(function (a) { if (S.mods[a.module]) att[a.module + '|' + a.sessionId] = a; });
+  var now = Date.now(), rows = tsStudentRows_(S), att = {}, attRows = rpRows_(SHEETS.ATT_SESSIONS);
+  attRows.forEach(function (a) { if (S.mods[a.module]) att[a.module + '|' + a.sessionId] = a; });
   var recs = {}; rpRows_(SHEETS.ATT_RECORDS).forEach(function (q) { (recs[q.sessionId] = recs[q.sessionId] || []).push(q); });
   var members = tsMembers_(S.G.group.groupId), live = [], upcoming = [], recent = [], sum = { present: 0, late: 0, excused: 0, absent: 0, counted: 0 };
   rows.forEach(function (r) {
@@ -2687,9 +2690,25 @@ function tsStudentSessions_(p) {
   });
   upcoming.sort(function (a, b) { return a.startAt - b.startAt; });
   recent.sort(function (a, b) { return b.startAt - a.startAt; });
-  var set = tsSettings_(), attended = sum.present + sum.late, pct = sum.counted ? Math.round(attended / sum.counted * 100) : null;
-  return { ok: true, serverTime: now, settings: set, live: live, upcoming: upcoming.slice(0, 8), recent: recent.slice(0, 6),
-    mine: { attended: attended, late: sum.late, excused: sum.excused, absent: sum.absent, counted: sum.counted, pct: pct, warn: pct != null && pct < set.threshold } };
+  var set = tsSettings_();
+  // 2.15: "My attendance" = the student's OVERALL pathology attendance (every teaching module of the group, sessions taken
+  // inside a module included), with the same calculation and warning as before. Shown when the page is opened — nothing
+  // is sent, so a warning can never be delivered twice.
+  var place = tsPlaces_({ ids: null }).filter(function (g) { return g.groupId === S.G.group.groupId; })[0];
+  var ov = place ? attOverallCompute_(place, place.modules, members, set, { att: attRows, recs: recs }) : null;
+  var me = ov && ov.students.filter(function (x) { return x.studentId === S.st.username; })[0];
+  if (me) {
+    sum = me.total;
+    ov.sessions.forEach(function (z) {   // classes taken inside a module (no Teaching Session) also appear in the student's recent list
+      if (z.source !== 'module' || z.status !== 'ended') return;
+      recent.push({ title: z.title, module: z.module, icon: z.icon, chapter: z.chapter, teacher: z.teacher, startAt: z.at, durationMin: 0, materialsUrl: '', moduleUrl: '', moduleKey: z.moduleId, me: me.reg[z.id] || 'absent', at: 0 });
+    });
+    recent.sort(function (a, b) { return b.startAt - a.startAt; });
+  }
+  var c = attSummary_(sum, set.threshold);
+  var mine = { attended: c.attended, late: c.late, excused: c.excused, absent: c.absent, counted: c.counted, pct: c.pct, warn: c.warn, absencePct: c.absencePct, overall: !!me,
+    modules: me ? me.modules.filter(function (x) { return x.counted || x.excused; }).map(function (x) { return { module: x.module, icon: x.icon, attended: x.attended, counted: x.counted, pct: x.pct }; }) : [] };
+  return { ok: true, serverTime: now, settings: set, live: live, upcoming: upcoming.slice(0, 8), recent: recent.slice(0, 6), mine: mine };
 }
 function tsStudentCheckIn_(p) {
   var S = tsStudent_(p); if (S.error) return S.error;
@@ -2712,6 +2731,100 @@ function tsStudentCheckIn_(p) {
   var ref = Math.max(Number(hit.r.startAt) || 0, Number(hit.r.startedAt) || 0), late = (Number(hit.r.lateAfterMin) || 0) * 60000, at = Number(rec.scannedAt) || now;
   var mk = tsJson_(hit.r.marksJson, {})[acc.username];
   return { ok: true, alreadyRecorded: !!rec.alreadyRecorded, at: at, status: mk === 'present' || mk === 'late' ? mk : late > 0 && at > ref + late ? 'late' : 'present', title: hit.r.title, module: S.mods[hit.r.backendModule].title };
+}
+
+/* ======================================================================
+ * Overall Pathology Attendance (2.15) — one report per group over EVERY teaching module of the group.
+ * Attendance is still recorded inside each module (Teacher Portal → Attendance) or through a Teaching Session. Both
+ * write the SAME Code.gs rows (AttendanceSessions / AttendanceRecords of the delivery's storage): a Teaching Session
+ * only points at the module's attendance session (attSessionId). So every class is exactly ONE AttendanceSessions row,
+ * identified by storage + sessionId, and is counted once — however the students checked in.
+ *   - a row started by a Teaching Session keeps that session's rules: late after N minutes, the teacher's marks
+ *     (present / late / excused), "live" until it ends; a cancelled or still scheduled one does not count;
+ *   - a row started inside a module: present (checked in) or absent once the teacher closed it; open = not counted.
+ * The calculation is the Teaching Sessions one (tsList_ — the "Attendance by student" table and its CSV), applied to
+ * the combined records — never an average of module percentages:
+ *   attended = present + late; counted = present + late + absent (excused and open sessions do not count)
+ *   Attendance % = round(attended ÷ counted × 100); Absence % = 100 − Attendance %; nothing counted yet → no %
+ *   warning = Attendance % below the platform threshold (ts:threshold, 75 by default), exactly as before
+ * Students = the group's ACTIVE roster (the complete register, also students without any check-in), matched to
+ * check-ins by Student ID, then email, then a unique name (tsRegister_). Read-only: nothing is written or sent.
+ * ====================================================================== */
+function attZero_() { return { present: 0, late: 0, excused: 0, absent: 0, waiting: 0 }; }
+/** The previous system's figures from status counts (tsList_ / tsStudentSessions_). */
+function attSummary_(c, threshold) {
+  var attended = (c.present || 0) + (c.late || 0), counted = attended + (c.absent || 0);
+  var pct = counted ? Math.round(attended / counted * 100) : null;
+  return { attended: attended, present: c.present || 0, late: c.late || 0, excused: c.excused || 0, absent: c.absent || 0, counted: counted,
+    pct: pct, absencePct: pct == null ? null : 100 - pct, warn: pct != null && pct < threshold };
+}
+/** g: a place of tsPlaces_; mods: the deliveries to include; members: active roster; data: optional rows already read. */
+function attOverallCompute_(g, mods, members, set, data) {
+  data = data || {};
+  var want = {}; mods.forEach(function (m) { want[m.storage] = m; });
+  var tsBy = {}; tsRows_().forEach(function (t) { if (t.groupId === g.groupId && want[t.backendModule] && t.attSessionId) tsBy[t.backendModule + '|' + t.attSessionId] = t; });
+  var recs = data.recs; if (!recs) { recs = {}; rpRows_(SHEETS.ATT_RECORDS).forEach(function (q) { (recs[q.sessionId] = recs[q.sessionId] || []).push(q); }); }
+  var per = {}, order = [];
+  members.forEach(function (m) {
+    per[m.studentId] = { studentId: m.studentId, name: m.name, total: attZero_(), byMod: {}, reg: {} };
+    order.push(m.studentId);
+  });
+  var seen = {}, sessions = [], others = {};
+  (data.att || rpRows_(SHEETS.ATT_SESSIONS)).forEach(function (a) {
+    var m = want[a.module], key = a.module + '|' + a.sessionId;
+    if (!m || seen[key]) return; seen[key] = 1;
+    var t = tsBy[key] || null, st = t ? tsStatus_(t, a) : (a.status === 'active' ? 'live' : 'ended');
+    if (st !== 'live' && st !== 'ended') return;   // a cancelled / scheduled Teaching Session never counts
+    var reg = tsRegister_(t || { marksJson: '', startAt: 0, startedAt: 0, lateAfterMin: 0 }, members, recs[a.sessionId] || [], st === 'ended');
+    var z = { id: key, storage: a.module, deliveryId: m.deliveryId, moduleId: m.moduleId, module: m.title, icon: m.icon,
+      title: String((t && t.title) || a.sessionTitle || a.chapter || 'Attendance session'), chapter: String((t && t.chapter) || a.chapter || ''), teacher: String((t && t.teacher) || a.teacher || ''),
+      at: t ? (Number(t.startedAt) || Number(t.startAt) || Number(a.createdAt) || 0) : Number(a.createdAt) || 0,
+      status: st === 'ended' ? 'ended' : 'open', source: t ? 'teaching' : 'module', counts: reg.counts };
+    sessions.push(z);
+    reg.students.forEach(function (x) {
+      var s = per[x.studentId]; if (!s) return;
+      s.reg[key] = x.status;
+      if (st !== 'ended') return;
+      var c = s.byMod[m.deliveryId] || (s.byMod[m.deliveryId] = attZero_());
+      c[x.status]++; s.total[x.status]++;
+    });
+    reg.unlisted.forEach(function (q) {
+      var k = q.studentId || String(q.name || '').trim().toLowerCase() || '?';
+      var o = others[k] || (others[k] = { studentId: q.studentId, name: q.name, checkIns: 0 }); o.checkIns++;
+    });
+  });
+  sessions.sort(function (a, b) { return a.at - b.at; });
+  var th = set.threshold, ended = sessions.filter(function (z) { return z.status === 'ended'; });
+  var modules = mods.map(function (m) {
+    var n = ended.filter(function (z) { return z.deliveryId === m.deliveryId; }).length;
+    return { deliveryId: m.deliveryId, moduleId: m.moduleId, title: m.title, icon: m.icon, storage: m.storage, active: m.active, sessions: n,
+      open: sessions.filter(function (z) { return z.deliveryId === m.deliveryId && z.status === 'open'; }).length };
+  });
+  var pool = attZero_();
+  var students = order.map(function (id) {
+    var s = per[id], c = attSummary_(s.total, th);
+    ['present', 'late', 'excused', 'absent'].forEach(function (k) { pool[k] += s.total[k]; });
+    // how the student stands: no session counted yet (≠ absent), missed every counted session, mixed, or full attendance
+    c.state = !c.counted ? 'none' : !c.attended ? 'missed' : c.absent ? 'mixed' : 'full';
+    return Object.assign({ studentId: s.studentId, name: s.name }, c, { total: s.total, reg: s.reg,
+      modules: modules.map(function (m) { var x = attSummary_(s.byMod[m.deliveryId] || attZero_(), th); return Object.assign({ deliveryId: m.deliveryId, module: m.title, icon: m.icon }, x); }) });
+  });
+  var cls = attSummary_(pool, th);
+  return { settings: set, group: { groupId: g.groupId, label: g.label, linkCode: g.linkCode, academicYear: g.academicYear },
+    modules: modules, sessions: sessions, students: students,
+    summary: { students: students.length, ended: ended.length, open: sessions.length - ended.length, warn: students.filter(function (x) { return x.warn; }).length,
+      none: students.filter(function (x) { return x.state === 'none'; }).length, classPct: cls.pct, classAbsencePct: cls.absencePct },
+    others: Object.keys(others).map(function (k) { return others[k]; }) };
+}
+/** The report for the Teacher Dashboard. Admin: every teaching module of the group; personal teacher: the modules assigned to them. */
+function attOverall_(who, p) {
+  var g = tsGroupOf_(who, p.groupId); if (!g) return { ok: false, code: 'forbidden', error: 'Choose one of your groups.' };
+  var all = tsPlaces_({ ids: null }).filter(function (x) { return x.groupId === g.groupId; })[0];
+  var r = attOverallCompute_(g, g.modules, tsMembers_(g.groupId), tsSettings_());
+  r.ok = true; r.serverTime = Date.now();
+  r.partial = !!(all && all.modules.length > g.modules.length);   // a teacher who has only some of the group's modules
+  r.groupModules = all ? all.modules.length : g.modules.length;
+  return r;
 }
 
 /* ---------------- Group Live Classroom (2.9, step 3) ----------------

@@ -2030,3 +2030,108 @@ test('module Live Classroom: a signed-in registered student joins without the cl
   assert.ok(S.call({ module: 'cellinjury', action: 'setStudentActive', token: S.tokens.cellinjury, username: 's2', active: false }).ok);
   assert.strictEqual(S.call({ module: 'cellinjury', action: 'liveJoin', stoken: s2 }).code, 'studentauth');
 });
+
+/* ---------------- Overall Pathology Attendance (2.15) ---------------- */
+function modSession(S, storage, title) {   // a class whose attendance is taken INSIDE the module (Teacher Portal → Attendance)
+  const tok = S.call({ module: storage, action: 'login', password: 'teacher-' + storage }).token;
+  const r = S.call({ module: storage, action: 'startAttendanceSession', token: tok, sessionTitle: title, chapter: 'Ch' }); assert.ok(r.ok, JSON.stringify(r));
+  return { id: r.sessionId, code: r.code, close: function () { assert.ok(S.call({ module: storage, action: 'closeAttendanceSession', token: tok, sessionId: r.sessionId }).ok); } };
+}
+function modCheckIn(S, storage, id, pw, code) { const r = S.call({ module: storage, action: 'submitAttendanceByCode', stoken: login(S, storage, id, pw).token, code: code }); assert.ok(r.ok, JSON.stringify(r)); return r; }
+const STU_PW = { ahmed: PW, b1: 'basma-pass-1', b2: 'bilal-pass-1' };
+function pick(x) { return [x.attended, x.late, x.excused, x.absent, x.counted, x.pct, x.warn]; }
+
+test('overall attendance: on Teaching Sessions alone it gives exactly the previous by-student figures (75% is not below 75%)', function () {
+  const S = tsSetup();
+  // before any class: every registered student is listed, with nothing counted yet (not "absent")
+  let o = S.ts('attOverall', { groupId: S.ra.groupId }); assert.ok(o.ok, JSON.stringify(o));
+  assert.deepStrictEqual(o.students.map(function (x) { return [x.studentId, x.state, x.pct, x.absencePct, x.warn]; }),
+    [['ahmed', 'none', null, null, false], ['b1', 'none', null, null, false], ['b2', 'none', null, null, false]]);
+  const run = function (title, marks, ih) {
+    const s = S.ts('tsStart', { session: S.lect({ title: title, startAt: Date.now(), deliveryId: ih ? S.ih.deliveryId : S.ci.deliveryId }) }); assert.ok(s.ok, JSON.stringify(s));
+    Object.keys(marks).forEach(function (id) { assert.ok(S.ts('tsMark', { tsId: s.session.tsId, studentId: id, mark: marks[id] }).ok); });
+    assert.ok(S.ts('tsClose', { tsId: s.session.tsId }).ok);
+  };
+  run('L1', { ahmed: 'present', b1: 'present' });
+  run('L2', { ahmed: 'late', b1: 'excused' }, true);
+  run('L3', { ahmed: 'present' });
+  run('L4', {}, true);
+  const c = S.ts('tsSave', { session: S.lect({ title: 'L5 (cancelled)' }) }).session; S.ts('tsCancel', { tsId: c.tsId });
+  S.ts('tsSave', { session: S.lect({ title: 'L6 (upcoming)' }) });
+  const l = S.ts('tsList', { groupId: S.ra.groupId });
+  o = S.ts('attOverall', { groupId: S.ra.groupId });
+  l.students.forEach(function (x) { assert.deepStrictEqual(pick(stuOf(o, x.studentId)), pick(x), x.studentId + ' same as the previous table'); });
+  assert.deepStrictEqual(pick(stuOf(o, 'ahmed')), [3, 1, 0, 1, 4, 75, false]);
+  assert.strictEqual(stuOf(o, 'ahmed').absencePct, 25);
+  assert.deepStrictEqual(pick(stuOf(o, 'b1')), [1, 0, 1, 2, 3, 33, true]);
+  assert.strictEqual(stuOf(o, 'b2').state, 'missed'); assert.strictEqual(stuOf(o, 'b2').absencePct, 100);
+  assert.strictEqual(o.summary.ended, 4); assert.strictEqual(o.summary.warn, 2);
+  // the threshold is the platform's one: at 80 % ahmed's 75 % is now below it
+  assert.ok(S.ts('tsSettings', { threshold: 80 }).ok);
+  assert.strictEqual(stuOf(S.ts('attOverall', { groupId: S.ra.groupId }), 'ahmed').warn, true);
+  assert.strictEqual(stuOf(S.ts('tsList', { groupId: S.ra.groupId }), 'ahmed').warn, true);
+});
+
+test('overall attendance: module-recorded + Teaching Sessions over two modules — each class once, open ones not counted, other groups excluded', function () {
+  const S = tsSetup(), CI = 'cellinjury-razi-a-26', IH = 'inflhealing-razi-a-26';
+  // 1. Teaching Session in Cell Injury: ahmed present, b1 late, b2 absent
+  const L1 = S.ts('tsStart', { session: S.lect({ title: 'L1', startAt: Date.now() }) }); assert.ok(L1.ok);
+  S.ts('tsMark', { tsId: L1.session.tsId, studentId: 'ahmed', mark: 'present' }); S.ts('tsMark', { tsId: L1.session.tsId, studentId: 'b1', mark: 'late' });
+  S.ts('tsClose', { tsId: L1.session.tsId });
+  // 2. attendance taken inside the Cell Injury module: ahmed + b1 check in
+  const M1 = modSession(S, CI, 'M1 — inside Cell Injury'); modCheckIn(S, CI, 'ahmed', PW, M1.code); modCheckIn(S, CI, 'b1', STU_PW.b1, M1.code); M1.close();
+  // 3. inside the Inflammation module: only ahmed
+  const M2 = modSession(S, IH, 'M2 — inside Inflammation'); modCheckIn(S, IH, 'ahmed', PW, M2.code); M2.close();
+  // 4. Teaching Session in Inflammation: ahmed checks in on the group page AND again inside the module (same class); b1 excused
+  const L2 = S.ts('tsStart', { session: S.lect({ title: 'L2', startAt: Date.now(), deliveryId: S.ih.deliveryId }) }); assert.ok(L2.ok);
+  assert.ok(S.call({ module: 'portal', action: 'portalGroupCheckIn', g: 'razi-a-26', sessions: grpSessions(S, 'ahmed', PW), code: L2.code }).ok);
+  assert.ok(modCheckIn(S, IH, 'ahmed', PW, L2.code).alreadyRecorded);
+  S.ts('tsMark', { tsId: L2.session.tsId, studentId: 'b1', mark: 'excused' }); S.ts('tsClose', { tsId: L2.session.tsId });
+  // 5. a class still open in Inflammation (b2 checked in): not counted until closed
+  const M3 = modSession(S, IH, 'M3 — still open'); modCheckIn(S, IH, 'b2', STU_PW.b2, M3.code);
+  // 6. another group's class (Misrata, same module) never counts for Al-Razi
+  modSession(S, 'cellinjury-misrata-a-26', 'Misrata class').close();
+
+  const o = S.ts('attOverall', { groupId: S.ra.groupId }); assert.ok(o.ok, JSON.stringify(o));
+  assert.strictEqual(o.summary.ended, 4); assert.strictEqual(o.summary.open, 1); assert.strictEqual(o.sessions.length, 5);
+  assert.ok(!o.sessions.some(function (z) { return /Misrata/.test(z.title); }));
+  assert.deepStrictEqual(o.sessions.map(function (z) { return z.source; }).sort(), ['module', 'module', 'module', 'teaching', 'teaching']);
+  assert.deepStrictEqual(o.modules.map(function (m) { return [m.storage, m.sessions, m.open]; }).sort(), [[CI, 2, 0], [IH, 2, 1]]);
+  const a = stuOf(o, 'ahmed'), b1 = stuOf(o, 'b1'), b2 = stuOf(o, 'b2');
+  assert.deepStrictEqual(pick(a), [4, 0, 0, 0, 4, 100, false]); assert.strictEqual(a.state, 'full'); assert.strictEqual(a.absencePct, 0);
+  assert.deepStrictEqual(pick(b1), [2, 1, 1, 1, 3, 67, true]); assert.strictEqual(b1.state, 'mixed'); assert.strictEqual(b1.absencePct, 33);
+  assert.deepStrictEqual(pick(b2), [0, 0, 0, 4, 4, 0, true]); assert.strictEqual(b2.state, 'missed'); assert.strictEqual(b2.absencePct, 100);
+  // module breakdown — and the overall is NOT the average of the module percentages (b1: 100 % and 0 % → 67 %, not 50 %)
+  const bm = {}; b1.modules.forEach(function (m) { bm[m.module] = m; });
+  assert.deepStrictEqual([bm['Cell Injury & Cell Death'].attended, bm['Cell Injury & Cell Death'].counted, bm['Cell Injury & Cell Death'].pct], [2, 2, 100]);
+  const ihm = b1.modules.filter(function (m) { return m.deliveryId === S.ih.deliveryId; })[0];
+  assert.deepStrictEqual([ihm.attended, ihm.excused, ihm.counted, ihm.pct], [0, 1, 1, 0]);
+  // per-class register of a student
+  const M3z = o.sessions.filter(function (z) { return z.status === 'open'; })[0];
+  assert.strictEqual(b2.reg[M3z.id], 'present'); assert.strictEqual(b1.reg[M3z.id], 'waiting');
+  // pooled class figure: (4 + 2 + 0) ÷ (4 + 3 + 4) = 55 %
+  assert.strictEqual(o.summary.classPct, 55); assert.strictEqual(o.summary.warn, 2);
+  // read-only: nothing was written
+  const before = JSON.stringify([S.b.ctx.rpRows_('AttendanceSessions').length, S.b.ctx.rpRows_('AttendanceRecords').length]);
+  S.ts('attOverall', { groupId: S.ra.groupId });
+  assert.strictEqual(JSON.stringify([S.b.ctx.rpRows_('AttendanceSessions').length, S.b.ctx.rpRows_('AttendanceRecords').length]), before);
+
+  // the student's own card on the group page shows the same overall figure + warning (computed on opening — nothing sent)
+  const me = S.call({ module: 'portal', action: 'portalGroupSessions', g: 'razi-a-26', sessions: grpSessions(S, 'b1', STU_PW.b1) }); assert.ok(me.ok, JSON.stringify(me));
+  assert.deepStrictEqual([me.mine.attended, me.mine.counted, me.mine.pct, me.mine.absencePct, me.mine.warn, me.mine.overall], [2, 3, 67, 33, true, true]);
+  assert.strictEqual(me.mine.modules.length, 2);
+  assert.ok(me.recent.some(function (x) { return x.title === 'M1 — inside Cell Injury' && x.me === 'present'; }));
+  assert.ok(!/ahmed|Bilal|"reg"/.test(JSON.stringify(me)), 'never other students');
+  const me2 = S.call({ module: 'portal', action: 'portalGroupSessions', g: 'razi-a-26', sessions: grpSessions(S, 'ahmed', PW) });
+  assert.deepStrictEqual([me2.mine.pct, me2.mine.warn], [100, false]);
+
+  // access: a teacher sees only the modules assigned to them (flagged as partial); another group's teacher nothing; students nothing
+  assert.ok(S.dir('teacherAssign', { userId: S.sara.teacher.userId, deliveryIds: [S.dl['cellinjury-misrata-a-26'].deliveryId, S.ih.deliveryId] }).ok);
+  const sp = S.tt('attOverall', S.sara.tok, { groupId: S.ra.groupId }); assert.ok(sp.ok, JSON.stringify(sp));
+  assert.strictEqual(sp.partial, true); assert.deepStrictEqual(sp.modules.map(function (m) { return m.storage; }), [IH]);
+  assert.deepStrictEqual(pick(stuOf(sp, 'b1')), [0, 0, 1, 1, 1, 0, true]);
+  assert.strictEqual(S.tt('attOverall', S.ahmed.tok, { groupId: S.ra.groupId }).partial, false);
+  assert.strictEqual(S.tt('attOverall', S.ahmed.tok, { groupId: S.dl['cellinjury-misrata-a-26'].groupId }).code, 'forbidden');
+  assert.strictEqual(S.call({ module: 'portal', action: 'attOverall', groupId: S.ra.groupId }).ok, false);
+  assert.strictEqual(S.call({ module: 'portal', action: 'attOverall', groupId: S.ra.groupId, stoken: login(S, CI, 'b1', STU_PW.b1).token }).ok, false);
+});

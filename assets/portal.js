@@ -222,7 +222,9 @@
       body.appendChild(up);
       if (M.counted || r.recent.length) {
         var L = { present: '✅ Present', late: '🕒 Late', excused: '📝 Excused', absent: '❌ Absent' };
-        body.appendChild(h('<div class="ts-block"><h3>📋 My attendance</h3><p class="ts-mine' + (M.warn ? ' warn-t' : '') + '">' + (M.pct == null ? 'No lectures counted yet.' : '<b>' + M.pct + '%</b> — ' + M.attended + ' of ' + M.counted + ' lecture(s) attended' + (M.late ? ' (' + M.late + ' late)' : '') + (M.excused ? ' · ' + M.excused + ' excused' : '') + (M.absent ? ' · ' + M.absent + ' absent' : '') + (M.warn ? ' · ⚠ below ' + r.settings.threshold + '% — please talk to your teacher' : '')) + '</p>' +
+        var unit = M.overall ? 'session(s)' : 'lecture(s)';   // 2.15: the overall figure over every pathology module of the group
+        body.appendChild(h('<div class="ts-block"><h3>📋 My attendance' + (M.overall ? ' <span class="small muted">— all pathology modules</span>' : '') + '</h3><p class="ts-mine' + (M.warn ? ' warn-t' : '') + '">' + (M.pct == null ? 'No ' + unit.replace('(s)', 's') + ' counted yet.' : '<b>' + M.pct + '%</b> attended' + (M.absencePct != null ? ' · ' + M.absencePct + '% absent' : '') + ' — ' + M.attended + ' of ' + M.counted + ' ' + unit + ' attended' + (M.late ? ' (' + M.late + ' late)' : '') + (M.excused ? ' · ' + M.excused + ' excused' : '') + (M.absent ? ' · ' + M.absent + ' absent' : '') + (M.warn ? ' · ⚠ below ' + r.settings.threshold + '% — please talk to your teacher' : '')) + '</p>' +
+          (M.modules && M.modules.length > 1 ? '<p class="small muted ts-mine-mods">' + M.modules.map(function (m) { return esc(m.icon + ' ' + m.module) + ': ' + (m.counted ? m.attended + '/' + m.counted + ' (' + m.pct + '%)' : '—'); }).join(' · ') + '</p>' : '') +
           (r.recent.length ? '<div class="dir-list">' + r.recent.map(function (x) { return '<div class="dir-row"><div class="dir-main">' + what(x) + '<div class="small">' + esc(tzShow(x.startAt, tz)) + ' · ' + (L[x.me] || esc(x.me)) + link(x) + '</div></div></div>'; }).join('') + '</div>' : '') + '</div>'));
       }
     }
@@ -464,6 +466,7 @@
     modules: ['📚', 'Teaching Modules', 'Open a module in teacher mode or its Teacher Portal.'],
     sessions: ['🎓', 'Teaching Sessions', 'Schedule or start lectures, live attendance, Live Classroom, history.'],
     attendance: ['📋', 'Student Attendance', 'Attendance by student: attended, late, excused, absent — CSV export.'],
+    overall: ['📊', 'Overall Pathology Attendance', 'All modules together: attendance and absence % per student, module breakdown, below-75% warnings, Excel and print.'],
     exams: ['📝', 'Official Exams', 'Module and combined exams, exam banks, student exam pages, results.'],
     manage: ['🧩', 'Teacher Management', 'Front-page module cards: title, icon, colour, link, status.'],
     directory: ['🏛️', 'Platform Directory', 'Institutions, groups, modules, deliveries, students, teachers, content.']
@@ -550,6 +553,11 @@
     dashSum('attendance', x.group + ' · ' + x.students + ' student' + (x.students === 1 ? '' : 's') + ' · ' + x.ended + ' ended lecture' + (x.ended === 1 ? '' : 's'),
       x.warn ? '⚠ ' + x.warn + ' below ' + x.th + '%' : '', 'warn');
   }
+  function overallSummary(x) {
+    if (x.none) { dashSum('overall', x.none); return; }
+    dashSum('overall', x.group + ' · ' + x.students + ' student' + (x.students === 1 ? '' : 's') + ' · ' + x.ended + ' session' + (x.ended === 1 ? '' : 's') + ' in ' + x.modules + ' module' + (x.modules === 1 ? '' : 's'),
+      x.warn ? '⚠ ' + x.warn + ' below ' + x.th + '%' : '', 'warn');
+  }
   function examSummary(places) {
     var groups = {}, comb = 0; places.forEach(function (p) { groups[p.groupLabel] = 1; if (p.kind === 'combined') comb++; });
     var g = Object.keys(groups).length;
@@ -576,6 +584,7 @@
     var ss = sessionsSection(call, true, { attHost: $('.ts-att', att), onSummary: sessSummary });
     att.appendChild(reportBlock(call));
     var ex = examsSection(call, true, examSummary);
+    var ov = overallSection(call, overallSummary);
     var mg = h('<section class="t-sec" id="t-manage"><div class="sec-head"><h2>Teacher Management</h2><span class="small muted">Front-page modules, statuses and links</span></div><div class="t-box"><p class="muted">Loading…</p></div></section>');
     var box = $('.t-box', mg);
     var dir = directorySection(function (D) {
@@ -583,7 +592,7 @@
       dashSum('directory', n('institutions', 'institution').replace('institutionss', 'institutions') + ' · ' + n('groups', 'group') + ' · ' + n('deliveries', 'delivery').replace('deliverys', 'deliveries'));
     });
     main.appendChild(dashShell({ intro: 'Signed in as the platform administrator. Choose an area to open it.',
-      views: [['modules', tm], ['sessions', ss], ['attendance', att], ['exams', ex], ['manage', mg], ['directory', dir]] }));
+      views: [['modules', tm], ['sessions', ss], ['attendance', att], ['overall', ov], ['exams', ex], ['manage', mg], ['directory', dir]] }));
     DASH.onOpen.directory = function () { var d = $('details.dir', dir); if (d && !d.open) d.open = true; };   // loads the directory the first time
     moduleSummary();
     dashShow();
@@ -654,11 +663,11 @@
     var bar = h('<div class="roster-tools"><button class="btn" type="button" data-a="pw">🔑 Change my password</button></div>');
     $('[data-a=pw]', bar).onclick = function () { teacherPwForm(false); };
     var box = h('<section class="t-sec" id="t-mine"><p class="muted">Loading…</p></section>');
-    var sessW = h('<div class="dv-wrap"><p class="muted small">Loading…</p></div>'), exW = h('<div class="dv-wrap"><p class="muted small">Loading…</p></div>');
+    var sessW = h('<div class="dv-wrap"><p class="muted small">Loading…</p></div>'), exW = h('<div class="dv-wrap"><p class="muted small">Loading…</p></div>'), ovW = h('<div class="dv-wrap"><p class="muted small">Loading…</p></div>');
     var att = h('<section class="t-sec" id="t-att"><div class="ts-att"><p class="muted small">Loading…</p></div></section>');
     att.appendChild(reportBlock(call));
     main.appendChild(dashShell({ intro: 'Signed in as <b>' + esc(u.name || u.username) + '</b> (' + esc(u.username) + '). Your groups and modules — choose an area to open it.', tools: bar,
-      views: [['modules', box], ['sessions', sessW], ['attendance', att], ['exams', exW]] }));
+      views: [['modules', box], ['sessions', sessW], ['attendance', att], ['overall', ovW], ['exams', exW]] }));
     dashShow();
     post(CFG.backendUrl, { module: 'portal', action: 'teacherMe', ttoken: t.ttoken }).then(function (r) {
       if (!r.ok) { if (r.code === 'auth') { sdel(TKEY); toast('Your teacher session has ended — please sign in again.'); return route(); } box.innerHTML = '<p class="err">' + esc(r.error) + '</p>'; return; }
@@ -667,8 +676,8 @@
       box.innerHTML = '';
       if (!r.deliveries.length) {
         box.appendChild(h('<div class="card"><p>No group or module has been assigned to you yet. Please contact the platform administrator.</p></div>'));
-        sessW.innerHTML = exW.innerHTML = $('.ts-att', att).innerHTML = '<p class="muted small">No group or module is assigned to you yet.</p>';
-        ['modules', 'sessions', 'attendance', 'exams'].forEach(function (id) { dashSum(id, 'Nothing assigned yet'); });
+        sessW.innerHTML = exW.innerHTML = ovW.innerHTML = $('.ts-att', att).innerHTML = '<p class="muted small">No group or module is assigned to you yet.</p>';
+        ['modules', 'sessions', 'attendance', 'overall', 'exams'].forEach(function (id) { dashSum(id, 'Nothing assigned yet'); });
         return;
       }
       var nG = {}, nOpen = 0; r.deliveries.forEach(function (d) { nG[d.groupId] = 1; if (d.open) nOpen++; });
@@ -686,6 +695,7 @@
       });
       sessW.innerHTML = ''; sessW.appendChild(sessionsSection(call, false, { attHost: $('.ts-att', att), onSummary: sessSummary }));
       exW.innerHTML = ''; exW.appendChild(examsSection(call, false, examSummary));
+      ovW.innerHTML = ''; ovW.appendChild(overallSection(call, overallSummary));
     });
   }
   function myCard(d) {
@@ -1225,6 +1235,217 @@
       (x.deleted ? '<p>This item is <b>hidden/removed for this group</b>. The master version (what the other groups see):</p>' + pvBody(x.collection, x.master)
       : x.master && !same ? '<div class="pv-cmp"><div><p class="pv-lab">This group’s version</p>' + pvBody(x.collection, x.data) + '</div><div><p class="pv-lab">Master version (published)</p>' + pvBody(x.collection, x.master) + '</div></div>'
       : (same ? '<p class="small">Same as the master.</p>' : '<p class="small">Not in the master — only this group has it.</p>') + pvBody(x.collection, x.data));
+  }
+  /* ---------------- Overall Pathology Attendance (2.15): every teaching module of a group in one report ----------------
+     Read-only. The figures come from the backend (attOverall) — the same calculation as the Teaching Sessions
+     "Attendance by student" table, over the classes of every module (each class once). This view only presents them:
+     class table, module-by-module breakdown, one student's report, Excel / CSV export and a print-friendly report. */
+  var OV_STATE = { none: 'No sessions counted yet', missed: 'Missed every session', mixed: 'Attended some', full: 'Full attendance' };
+  var OV_ST = { present: '✅ Present', late: '🕒 Late', excused: '📝 Excused', absent: '❌ Absent', waiting: '⏳ Open — not counted yet' };
+  function ovPct(v) { return v == null ? '—' : v + '%'; }
+  function ovSort(list) { return list.slice().sort(function (a, b) { return (a.pct == null ? 101 : a.pct) - (b.pct == null ? 101 : b.pct) || String(a.studentId).localeCompare(String(b.studentId)); }); }
+  function ovBadge(x, th) {
+    if (x.warn) return '<span class="pill locked ov-badge">⚠ Below ' + th + '%</span>';
+    if (x.state === 'none') return '<span class="pill soon ov-badge">No sessions counted yet</span>';
+    return '<span class="pill available ov-badge">✓ ' + (x.state === 'full' ? 'Full attendance' : th + '% or above') + '</span>';
+  }
+  function ovStatusText(x, th) { return x.warn ? 'Below ' + th + '% — attendance warning' : x.state === 'none' ? 'No sessions counted yet' : OV_STATE[x.state]; }
+  /** Prints a self-contained HTML document from a hidden frame (no pop-up; the page's own CSP allows inline styles). */
+  var OV_PRINT_CSS = '@page{size:A4;margin:14mm 12mm}body{font:11pt/1.4 "Segoe UI",Arial,sans-serif;color:#1b2430;margin:0}' +
+    'h1{font-size:17pt;color:#0f2a4a;margin:0 0 2px}h2{font-size:12.5pt;color:#0f2a4a;margin:16px 0 6px}.sub{color:#5b6778;margin:0 0 10px}' +
+    '.meta{display:flex;flex-wrap:wrap;gap:4px 22px;font-size:10pt;border:1px solid #dde3ea;border-radius:6px;padding:7px 10px;margin:8px 0}' +
+    'table{border-collapse:collapse;width:100%;font-size:9.5pt}th,td{border:1px solid #c9d2dc;padding:3px 6px;text-align:left}th{background:#e6eef6;color:#0f2a4a}' +
+    'td.n,th.n{text-align:center}tr.warn td{background:#fde2e1}thead{display:table-header-group}tr{page-break-inside:avoid}' +
+    '.note{font-size:9pt;color:#5b6778;margin:8px 0}.sig{display:flex;gap:40px;margin-top:34px;font-size:10pt}.sig div{flex:1;border-top:1px solid #1b2430;padding-top:4px}' +
+    '.kpi{display:flex;flex-wrap:wrap;gap:6px 26px;margin:6px 0;font-size:10.5pt}.kpi b{font-size:12pt;color:#0f2a4a}';
+  function ovPrint(title, inner) {
+    var old = document.querySelector('iframe.ov-print'); if (old) old.remove();
+    var f = document.createElement('iframe');
+    f.className = 'ov-print'; f.setAttribute('aria-hidden', 'true'); f.setAttribute('tabindex', '-1');
+    f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+    document.body.appendChild(f);
+    var d = f.contentWindow.document;
+    d.open(); d.write('<!doctype html><html lang="en"><head><meta charset="utf-8"><title>' + esc(title) + '</title><style>' + OV_PRINT_CSS + '</style></head><body>' + inner + '</body></html>'); d.close();
+    setTimeout(function () { try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { toast('Printing is not available in this browser.'); } }, 200);
+  }
+  function overallSection(call, onSummary) {
+    var sec = h('<section class="t-sec" id="t-overall"><div class="ov-body"><p class="muted small">Loading…</p></div></section>');
+    var body = $('.ov-body', sec), G = null, groupId = '', R = null, show = 'all', q = '';
+    function fail(r) {
+      if (r.code === 'auth') { sdel(TKEY); toast('Your session has ended — please sign in again.'); route(); return; }
+      if (r.code === 'mustchange') { teacherPwForm(true); return; }
+      body.innerHTML = '<p class="small ' + (r.code === 'badaction' ? 'muted' : 'err') + '">' + esc(r.code === 'badaction' ? 'Update Portal.gs on the backend (version 2.15) to see the overall attendance.' : r.error || 'Something went wrong.') + '</p>';
+    }
+    function start() {
+      call('tsGroups').then(function (r) {
+        if (!r.ok) { fail(r); if (onSummary) onSummary({ none: r.code === 'badaction' ? 'Update Portal.gs (2.15)' : 'Not available' }); return; }
+        G = r;
+        if (!G.groups.length) { body.innerHTML = '<p class="muted small">No group has teaching modules yet.</p>'; if (onSummary) onSummary({ none: 'No teaching group yet' }); return; }
+        try { groupId = sessionStorage.getItem('pp_ts_group') || ''; } catch (e) { }
+        if (!G.groups.some(function (g) { return g.groupId === groupId; })) groupId = G.groups[0].groupId;
+        load();
+      });
+    }
+    function load() {
+      body.innerHTML = '<p class="muted small">Loading the attendance of every module…</p>';
+      call('attOverall', { groupId: groupId }).then(function (r) {
+        if (!r.ok) return fail(r);
+        R = r; draw();
+        if (onSummary) onSummary({ group: r.group.label, students: r.summary.students, ended: r.summary.ended, modules: r.modules.length, warn: r.summary.warn, th: r.settings.threshold });
+      });
+    }
+    function tz() { return (R && R.settings && R.settings.timeZone) || 'UTC'; }
+    function day(t) { return t ? tzShow(t, tz()) : '—'; }
+    function counted() { return R.sessions.filter(function (z) { return z.status === 'ended'; }); }
+    function visible() {
+      var k = q.trim().toLowerCase();
+      return ovSort(R.students).filter(function (x) {
+        if (show === 'warn' && !x.warn) return false;
+        if (show !== 'all' && show !== 'warn' && x.state !== show) return false;
+        return !k || String(x.studentId).toLowerCase().indexOf(k) >= 0 || String(x.name).toLowerCase().indexOf(k) >= 0;
+      });
+    }
+    function draw() {
+      var th = R.settings.threshold, S = R.summary;
+      body.innerHTML = '';
+      var top = h('<div class="ts-top"><label class="ts-g">Group <select>' + G.groups.map(function (x) { return '<option value="' + esc(x.groupId) + '"' + (x.groupId === groupId ? ' selected' : '') + '>' + esc(x.label) + '</option>'; }).join('') + '</select></label>' +
+        '<span class="small muted">Warning below <b>' + th + '%</b> · times in <b>' + esc(tz()) + '</b></span><button class="btn small" type="button" data-a="r">↻ Refresh</button></div>');
+      $('select', top).onchange = function () { groupId = this.value; try { sessionStorage.setItem('pp_ts_group', groupId); } catch (e) { } load(); };
+      $('[data-a=r]', top).onclick = load;
+      body.appendChild(top);
+      body.appendChild(h('<div class="ov-kpis">' +
+        '<div class="ov-kpi"><span>Students</span><b>' + S.students + '</b></div>' +
+        '<div class="ov-kpi"><span>Sessions counted</span><b>' + S.ended + '</b>' + (S.open ? '<small>+ ' + S.open + ' still open</small>' : '') + '</div>' +
+        '<div class="ov-kpi"><span>Class attendance</span><b>' + ovPct(S.classPct) + '</b></div>' +
+        '<div class="ov-kpi"><span>Class absence</span><b>' + ovPct(S.classAbsencePct) + '</b></div>' +
+        '<div class="ov-kpi' + (S.warn ? ' ov-kpi-warn' : '') + '"><span>Below ' + th + '%</span><b>' + (S.warn ? '⚠ ' : '') + S.warn + '</b></div>' +
+        '<div class="ov-kpi"><span>No sessions counted yet</span><b>' + S.none + '</b></div></div>'));
+      body.appendChild(h('<p class="small ov-mods"><b>Modules included:</b> ' + (R.modules.length ? R.modules.map(function (m) { return '<span class="ov-chip">' + esc(m.icon + ' ' + m.title) + ' · ' + m.sessions + ' session' + (m.sessions === 1 ? '' : 's') + (m.open ? ' (+' + m.open + ' open)' : '') + '</span>'; }).join(' ') : '<span class="muted">none</span>') + '</p>'));
+      if (R.partial) body.appendChild(h('<p class="note small">Only the ' + R.modules.length + ' module(s) assigned to you are included; the group has ' + R.groupModules + ' teaching module(s). The platform administrator sees the complete syllabus.</p>'));
+      body.appendChild(h('<p class="small muted ov-method">Each class is counted once, whether its attendance was taken inside the module or as a Teaching Session. Late counts as attended; excused classes and classes still open do not count. ' +
+        'Attendance % = attended ÷ (attended + absent), rounded to a whole number; Absence % = 100 − Attendance %. Students below ' + th + '% get the warning — the same calculation and rule as the Teaching Sessions “Attendance by student” table.</p>'));
+      var tools = h('<div class="roster-tools"><button class="btn primary" type="button" data-a="xlsx">⬇ Excel (.xlsx)</button><button class="btn" type="button" data-a="csv">⬇ CSV</button><button class="btn" type="button" data-a="print">🖨 Print report</button></div>');
+      $('[data-a=xlsx]', tools).onclick = excel; $('[data-a=csv]', tools).onclick = csv; $('[data-a=print]', tools).onclick = printClass;
+      body.appendChild(tools);
+      if (!R.students.length) { body.appendChild(h('<p class="muted small">No students in this group yet (Platform directory → Students).</p>')); return; }
+      // class-wide table
+      var cls = h('<div class="ts-block ov-class"><h3>📋 Class attendance — all modules</h3>' +
+        '<div class="ov-filter"><label>Find<input type="search" class="ov-q" placeholder="Name or Student ID" value="' + esc(q) + '"></label>' +
+        '<label>Show<select class="ov-show">' + [['all', 'All students'], ['warn', 'Below ' + th + '% (warning)'], ['none', 'No sessions counted yet'], ['missed', 'Missed every session'], ['mixed', 'Attended some'], ['full', 'Full attendance']].map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === show ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select></label>' +
+        '<span class="small muted ov-count"></span></div>' +
+        '<div class="tbl-wrap"><table class="dir-tbl ov-tbl"><thead><tr><th>Student ID</th><th>Name</th><th class="n">Attended</th><th class="n">Late</th><th class="n">Excused</th><th class="n">Absent</th><th class="n">Sessions counted</th><th class="n">Attendance</th><th class="n">Absence</th><th>Status</th><th></th></tr></thead><tbody></tbody></table></div></div>');
+      body.appendChild(cls);
+      var detailBox = h('<div class="ov-detail"></div>');
+      function rows() {
+        var list = visible(), tb = $('tbody', cls);
+        tb.innerHTML = '';
+        list.forEach(function (x) {
+          var tr = h('<tr' + (x.warn ? ' class="ts-warn"' : '') + ' data-student="' + esc(x.studentId) + '"><td><code>' + esc(x.studentId) + '</code></td><td dir="auto">' + esc(x.name) + '</td>' +
+            '<td class="n">' + x.attended + '</td><td class="n">' + x.late + '</td><td class="n">' + x.excused + '</td><td class="n">' + x.absent + '</td><td class="n">' + x.counted + '</td>' +
+            '<td class="n"><b>' + ovPct(x.pct) + '</b></td><td class="n">' + ovPct(x.absencePct) + '</td><td>' + ovBadge(x, th) + '</td><td><button class="btn small" type="button">Report →</button></td></tr>');
+          $('button', tr).onclick = function () { detail(x); };
+          tb.appendChild(tr);
+        });
+        if (!list.length) tb.appendChild(h('<tr><td colspan="11" class="muted small">No student matches.</td></tr>'));
+        $('.ov-count', cls).textContent = list.length + ' of ' + R.students.length + ' student' + (R.students.length === 1 ? '' : 's');
+      }
+      $('.ov-q', cls).oninput = function () { q = this.value; rows(); };
+      $('.ov-show', cls).onchange = function () { show = this.value; rows(); };
+      rows();
+      body.appendChild(detailBox);
+      // module-by-module
+      if (R.modules.length) {
+        var mb = h('<div class="ts-block ov-modtbl"><h3>📚 Module-by-module attendance</h3><p class="small muted">Attended of counted sessions and the attendance % in each module. The overall figure is calculated from all the sessions together — it is not the average of the module percentages.</p>' +
+          '<div class="tbl-wrap"><table class="dir-tbl"><thead><tr><th>Student</th>' + R.modules.map(function (m) { return '<th class="n">' + esc(m.icon + ' ' + m.title) + '<div class="small muted">' + m.sessions + ' session(s)</div></th>'; }).join('') + '<th class="n">Overall</th></tr></thead><tbody>' +
+          ovSort(R.students).map(function (x) {
+            return '<tr' + (x.warn ? ' class="ts-warn"' : '') + '><td dir="auto">' + esc(x.name) + ' <span class="small muted">' + esc(x.studentId) + '</span></td>' +
+              x.modules.map(function (m) { return '<td class="n">' + (m.counted ? m.attended + '/' + m.counted + ' · <b>' + m.pct + '%</b>' : '<span class="muted">—</span>') + (m.excused ? '<div class="small muted">' + m.excused + ' excused</div>' : '') + '</td>'; }).join('') +
+              '<td class="n"><b>' + ovPct(x.pct) + '</b>' + (x.warn ? ' ⚠' : '') + '</td></tr>';
+          }).join('') + '</tbody></table></div></div>');
+        body.appendChild(mb);
+      }
+      if (R.others.length) body.appendChild(h('<p class="small warn-t">Check-ins not matched to this group’s student list (not counted): ' + R.others.map(function (o) { return esc(o.name || o.studentId || '?') + (o.studentId ? ' (' + esc(o.studentId) + ')' : '') + ' — ' + o.checkIns; }).join('; ') + '</p>'));
+      function detail(x) {
+        var list = R.sessions.slice().reverse();
+        var w = h('<div class="note ov-stu" tabindex="-1"><div class="ov-stu-h"><div><b dir="auto">' + esc(x.name) + '</b> <code>' + esc(x.studentId) + '</code><div class="small muted">' + esc(R.group.label) + '</div></div>' + ovBadge(x, th) + '</div>' +
+          (x.warn ? '<p class="warn-t ov-warn-msg">⚠ Attendance is below ' + th + '% (' + x.pct + '%). This student should be warned.</p>' : '') +
+          '<div class="ov-kpis"><div class="ov-kpi"><span>Attendance</span><b>' + ovPct(x.pct) + '</b></div><div class="ov-kpi"><span>Absence</span><b>' + ovPct(x.absencePct) + '</b></div>' +
+          '<div class="ov-kpi"><span>Attended</span><b>' + x.attended + '</b>' + (x.late ? '<small>' + x.late + ' late</small>' : '') + '</div><div class="ov-kpi"><span>Absent</span><b>' + x.absent + '</b></div><div class="ov-kpi"><span>Excused</span><b>' + x.excused + '</b></div><div class="ov-kpi"><span>Sessions counted</span><b>' + x.counted + '</b></div></div>' +
+          '<div class="tbl-wrap"><table class="dir-tbl"><thead><tr><th>Module</th><th class="n">Attended</th><th class="n">Late</th><th class="n">Excused</th><th class="n">Absent</th><th class="n">Counted</th><th class="n">Attendance</th><th class="n">Absence</th></tr></thead><tbody>' +
+          x.modules.map(function (m) { return '<tr><td>' + esc(m.icon + ' ' + m.module) + '</td><td class="n">' + m.attended + '</td><td class="n">' + m.late + '</td><td class="n">' + m.excused + '</td><td class="n">' + m.absent + '</td><td class="n">' + m.counted + '</td><td class="n"><b>' + ovPct(m.pct) + '</b></td><td class="n">' + ovPct(m.absencePct) + '</td></tr>'; }).join('') +
+          '<tr><td><b>All modules</b></td><td class="n"><b>' + x.attended + '</b></td><td class="n">' + x.late + '</td><td class="n">' + x.excused + '</td><td class="n">' + x.absent + '</td><td class="n"><b>' + x.counted + '</b></td><td class="n"><b>' + ovPct(x.pct) + '</b></td><td class="n"><b>' + ovPct(x.absencePct) + '</b></td></tr></tbody></table></div>' +
+          '<details class="ov-reg"' + (list.length <= 12 ? ' open' : '') + '><summary class="small">Session-by-session (' + list.length + ')</summary><div class="tbl-wrap"><table class="dir-tbl"><thead><tr><th>Date</th><th>Module</th><th>Session</th><th>Status</th></tr></thead><tbody>' +
+          (list.length ? list.map(function (z) { return '<tr><td>' + esc(day(z.at)) + '</td><td>' + esc(z.icon + ' ' + z.module) + '</td><td>' + esc(z.title) + (z.source === 'teaching' ? ' <span class="small muted">(Teaching Session)</span>' : '') + '</td><td>' + esc(OV_ST[x.reg[z.id]] || '—') + '</td></tr>'; }).join('') : '<tr><td colspan="4" class="muted small">No sessions yet.</td></tr>') +
+          '</tbody></table></div></details>' +
+          '<div class="roster-tools"><button class="btn" type="button" data-a="p">🖨 Print this student’s report</button><button class="btn" type="button" data-a="x">Close</button></div></div>');
+        $('[data-a=x]', w).onclick = function () { detailBox.innerHTML = ''; var b = $('tr[data-student="' + x.studentId.replace(/"/g, '') + '"] button', cls); if (b) b.focus(); };
+        $('[data-a=p]', w).onclick = function () { printStudent(x); };
+        detailBox.innerHTML = ''; detailBox.appendChild(w); w.scrollIntoView({ block: 'nearest' }); try { w.focus({ preventScroll: true }); } catch (e) { }
+      }
+    }
+    /* ---- exports: the reference columns of the previous "attendance by student" CSV first, then Absence % and Status ---- */
+    function base() { var th = R.settings.threshold; return ['Student ID', 'Name', 'Attended', 'Late', 'Excused', 'Absent', 'Lectures counted', 'Attendance %', 'Below ' + th + '%', 'Absence %', 'Status']; }
+    function line(x) { var th = R.settings.threshold; return [x.studentId, x.name, x.attended, x.late, x.excused, x.absent, x.counted, x.pct, x.warn ? 'yes' : '', x.absencePct, ovStatusText(x, th)]; }
+    function fname(ext) { return 'overall-attendance-' + R.group.linkCode + '-' + tzInput(Date.now(), tz()).slice(0, 10) + '.' + ext; }
+    function csv() { csvDownload(fname('csv'), base(), ovSort(R.students).map(line)); }
+    function excel() {
+      if (!window.PlatformXlsx) return toast('Reload the page to export to Excel.');
+      var th = R.settings.threshold, st = ovSort(R.students), C = counted();
+      var warnRows = {}; st.forEach(function (x, i) { if (x.warn) warnRows[i + 1] = 'warn'; });
+      var ov = { name: 'Overall', rows: [base()].concat(st.map(function (x) { var l = line(x); l[0] = String(l[0]); return l; })), widths: [13, 30, 10, 7, 9, 8, 16, 13, 11, 11, 30], styles: warnRows };
+      var mh = ['Student ID', 'Name']; R.modules.forEach(function (m) { mh.push(m.title + ' — attended', m.title + ' — counted', m.title + ' — %'); }); mh.push('Overall attendance %', 'Overall absence %', 'Below ' + th + '%');
+      var bm = { name: 'By module', rows: [mh].concat(st.map(function (x) { var l = [String(x.studentId), x.name]; x.modules.forEach(function (m) { l.push(m.attended, m.counted, m.pct); }); l.push(x.pct, x.absencePct, x.warn ? 'yes' : ''); return l; })),
+        widths: [13, 30].concat(R.modules.reduce(function (a) { return a.concat([14, 12, 10]); }, [])).concat([12, 12, 10]), styles: warnRows };
+      var ss = { name: 'Sessions', rows: [['Date (' + tz() + ')', 'Module', 'Session', 'Chapter', 'Recorded as', 'Status', 'Present', 'Late', 'Excused', 'Absent']].concat(R.sessions.map(function (z) {
+        var c = z.counts || {}; return [day(z.at), z.module, z.title, z.chapter, z.source === 'teaching' ? 'Teaching Session' : 'Module attendance', z.status === 'ended' ? 'Counted' : 'Open — not counted yet', c.present, c.late, c.excused, z.status === 'ended' ? c.absent : ''];
+      })), widths: [24, 26, 34, 18, 18, 22, 9, 7, 9, 8] };
+      var rg = { name: 'Register', rows: [['Student ID', 'Name'].concat(C.map(function (z) { return tzInput(z.at, tz()).slice(0, 10) + ' · ' + z.module + ' · ' + z.title; }))].concat(st.map(function (x) {
+        return [String(x.studentId), x.name].concat(C.map(function (z) { return x.reg[z.id] || ''; }));
+      })), widths: [13, 30].concat(C.map(function () { return 16; })), styles: warnRows };
+      var info = { name: 'Report info', header: 0, widths: [30, 70], styles: { 0: 'title' }, rows: [
+        ['Overall Pathology Attendance Report'], ['Group', R.group.label], ['Generated', tzShow(Date.now(), tz()) + ' (' + tz() + ')'],
+        ['Modules included', R.modules.map(function (m) { return m.title + ' (' + m.sessions + ')'; }).join('; ')], ['Sessions counted', R.summary.ended], ['Sessions still open (not counted)', R.summary.open],
+        ['Students', R.summary.students], ['Below ' + th + '%', R.summary.warn], ['No sessions counted yet', R.summary.none], ['Class attendance %', R.summary.classPct], ['Class absence %', R.summary.classAbsencePct],
+        ['Calculation', 'Attendance % = round(attended ÷ (attended + absent) × 100); late counts as attended; excused and open sessions do not count; Absence % = 100 − Attendance %.'],
+        ['Warning', 'Attendance % below ' + th + '% (the platform threshold) — the same rule as the Teaching Sessions table.'],
+        R.partial ? ['Note', 'Only the modules assigned to this teacher are included.'] : []] };
+      PlatformXlsx.download(fname('xlsx'), [ov, bm, ss, rg, info]);
+    }
+    function head(title) {
+      var th = R.settings.threshold;
+      return '<h1>' + esc(title) + '</h1><p class="sub">' + esc(R.group.label) + '</p>' +
+        '<div class="meta"><span><b>Generated:</b> ' + esc(tzShow(Date.now(), tz())) + '</span><span><b>Sessions counted:</b> ' + R.summary.ended + (R.summary.open ? ' (+' + R.summary.open + ' open, not counted)' : '') + '</span><span><b>Warning threshold:</b> below ' + th + '%</span>' +
+        '<span><b>Modules:</b> ' + esc(R.modules.map(function (m) { return m.title + ' (' + m.sessions + ')'; }).join(', ') || '—') + '</span></div>';
+    }
+    var SIG = '<div class="sig"><div>Teacher — name and signature</div><div>Head of Department — signature</div><div>Date</div></div>';
+    var NOTE = function () { return '<p class="note">Each class is counted once (module attendance and Teaching Sessions). Late counts as attended; excused and open sessions do not count. Attendance % = attended ÷ (attended + absent), rounded; Absence % = 100 − Attendance %. ⚠ = below ' + R.settings.threshold + '%.' + (R.partial ? ' Only the modules assigned to this teacher are included.' : '') + '</p>'; };
+    function printClass() {
+      var th = R.settings.threshold, st = ovSort(R.students), S = R.summary, warn = st.filter(function (x) { return x.warn; });
+      ovPrint('Overall attendance — ' + R.group.label, head('Overall Pathology Attendance Report') +
+        '<div class="kpi"><span>Students <b>' + S.students + '</b></span><span>Class attendance <b>' + ovPct(S.classPct) + '</b></span><span>Class absence <b>' + ovPct(S.classAbsencePct) + '</b></span><span>Below ' + th + '% <b>' + S.warn + '</b></span><span>No sessions counted yet <b>' + S.none + '</b></span></div>' +
+        '<table><thead><tr><th>#</th><th>Student ID</th><th>Name</th><th class="n">Attended</th><th class="n">Late</th><th class="n">Excused</th><th class="n">Absent</th><th class="n">Counted</th><th class="n">Attendance %</th><th class="n">Absence %</th><th>Status</th></tr></thead><tbody>' +
+        st.map(function (x, i) { return '<tr' + (x.warn ? ' class="warn"' : '') + '><td class="n">' + (i + 1) + '</td><td>' + esc(x.studentId) + '</td><td dir="auto">' + esc(x.name) + '</td><td class="n">' + x.attended + '</td><td class="n">' + x.late + '</td><td class="n">' + x.excused + '</td><td class="n">' + x.absent + '</td><td class="n">' + x.counted + '</td><td class="n"><b>' + ovPct(x.pct) + '</b></td><td class="n">' + ovPct(x.absencePct) + '</td><td>' + (x.warn ? '⚠ ' : '') + esc(ovStatusText(x, th)) + '</td></tr>'; }).join('') +
+        '</tbody></table>' +
+        (R.modules.length > 1 ? '<h2>Module-by-module</h2><table><thead><tr><th>Student</th>' + R.modules.map(function (m) { return '<th class="n">' + esc(m.title) + '</th>'; }).join('') + '<th class="n">Overall</th></tr></thead><tbody>' +
+          st.map(function (x) { return '<tr' + (x.warn ? ' class="warn"' : '') + '><td dir="auto">' + esc(x.name) + '</td>' + x.modules.map(function (m) { return '<td class="n">' + (m.counted ? m.attended + '/' + m.counted + ' (' + m.pct + '%)' : '—') + '</td>'; }).join('') + '<td class="n"><b>' + ovPct(x.pct) + '</b></td></tr>'; }).join('') + '</tbody></table>' : '') +
+        (warn.length ? '<h2>Students below ' + th + '% (' + warn.length + ')</h2><p>' + warn.map(function (x) { return '<span dir="auto">' + esc(x.name) + '</span> (' + esc(x.studentId) + ', ' + x.pct + '%)'; }).join(' · ') + '</p>' : '') +
+        NOTE() + SIG);
+    }
+    function printStudent(x) {
+      var th = R.settings.threshold;
+      ovPrint('Attendance — ' + x.name, head('Student Attendance Report — All Pathology Modules') +
+        '<h2 dir="auto">' + esc(x.name) + ' · ' + esc(x.studentId) + '</h2>' +
+        '<div class="kpi"><span>Attendance <b>' + ovPct(x.pct) + '</b></span><span>Absence <b>' + ovPct(x.absencePct) + '</b></span><span>Attended <b>' + x.attended + '</b>' + (x.late ? ' (' + x.late + ' late)' : '') + '</span><span>Absent <b>' + x.absent + '</b></span><span>Excused <b>' + x.excused + '</b></span><span>Counted <b>' + x.counted + '</b></span></div>' +
+        (x.warn ? '<p><b>⚠ Attendance is below ' + th + '%.</b></p>' : '<p>' + esc(ovStatusText(x, th)) + '.</p>') +
+        '<table><thead><tr><th>Module</th><th class="n">Attended</th><th class="n">Late</th><th class="n">Excused</th><th class="n">Absent</th><th class="n">Counted</th><th class="n">Attendance %</th><th class="n">Absence %</th></tr></thead><tbody>' +
+        x.modules.map(function (m) { return '<tr><td>' + esc(m.module) + '</td><td class="n">' + m.attended + '</td><td class="n">' + m.late + '</td><td class="n">' + m.excused + '</td><td class="n">' + m.absent + '</td><td class="n">' + m.counted + '</td><td class="n">' + ovPct(m.pct) + '</td><td class="n">' + ovPct(m.absencePct) + '</td></tr>'; }).join('') +
+        '<tr><td><b>All modules</b></td><td class="n"><b>' + x.attended + '</b></td><td class="n">' + x.late + '</td><td class="n">' + x.excused + '</td><td class="n">' + x.absent + '</td><td class="n"><b>' + x.counted + '</b></td><td class="n"><b>' + ovPct(x.pct) + '</b></td><td class="n"><b>' + ovPct(x.absencePct) + '</b></td></tr></tbody></table>' +
+        '<h2>Session-by-session</h2><table><thead><tr><th>Date</th><th>Module</th><th>Session</th><th>Status</th></tr></thead><tbody>' +
+        R.sessions.map(function (z) { return '<tr><td>' + esc(day(z.at)) + '</td><td>' + esc(z.module) + '</td><td>' + esc(z.title) + '</td><td>' + esc((OV_ST[x.reg[z.id]] || '—').replace(/^\S+ /, '')) + '</td></tr>'; }).join('') + '</tbody></table>' +
+        NOTE() + SIG);
+    }
+    start();
+    return sec;
   }
   /* ---------------- Results & attendance overviews (Step 10, read-only) ---------------- */
   function reportView(host, call) {
