@@ -1129,8 +1129,8 @@ test('Step 10: Results & attendance — Admin tab (all groups) and a personal te
   await p.fill('#t-u', un); await p.fill('#t-p', 'rep-teacher-2'); await p.click('form.card button[type=submit]');
   await dash(p, 'modules');
   await p.waitForSelector('#t-mine .my-group');
-  await dash(p, 'attendance');
-  await p.click('.roster-tools [data-a=rep]');
+  await dash(p, 'overall');
+  await p.click('#t-overall ~ .rep-block [data-a=rep]');
   await p.waitForSelector('#t-report .rep-tbl tbody tr');
   assert.deepStrictEqual(await p.$$eval('#t-report .rep-tbl tbody tr', function (r) { return r.map(function (x) { return x.dataset.delivery; }); }), [d.deliveryId]);
   assert.ok(!/Misrata/.test(await p.textContent('#t-report')));
@@ -1665,8 +1665,8 @@ test('Teaching Sessions: Admin schedules a lecture, opens attendance (rotating c
   assert.ok(!/Not yet/.test(await p.textContent('#t-sessions .ts-reg')));
   const hist = await p.textContent('#t-sessions .ts-block:has(h3:text("history"))');
   assert.match(hist, /Lecture 1 — Cell adaptation[\s\S]*✅ 1/);
-  // students table + CSV
-  assert.match(await p.textContent('#t-att .ts-block:has(h3:text("by student"))'), /ahmed[\s\S]*Student Ahmed[\s\S]*100%/);
+  // 2.15: no by-student table under Teaching Sessions any more (it is the Overall Pathology Attendance view)
+  assert.ok(!(await p.$('#t-sessions .ts-block:has(h3:text("by student"))')));
   const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#t-sessions .ts-block:has(h3:text("history")) [data-a=csv]')]);
   assert.strictEqual(dl.suggestedFilename(), 'teaching-sessions-tr-a.csv');
   assert.match(fs.readFileSync(await dl.path(), 'utf8'), /Date and time \(Asia\/Aden\),Lecture,Module[\s\S]*Lecture 1 — Cell adaptation,Cell Injury & Cell Death,Chapter 1,[^,]*,ended,1,0,0,/);
@@ -2212,7 +2212,7 @@ test('Presentation Mode attendance code: the open code stays in the corner on ev
   await p.context().close();
 });
 
-test('Teacher Dashboard: compact cards first; each card opens its full management view; Back / browser Back / deep links; typed input is kept and unsaved changes are protected; a personal teacher gets five cards', { skip: SKIP }, async function () {
+test('Teacher Dashboard: compact cards first; each card opens its full management view; Back / browser Back / deep links; typed input is kept and unsaved changes are protected; a personal teacher gets four cards', { skip: SKIP }, async function () {
   groupFixture();
   main.call({ module: 'portal', action: 'setup', password: TPW });
   const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
@@ -2226,16 +2226,16 @@ test('Teacher Dashboard: compact cards first; each card opens its full managemen
   await p.goto(url + '#/teacher');
   await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
   await p.waitForSelector('.dash-grid .dash-card');
-  // only the seven cards are on screen — no management form or table
+  // only the six cards are on screen — no management form or table
   assert.deepStrictEqual(await p.$$eval('.dash-card', function (c) { return c.map(function (x) { return x.dataset.view + '|' + x.querySelector('.dc-t').textContent; }); }),
-    ['modules|Teaching Modules', 'sessions|Teaching Sessions', 'attendance|Student Attendance', 'overall|Overall Pathology Attendance', 'exams|Official Exams', 'manage|Teacher Management', 'directory|Platform Directory']);
+    ['modules|Teaching Modules', 'sessions|Teaching Sessions', 'overall|Overall Pathology Attendance', 'exams|Official Exams', 'manage|Teacher Management', 'directory|Platform Directory']);
   assert.strictEqual(await p.$$eval('.dash-view', function (v) { return v.filter(function (x) { return !x.hidden; }).length; }), 0);
-  for (const sel of ['#t-modules', '#t-sessions', '#t-att', '#t-overall', '#t-exams', '#t-manage', '#t-dir', 'form.ts-form', '.modrow', 'table']) assert.ok(!(await p.isVisible(sel)), sel + ' hidden on the dashboard');
+  for (const sel of ['#t-modules', '#t-sessions', '#t-overall', '#t-exams', '#t-manage', '#t-dir', 'form.ts-form', '.modrow', 'table']) assert.ok(!(await p.isVisible(sel)), sel + ' hidden on the dashboard');
   // summaries from the data the sections already loaded
   await p.waitForFunction(function () { return /module/.test(document.querySelector('.dash-card[data-view=modules] .dc-sum').textContent) && /module card/.test(document.querySelector('.dash-card[data-view=manage] .dc-sum').textContent) && /exam place|No exam/.test(document.querySelector('.dash-card[data-view=exams] .dc-sum').textContent); });
   assert.match(await p.textContent('.dash-card[data-view=modules] .dc-sum'), /^\d+ modules? · \d+ open to students$/);
   // every card opens its view (address #/teacher/<view>), with Back to Dashboard
-  const expect = { modules: '#t-modules .mod .t-open', sessions: '#t-sessions .ts-top select', attendance: '#t-att .ts-top select', overall: '#t-overall .ts-top select', exams: '#t-exams .ex-row', manage: '#t-manage .modrow', directory: '#t-dir .dir-tabs' };
+  const expect = { modules: '#t-modules .mod .t-open', sessions: '#t-sessions .ts-top select', overall: '#t-overall .ts-top select', exams: '#t-exams .ex-row', manage: '#t-manage .modrow', directory: '#t-dir .dir-tabs' };
   for (const v of Object.keys(expect)) {
     await p.click('.dash-card[data-view=' + v + ']');
     await p.waitForSelector(expect[v], { state: 'visible', timeout: 15000 });
@@ -2254,22 +2254,23 @@ test('Teacher Dashboard: compact cards first; each card opens its full managemen
   await p.goBack(); await p.waitForSelector('.dash-grid', { state: 'visible' });
   await p.goto(url + '#/teacher/exams'); await p.waitForSelector('#t-exams .ex-row', { state: 'visible' });
   await p.goto(url + '#/teacher/nonsense'); await p.waitForSelector('.dash-grid', { state: 'visible' });
-  // the attendance view: group, the by-student table with its totals and CSV, and the all-modules report
+  // 2.15: Student Attendance is replaced by Overall Pathology Attendance; an old bookmark opens it; Results & attendance moved there
   A('tsStart', { session: { groupId: g.groupId, deliveryId: d.deliveryId, title: 'Dash lecture', startAt: Date.now() } });
   const live = main.ctx.dirAll_('TeachingSessions').filter(function (x) { return x.title === 'Dash lecture'; })[0];
   A('tsClose', { tsId: live.tsId });
-  await p.reload(); await p.waitForSelector('.dash-grid .dash-card');
-  await dash(p, 'attendance');
-  await p.selectOption('#t-att .ts-top select', g.groupId);
-  await p.waitForSelector('#t-att .ts-block:has(h3:text("by student")) table');
-  assert.deepStrictEqual(await p.$$eval('#t-att .ts-block:has(h3:text("by student")) th', function (x) { return x.map(function (e) { return e.textContent; }); }), ['Student ID', 'Name', 'Attended', 'Late', 'Excused', 'Absent', 'Attendance']);
-  const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#t-att .ts-block:has(h3:text("by student")) [data-a=csv]')]);
-  assert.strictEqual(dl.suggestedFilename(), 'attendance-by-student-tr-a.csv');
-  await p.click('#t-att [data-a=rep]'); await p.waitForSelector('#t-report:not([hidden])');
-  // the sessions view follows the same group, and the card shows it
-  await p.click('.dash-view[data-view=attendance] .dv-back');
+  await p.goto(url + '#/teacher/attendance'); await p.reload();
+  await p.waitForSelector('#t-overall .ts-top select', { state: 'visible' });
+  assert.strictEqual(new URL(p.url()).hash, '#/teacher/overall');
+  await p.selectOption('#t-overall .ts-top select', g.groupId);
+  await p.waitForSelector('#t-overall .ov-tbl tbody tr[data-student]');
+  await p.click('.dash-view[data-view=overall] [data-a=rep]'); await p.waitForSelector('#t-report:not([hidden])');
+  await p.click('.dash-view[data-view=overall] .dv-back');
   await p.waitForFunction(function () { return /Group A/.test(document.querySelector('.dash-card[data-view=sessions] .dc-sum').textContent); });
-  assert.match(await p.textContent('.dash-card[data-view=attendance] .dc-sum'), /student/);
+  assert.match(await p.textContent('.dash-card[data-view=overall] .dc-sum'), /student/);
+  await dash(p, 'sessions');
+  await p.waitForSelector('#t-sessions .ts-block:has(h3:text("history"))');
+  assert.ok(!(await p.$('#t-sessions .ts-block:has(h3:text("by student"))')), 'no Teaching-Sessions-only table any more');
+  await p.click('.dash-view[data-view=sessions] .dv-back');
   // unsaved changes: typing in Teacher Management is kept while moving between views, the card warns, leaving asks first
   await dash(p, 'manage');
   await p.fill('#t-manage .modrow:first-child [data-k=title]', 'Cell Injury — renamed (unsaved)');
@@ -2311,7 +2312,7 @@ test('Teacher Dashboard: compact cards first; each card opens its full managemen
   await p.waitForSelector('#t-exams .ex-row', { state: 'visible' });
   assert.strictEqual(await p.evaluate(function () { return document.activeElement && document.activeElement.id; }), 'dv-h-exams', 'focus moves to the view title');
   await p.context().close();
-  // a personal teacher: five cards (no Teacher Management / Platform Directory)
+  // a personal teacher: four cards (no Teacher Management / Platform Directory)
   const un = 'dash.teacher', cr = A('teacherSave', { create: true, record: { username: un, name: 'Dr. Dash', password: 'dash-teacher-1' } }); assert.ok(cr.ok, JSON.stringify(cr));
   assert.ok(A('teacherAssign', { userId: cr.teacher.userId, deliveryIds: [d.deliveryId] }).ok);
   const lg = main.call({ module: 'portal', action: 'teacherLogin', username: un, password: 'dash-teacher-1' });
@@ -2320,13 +2321,13 @@ test('Teacher Dashboard: compact cards first; each card opens its full managemen
   await q.goto(url + '#/teacher');
   await q.fill('#t-u', un); await q.fill('#t-p', 'dash-teacher-2'); await q.click('form.card button[type=submit]');
   await q.waitForSelector('.dash-card');
-  assert.deepStrictEqual(await q.$$eval('.dash-card', function (c) { return c.map(function (x) { return x.dataset.view; }); }), ['modules', 'sessions', 'attendance', 'overall', 'exams']);
+  assert.deepStrictEqual(await q.$$eval('.dash-card', function (c) { return c.map(function (x) { return x.dataset.view; }); }), ['modules', 'sessions', 'overall', 'exams']);
   await q.waitForFunction(function () { return /1 module in 1 group/.test(document.querySelector('.dash-card[data-view=modules] .dc-sum').textContent); });
   await dash(q, 'modules'); await q.waitForSelector('#t-mine .mod[data-id="cellinjury"] .t-open', { state: 'visible' });
   await q.click('.dash-view[data-view=modules] .dv-back');
-  await dash(q, 'attendance'); await q.waitForSelector('#t-att .ts-top select', { state: 'visible' });
-  await q.click('#t-att [data-a=rep]'); await q.waitForSelector('#t-report:not([hidden])');
-  await q.click('.dash-view[data-view=attendance] .dv-back');
+  await dash(q, 'overall'); await q.waitForSelector('#t-overall .ts-top select', { state: 'visible' });
+  await q.click('.dash-view[data-view=overall] [data-a=rep]'); await q.waitForSelector('#t-report:not([hidden])');
+  await q.click('.dash-view[data-view=overall] .dv-back');
   await q.click('.dash-tools [data-a=pw]'); await q.waitForSelector('#t-pwbox form #tp-o', { state: 'visible' });
   await q.click('#t-pwbox [data-a=cancel]'); assert.ok(!(await q.$('#t-pwbox form')));
   await q.context().close();

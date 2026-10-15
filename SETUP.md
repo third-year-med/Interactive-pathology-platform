@@ -42,8 +42,8 @@ There is **one teacher account** for the whole platform: Platform Home → **Tea
    *If it says a teacher password already exists:* your main backend still has the old shared teacher password from
    before per-module passwords — sign in with that one.
 2. After signing in you are on the **Teacher Dashboard** — a page of compact cards (Admin: **Teaching Modules**, **Teaching
-   Sessions**, **Student Attendance**, **Overall Pathology Attendance**, **Official Exams**, **Teacher Management**, **Platform Directory**; a personal teacher
-   gets the first five). Each card shows a short summary (e.g. a live lecture, upcoming lectures, students below the
+   Sessions**, **Overall Pathology Attendance**, **Official Exams**, **Teacher Management**, **Platform Directory**; a personal teacher
+   gets the first four). Each card shows a short summary (e.g. a live lecture, upcoming lectures, students below the
    attendance threshold); clicking it opens that area (address `#/teacher/<area>`, so it can be bookmarked), and
    **← Back to Dashboard** (or the browser's Back button) returns to the cards. What you type in one area is kept while you
    visit another; a card marked **● Unsaved changes** has a form you have not saved yet, and leaving the dashboard, signing
@@ -52,12 +52,13 @@ There is **one teacher account** for the whole platform: Platform Home → **Tea
      not depend on student accounts and works for modules that are not yet released). **Teacher Portal** opens that
      module's own Teacher Portal (students, content, results, assessments, attendance …).
    - **Teacher Management** — the front-page list (below).
-   - **Student Attendance** — the attendance-by-student table of a group (CSV) and **📊 Results & attendance** of every module.
    - **📊 Overall Pathology Attendance** (Portal.gs 2.15) — one report per group over **every** teaching module: each
      registered student's attended / late / excused / absent, Attendance % and Absence %, the **⚠ Below 75%** warning,
      a module-by-module table, **Report →** for one student (with 🖨 print), **⬇ Excel (.xlsx)**, **⬇ CSV** and
      **🖨 Print report** (signature lines). Attendance taken inside a module and Teaching Sessions are both counted, each
      class once. A personal teacher sees only the modules assigned to them (the page says so). Read-only.
+     At the bottom: **📊 Results & attendance — all modules** (quizzes, assessments, exams and attendance registers per
+     group and module). This view replaced the former **Student Attendance** card (old bookmarks open it).
 3. Teachers no longer use a module's own teacher password: on the modules' sign-in page the *Teacher* tab, and the
    module's Teacher Portal page, now point to this Teacher Sign-In.
 4. **Sign out** (top right) ends the dashboard and the module teacher sessions opened from it.

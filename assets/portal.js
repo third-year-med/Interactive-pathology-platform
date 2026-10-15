@@ -465,8 +465,7 @@
   var DASH_DEF = {
     modules: ['📚', 'Teaching Modules', 'Open a module in teacher mode or its Teacher Portal.'],
     sessions: ['🎓', 'Teaching Sessions', 'Schedule or start lectures, live attendance, Live Classroom, history.'],
-    attendance: ['📋', 'Student Attendance', 'Attendance by student: attended, late, excused, absent — CSV export.'],
-    overall: ['📊', 'Overall Pathology Attendance', 'All modules together: attendance and absence % per student, module breakdown, below-75% warnings, Excel and print.'],
+    overall: ['📊', 'Overall Pathology Attendance', 'All modules together: attendance and absence % per student, module breakdown, below-75% warnings, Excel and print; results of every module.'],
     exams: ['📝', 'Official Exams', 'Module and combined exams, exam banks, student exam pages, results.'],
     manage: ['🧩', 'Teacher Management', 'Front-page module cards: title, icon, colour, link, status.'],
     directory: ['🏛️', 'Platform Directory', 'Institutions, groups, modules, deliveries, students, teachers, content.']
@@ -527,6 +526,9 @@
     var root = $('.dash-root', main);
     if (!DASH || !root || DASH.root !== root || root.dataset.key !== dashKey()) return false;
     var m = /^#\/teacher\/([a-z]+)/.exec(location.hash), id = m && DASH.views[m[1]] ? m[1] : '';
+    if (m && m[1] === 'attendance' && DASH.views.overall) {   // the former Student Attendance view (2.15: replaced by Overall Pathology Attendance)
+      id = 'overall'; try { history.replaceState(null, '', '#/teacher/overall'); } catch (e) { }
+    }
     DASH.cur = id;
     root.classList.toggle('in-view', !!id);
     $('.dash-grid', root).hidden = !!id; $('.dash-tools', root).hidden = !!id; $('.dash-intro', root).hidden = !!id;
@@ -548,10 +550,8 @@
     return w;
   }
   function sessSummary(x) {
-    if (x.none) { dashSum('sessions', x.none); dashSum('attendance', x.none); return; }
+    if (x.none) { dashSum('sessions', x.none); return; }
     dashSum('sessions', x.group + ' · ' + (x.live ? 'live now: ' + x.live : 'no lecture live') + ' · ' + x.up + ' upcoming', x.live ? '🔴 Live' : '', 'live');
-    dashSum('attendance', x.group + ' · ' + x.students + ' student' + (x.students === 1 ? '' : 's') + ' · ' + x.ended + ' ended lecture' + (x.ended === 1 ? '' : 's'),
-      x.warn ? '⚠ ' + x.warn + ' below ' + x.th + '%' : '', 'warn');
   }
   function overallSummary(x) {
     if (x.none) { dashSum('overall', x.none); return; }
@@ -580,11 +580,10 @@
     var grid = $('.t-grid', tm);
     MODULES.forEach(function (m) { grid.appendChild(teacherCard(m)); });
     if (!MODULES.length) grid.appendChild(h('<p class="muted">No modules yet — add one under Teacher Management.</p>'));
-    var att = h('<section class="t-sec" id="t-att"><div class="ts-att"><p class="muted small">Loading…</p></div></section>');
-    var ss = sessionsSection(call, true, { attHost: $('.ts-att', att), onSummary: sessSummary });
-    att.appendChild(reportBlock(call));
+    var ss = sessionsSection(call, true, { byStudent: false, onSummary: sessSummary });
     var ex = examsSection(call, true, examSummary);
     var ov = overallSection(call, overallSummary);
+    ov.appendChild(reportBlock(call));
     var mg = h('<section class="t-sec" id="t-manage"><div class="sec-head"><h2>Teacher Management</h2><span class="small muted">Front-page modules, statuses and links</span></div><div class="t-box"><p class="muted">Loading…</p></div></section>');
     var box = $('.t-box', mg);
     var dir = directorySection(function (D) {
@@ -592,7 +591,7 @@
       dashSum('directory', n('institutions', 'institution').replace('institutionss', 'institutions') + ' · ' + n('groups', 'group') + ' · ' + n('deliveries', 'delivery').replace('deliverys', 'deliveries'));
     });
     main.appendChild(dashShell({ intro: 'Signed in as the platform administrator. Choose an area to open it.',
-      views: [['modules', tm], ['sessions', ss], ['attendance', att], ['overall', ov], ['exams', ex], ['manage', mg], ['directory', dir]] }));
+      views: [['modules', tm], ['sessions', ss], ['overall', ov], ['exams', ex], ['manage', mg], ['directory', dir]] }));
     DASH.onOpen.directory = function () { var d = $('details.dir', dir); if (d && !d.open) d.open = true; };   // loads the directory the first time
     moduleSummary();
     dashShow();
@@ -664,10 +663,8 @@
     $('[data-a=pw]', bar).onclick = function () { teacherPwForm(false); };
     var box = h('<section class="t-sec" id="t-mine"><p class="muted">Loading…</p></section>');
     var sessW = h('<div class="dv-wrap"><p class="muted small">Loading…</p></div>'), exW = h('<div class="dv-wrap"><p class="muted small">Loading…</p></div>'), ovW = h('<div class="dv-wrap"><p class="muted small">Loading…</p></div>');
-    var att = h('<section class="t-sec" id="t-att"><div class="ts-att"><p class="muted small">Loading…</p></div></section>');
-    att.appendChild(reportBlock(call));
     main.appendChild(dashShell({ intro: 'Signed in as <b>' + esc(u.name || u.username) + '</b> (' + esc(u.username) + '). Your groups and modules — choose an area to open it.', tools: bar,
-      views: [['modules', box], ['sessions', sessW], ['attendance', att], ['overall', ovW], ['exams', exW]] }));
+      views: [['modules', box], ['sessions', sessW], ['overall', ovW], ['exams', exW]] }));
     dashShow();
     post(CFG.backendUrl, { module: 'portal', action: 'teacherMe', ttoken: t.ttoken }).then(function (r) {
       if (!r.ok) { if (r.code === 'auth') { sdel(TKEY); toast('Your teacher session has ended — please sign in again.'); return route(); } box.innerHTML = '<p class="err">' + esc(r.error) + '</p>'; return; }
@@ -676,8 +673,8 @@
       box.innerHTML = '';
       if (!r.deliveries.length) {
         box.appendChild(h('<div class="card"><p>No group or module has been assigned to you yet. Please contact the platform administrator.</p></div>'));
-        sessW.innerHTML = exW.innerHTML = ovW.innerHTML = $('.ts-att', att).innerHTML = '<p class="muted small">No group or module is assigned to you yet.</p>';
-        ['modules', 'sessions', 'attendance', 'overall', 'exams'].forEach(function (id) { dashSum(id, 'Nothing assigned yet'); });
+        sessW.innerHTML = exW.innerHTML = ovW.innerHTML = '<p class="muted small">No group or module is assigned to you yet.</p>';
+        ['modules', 'sessions', 'overall', 'exams'].forEach(function (id) { dashSum(id, 'Nothing assigned yet'); });
         return;
       }
       var nG = {}, nOpen = 0; r.deliveries.forEach(function (d) { nG[d.groupId] = 1; if (d.open) nOpen++; });
@@ -693,9 +690,9 @@
         ds.forEach(function (d) { $('.t-grid', sec).appendChild(myCard(d)); });
         box.appendChild(sec);
       });
-      sessW.innerHTML = ''; sessW.appendChild(sessionsSection(call, false, { attHost: $('.ts-att', att), onSummary: sessSummary }));
+      sessW.innerHTML = ''; sessW.appendChild(sessionsSection(call, false, { byStudent: false, onSummary: sessSummary }));
       exW.innerHTML = ''; exW.appendChild(examsSection(call, false, examSummary));
-      ovW.innerHTML = ''; ovW.appendChild(overallSection(call, overallSummary));
+      ovW.innerHTML = ''; ovW.appendChild(overallSection(call, overallSummary)); ovW.appendChild(reportBlock(call));
     });
   }
   function myCard(d) {
@@ -1105,7 +1102,7 @@
           '</tbody></table></div>' : '<p class="muted small">No students in this group yet (Platform directory → Students).</p>') + '</div>');
       var sc = $('[data-a=csv]', sb);
       if (sc) sc.onclick = function () { csvDownload('attendance-by-student-' + grp().linkCode + '.csv', ['Student ID', 'Name', 'Attended', 'Late', 'Excused', 'Absent', 'Lectures counted', 'Attendance %', 'Below ' + th + '%'], st.map(function (x) { return [x.studentId, x.name, x.attended, x.late, x.excused, x.absent, x.counted, x.pct, x.warn ? 'yes' : '']; })); };
-      if (attHost) { var aw = $('.ts-att-wait', attHost); if (aw) aw.remove(); attHost.appendChild(sb); } else host.appendChild(sb);
+      if (attHost) { var aw = $('.ts-att-wait', attHost); if (aw) aw.remove(); attHost.appendChild(sb); } else if (opts.byStudent !== false) host.appendChild(sb);   // 2.15: the dashboard uses Overall Pathology Attendance instead
       if (opts.onSummary) opts.onSummary({ group: grp().label, live: live.length ? live[0].title : '', up: up.length, ended: ended, students: st.length, warn: warnN, th: th });
       if (want && S.some(function (s) { return s.tsId === want && (s.status === 'live' || s.status === 'ended'); })) liveScreen(liveBox, want);   // just started / just closed
     }
