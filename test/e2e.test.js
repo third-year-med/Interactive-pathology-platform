@@ -1793,7 +1793,9 @@ test('Teaching Sessions on the group page: the student sees the live lecture, ch
   assert.strictEqual(st.students.filter(function (x) { return x.studentId === 'ahmed'; })[0].status, 'present');
   // after closing: My attendance
   A('tsClose', { tsId: live.session.tsId });
-  await p.click('#ts-stu [data-a=r]');
+  assert.strictEqual(await p.$('#ts-stu [data-a=r]'), null, 'no Refresh button');
+  await p.waitForTimeout(3200);
+  await p.evaluate(function () { document.dispatchEvent(new Event('visibilitychange')); });   // the student comes back to the tab → it updates itself
   await p.waitForFunction(function () { return /My attendance[\s\S]*100%/.test(document.querySelector('#ts-stu').textContent) && !document.querySelector('#ts-stu .ts-now'); });
   await p.context().close();
 });
@@ -1803,7 +1805,7 @@ test('group Live Classroom switched off (2026-10-15): no button for students or 
   const s = await page({ width: 390, height: 844 });
   await s.goto(url + '?g=tr-a');
   await signIn(s, 'ahmed', PW);
-  await s.waitForSelector('#ts-stu:not([hidden]) [data-a=r]');
+  await s.waitForSelector('#ts-stu:not([hidden]) .ts-att-card');
   assert.strictEqual(await s.$('#ts-stu [data-a=live]'), null, 'no Live Classroom button on the group page');
   assert.ok(!/Live Classroom/.test(await s.textContent('main')));
   await s.evaluate(function () { location.hash = '#/live'; });

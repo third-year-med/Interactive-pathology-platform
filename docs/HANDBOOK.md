@@ -138,6 +138,9 @@ the page labels it "N sessions" ("last N" with an older backend) and scrolls the
 button; `#/live` on a group page opens the group page. Backend (`liveOpen`, `liveTeacherOpen`, storage `live-<link>`) and
 its messages are untouched; `true` brings it back (the old e2e test is skipped with that reason). The modules' Live
 Classroom needs the Teaching Sessions setting "module Live/Attendance: shown" (`ts:modulelive` = show).
+**No Refresh button on the group page (2026-10-15):** the Teaching Sessions panel polls by itself — 30 s while a lecture is
+live, 60 s when one starts within 30 min, otherwise 120 s; no requests while the tab is hidden — and reloads at once on
+`visibilitychange` (tab shown again, at most every 3 s). This also catches an unscheduled "Start a lecture now".
 
 **Results & attendance (Step 10):** read-only overviews per delivery — Admin (Results & attendance tab: all deliveries)
 and personal teachers (📊 button: own deliveries); per-student table, attendance register, CSV. Students are matched to

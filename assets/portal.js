@@ -170,13 +170,21 @@
   /* ---------------- Group page: 🎓 Teaching Sessions card (2.8) — live lecture + check-in, upcoming, my attendance ---------------- */
   function stuTokens(s) { var o = {}, mods = (s && s.modules) || {}; Object.keys(mods).forEach(function (k) { if (mods[k] && mods[k].access && mods[k].token) o[k] = mods[k].token; }); return o; }
   function lecturesSection(s) {
-    var sec = h('<section class="t-sec ts-stu" id="ts-stu" hidden tabindex="-1"><div class="sec-head"><h2>🎓 Teaching Sessions</h2><span class="roster-btns">' + (GROUP_CLASSROOM ? '<a class="btn primary small" href="#/live" data-a="live">💬 Live Classroom</a>' : '') + '<button class="btn small" type="button" data-a="r">↻ Refresh</button></span></div><div class="ts-stu-body"></div></section>');
+    var sec = h('<section class="t-sec ts-stu" id="ts-stu" hidden tabindex="-1"><div class="sec-head"><h2>🎓 Teaching Sessions</h2><span class="roster-btns">' + (GROUP_CLASSROOM ? '<a class="btn primary small" href="#/live" data-a="live">💬 Live Classroom</a>' : '') + '</span></div><div class="ts-stu-body"></div></section>');
     var body = $('.ts-stu-body', sec), timer = null;
-    $('[data-a=r]', sec).onclick = function () { load(); };
+    // no Refresh button (2026-10-15): the panel updates itself — every 30 s while a lecture is live, every minute when one
+    // starts within 30 min, otherwise every 2 min — and at once when the student comes back to the tab
+    var lastLoad = 0;
+    function onVisible() {
+      if (!sec.isConnected) { document.removeEventListener('visibilitychange', onVisible); return; }
+      if (!document.hidden && Date.now() - lastLoad > 3000) load();
+    }
+    document.addEventListener('visibilitychange', onVisible);
     function call(action, o) { return post(CFG.backendUrl, Object.assign({ module: 'portal', action: action, g: GINFO.group.linkCode, sessions: stuTokens(session()) }, o || {})); }
     function load() {
       if (timer) { clearTimeout(timer); timer = null; }
       if (!sec.isConnected && sec.dataset.drawn) return;
+      lastLoad = Date.now();
       call('portalGroupSessions').then(function (r) {
         if (!r.ok) {
           if (r.code === 'badaction' || r.code === 'network' || r.code === 'badjson') { sec.hidden = true; return; }   // an older backend: no card
@@ -189,7 +197,8 @@
         if (hero && r.live.length) { if (hero.nextElementSibling !== sec) hero.after(sec); }
         else if (grid && grid.nextElementSibling !== sec) grid.after(sec);
         var soon = r.upcoming.some(function (x) { return !x.cancelled && x.startAt - r.serverTime < 30 * 60e3; });
-        if (r.live.length || soon) timer = setTimeout(function () { if (sec.isConnected && !document.hidden) load(); else if (sec.isConnected) timer = setTimeout(load, 30000); }, r.live.length ? 30000 : 60000);
+        var wait = function () { if (!sec.isConnected) return; if (!document.hidden) load(); else timer = setTimeout(wait, 30000); };   // hidden tab: no requests
+        timer = setTimeout(wait, r.live.length ? 30000 : soon ? 60000 : 120000);
       });
     }
     function draw(r) {
