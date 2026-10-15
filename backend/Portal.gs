@@ -187,7 +187,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.15';
+var PORTAL_VERSION = '2.16';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -2708,7 +2708,7 @@ function tsStudentSessions_(p) {
   var c = attSummary_(sum, set.threshold);
   var mine = { attended: c.attended, late: c.late, excused: c.excused, absent: c.absent, counted: c.counted, pct: c.pct, warn: c.warn, absencePct: c.absencePct, overall: !!me,
     modules: me ? me.modules.filter(function (x) { return x.counted || x.excused; }).map(function (x) { return { module: x.module, icon: x.icon, attended: x.attended, counted: x.counted, pct: x.pct }; }) : [] };
-  return { ok: true, serverTime: now, settings: set, live: live, upcoming: upcoming.slice(0, 8), recent: recent.slice(0, 6), mine: mine };
+  return { ok: true, serverTime: now, settings: set, live: live, upcoming: upcoming.slice(0, 8), recent: recent, recentAll: true, mine: mine };   // 2.16: the student's WHOLE history (the page shows it collapsed)
 }
 function tsStudentCheckIn_(p) {
   var S = tsStudent_(p); if (S.error) return S.error;

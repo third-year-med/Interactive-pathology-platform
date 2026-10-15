@@ -2135,3 +2135,14 @@ test('overall attendance: module-recorded + Teaching Sessions over two modules â
   assert.strictEqual(S.call({ module: 'portal', action: 'attOverall', groupId: S.ra.groupId }).ok, false);
   assert.strictEqual(S.call({ module: 'portal', action: 'attOverall', groupId: S.ra.groupId, stoken: login(S, CI, 'b1', STU_PW.b1).token }).ok, false);
 });
+
+test('group page history (2.16): the student gets EVERY ended session, newest first â€” not only the last 6', function () {
+  const S = tsSetup(), CI = 'cellinjury-razi-a-26';
+  for (let i = 1; i <= 5; i++) { const L = S.ts('tsStart', { session: S.lect({ title: 'L' + i, startAt: Date.now() }) }); assert.ok(L.ok); S.ts('tsClose', { tsId: L.session.tsId }); }
+  for (let i = 1; i <= 4; i++) modSession(S, CI, 'M' + i).close();
+  const me = S.call({ module: 'portal', action: 'portalGroupSessions', g: 'razi-a-26', sessions: grpSessions(S, 'b1', STU_PW.b1) }); assert.ok(me.ok, JSON.stringify(me));
+  assert.strictEqual(me.recentAll, true);
+  assert.strictEqual(me.recent.length, 9);
+  assert.strictEqual(me.mine.counted, 9);
+  assert.ok(me.recent.every(function (x, i, a) { return !i || a[i - 1].startAt >= x.startAt; }), 'newest first');
+});

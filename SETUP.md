@@ -365,6 +365,8 @@ changes. Teacher Dashboard → **📊 Overall Pathology Attendance** → choose 
   been counted for them yet — different from absent.
 - **Students** see the same overall figure and warning under **📋 My attendance — all pathology modules** on their group
   page. It is worked out when they open the page; no message is sent, so a warning can never arrive twice.
+- **Session history** (Portal.gs 2.16): the student's group page lists **every** session they had (collapsed, newest first);
+  with 2.15 it showed only the last 6.
 - **Update:** paste Portal.gs (2.15) into the Apps Script file **Portal** (raw link above) → save → run **platformCheck** →
   **Deploy → Manage deployments → ✏️ Edit → New version → Deploy**. No Code.gs change. Until then the card says "Update
   Portal.gs (2.15)" and everything else works as before.

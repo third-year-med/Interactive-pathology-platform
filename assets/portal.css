@@ -379,3 +379,4 @@ code.pw{font-size:14px;font-weight:700;letter-spacing:.03em}
 .ts-h>a{grid-column:2/-1}
 @media (max-width:880px){.hero.slim{grid-template-columns:1fr;padding:16px 18px}.hero.slim .hero-side{max-width:none}}
 @media (max-width:560px){.hero.slim .eyebrow,.hero.slim .by{display:none}.hero.slim h1{margin-top:0;font-size:19px}.grid.compact{grid-template-columns:1fr}}
+.ts-hist[open] .ts-hl{max-height:min(460px,60vh);overflow-y:auto;overscroll-behavior:contain}

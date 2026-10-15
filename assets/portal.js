@@ -243,7 +243,8 @@
         var L = { present: ['✅', 'Present'], late: ['🕒', 'Late'], excused: ['📝', 'Excused'], absent: ['❌', 'Absent'] }, n = {};
         r.recent.forEach(function (x) { n[x.me] = (n[x.me] || 0) + 1; });
         var tally = ['present', 'late', 'excused', 'absent'].filter(function (k) { return n[k]; }).map(function (k) { return L[k][0] + ' ' + n[k]; }).join(' · ');
-        body.appendChild(h('<details class="ts-hist"><summary><span><b>🗂️ Session history</b> <span class="small muted">— last ' + r.recent.length + (M.counted > r.recent.length ? ' of ' + M.counted : '') + '</span></span><span class="small ts-tally">' + tally + '</span></summary>' +
+        var histN = r.recentAll ? r.recent.length + ' session' + (r.recent.length === 1 ? '' : 's') : 'last ' + r.recent.length;   // Portal.gs 2.16 sends the whole history
+        body.appendChild(h('<details class="ts-hist"><summary><span><b>🗂️ Session history</b> <span class="small muted">— ' + histN + '</span></span><span class="small ts-tally">' + tally + '</span></summary>' +
           '<ul class="ts-hl">' + r.recent.map(function (x) { var l = L[x.me] || ['•', x.me]; return '<li class="ts-h ts-h-' + esc(x.me) + '"><span class="ts-h-i" aria-hidden="true">' + l[0] + '</span><span class="ts-h-t"><b>' + esc(x.title) + '</b><span class="small muted">' + esc(x.icon + ' ' + x.module) + ' · ' + esc(tzShow(x.startAt, tz)) + '</span></span><span class="ts-h-s">' + esc(l[1]) + '</span>' + (x.materialsUrl ? link(x) : '') + '</li>'; }).join('') + '</ul></details>'));
       }
       // the attendance chip in the welcome strip: the warning is visible without scrolling

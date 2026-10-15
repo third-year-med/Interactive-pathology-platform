@@ -131,6 +131,8 @@ CSS grid with `.mod-top{display:contents}`) → the Teaching Sessions panel: `.t
 the threshold marker, per-module lines) | Upcoming (3 shown, rest in "+ N more"), then `details.ts-hist` (collapsed, one
 line per session, tally in the summary). A live lecture moves the panel right under the strip (check-in without
 scrolling). The page before sign-in keeps the full hero and the full cards. Element names the tests use are unchanged.
+**Portal.gs 2.16:** `portalGroupSessions` returns the student's whole `recent` history (was the last 6) with `recentAll: true`;
+the page labels it "N sessions" ("last N" with an older backend) and scrolls the opened list inside the box.
 
 **Results & attendance (Step 10):** read-only overviews per delivery — Admin (Results & attendance tab: all deliveries)
 and personal teachers (📊 button: own deliveries); per-student table, attendance register, CSV. Students are matched to

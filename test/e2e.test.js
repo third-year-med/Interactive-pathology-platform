@@ -3219,7 +3219,7 @@ test('Overall Pathology Attendance: every module together, all registered studen
   assert.match(await q.textContent('.hero .att-chip'), /Attendance 50% · ⚠ below 75%/);
   assert.ok(await q.evaluate(function () { var g = document.querySelector('.grid.compact'), t = document.querySelector('#ts-stu'); return !!(g && t && (g.compareDocumentPosition(t) & Node.DOCUMENT_POSITION_FOLLOWING)); }), 'modules first');
   assert.strictEqual(await q.$eval('#ts-stu details.ts-hist', function (d) { return d.open; }), false, 'history collapsed');
-  assert.match(await q.textContent('#ts-stu details.ts-hist summary'), /Session history — last 4[\s\S]*✅ 2 · ❌ 2/);
+  assert.match(await q.textContent('#ts-stu details.ts-hist summary'), /Session history — 4 sessions[\s\S]*✅ 2 · ❌ 2/);
   assert.ok(!(await q.isVisible('#ts-stu .ts-hl')));
   await q.click('#ts-stu details.ts-hist summary');
   assert.strictEqual(await q.$$eval('#ts-stu .ts-h', function (x) { return x.length; }), 4);
