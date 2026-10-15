@@ -3044,4 +3044,42 @@ test('Module attendance report: every registered student of the group, Present /
   await p.context().close();
 });
 
+test('module Live Classroom: a signed-in registered student goes straight in (no class code, own name); an older server still gets the code form', { skip: SKIP || ((!fs.existsSync(REAL[0][2]) || !REAL[0][3]) && 'module page or key not available') }, async function () {
+  const M = REAL[0];
+  groupFixture();
+  main.addStudents(M[0], [{ username: 'live-s1', name: 'Live Student', password: PW, mustChange: false }]);
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  assert.ok(main.call({ module: 'portal', action: 'tsSettings', token: t, hideModuleLive: false }).ok);
+  const calls = [];
+  const p = await realPage(M, calls);
+  await p.goto(HOME);
+  await p.waitForSelector('.mod[data-id="' + M[0] + '"]');
+  await signIn(p, 'live-s1', PW);
+  await p.waitForSelector('.mod[data-id="' + M[0] + '"] .go');
+  await p.click('.mod[data-id="' + M[0] + '"] .go');
+  await p.waitForURL(new RegExp(M[1]));
+  await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'student'; }, null, { timeout: 20000 });
+  await p.waitForSelector('.nav-btn[data-view="live"]', { state: 'visible', timeout: 15000 });
+  await p.click('.nav-btn[data-view="live"]');
+  await p.waitForSelector('.lv-head', { timeout: 15000 });
+  assert.ok(!(await p.$('.lv-join input')), 'no class-code form');
+  const join = calls.filter(function (c) { return c.action === 'liveJoin'; });
+  assert.strictEqual(join.length, 1);
+  assert.ok(join[0].stoken && !join[0].classCode, 'joined with the sign-in session, no code typed');
+  const me = await p.evaluate(function () { return Live.me; });
+  assert.ok(me && me.role === 'student' && me.name === 'Live Student', JSON.stringify(me));
+  // an older Code.gs (still asks for the code) → the usual form appears, nothing breaks
+  main.eval('var __gate0 = gateRequest_; gateRequest_ = function (m, q) { var r = __gate0(m, q); if (q.action === "liveJoin") q.classCode = ""; return r; };');
+  try {
+    await p.evaluate(function () { Live.leave(); });
+    await p.reload();
+    await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'student'; }, null, { timeout: 20000 });
+    await p.evaluate(function () { location.hash = '#/live'; });
+    await p.waitForSelector('.lv-join input[placeholder^="e.g. CLASS"]', { timeout: 15000 });
+  } finally { main.eval('gateRequest_ = __gate0;'); }
+  assert.ok(main.call({ module: 'portal', action: 'tsSettings', token: t, hideModuleLive: true }).ok);
+  await p.context().close();
+});
+
 test('no JavaScript errors', { skip: SKIP }, function () { assert.deepStrictEqual(errors, []); });

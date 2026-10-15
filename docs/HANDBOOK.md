@@ -92,6 +92,11 @@ The tests still use the name `vulva` for a simulated second backend; that is onl
   bullet each with its own **bold** key words, and no Learning Block tags (they stay on screen). It takes over the
   module's `lmrPrintFacts` once the app has started; other modules use `window.PlatformHY.print(facts, { unitOf })`.
   Change the layout only there, then `refresh` every module — never per module.
+- **Module Live Classroom without a class code (2026-10-15):** a signed-in registered (active) student opens the module's
+  🔴 Live Classroom and enters directly under their account name — no code form. Code.gs `gateRequest_` (which already
+  verifies the student session and fills name/email for `liveJoin`) also fills `p.classCode`; the module page joins
+  automatically and falls back to the old code form if the server still answers `badcode`. Teachers and modules without
+  student accounts are unchanged; the class code in Teacher Portal stays as the fallback.
 - **Module attendance report (2026-10-15):** Teacher Portal → Attendance → a session's report (screen, 🖨 Print, CSV)
   lists every active student registered for that module/group (`listStudents`, the same Students list the sign-in uses),
   each Present or Absent, with Registered / Present / Absent and Attendance % = round(present ÷ registered × 100),

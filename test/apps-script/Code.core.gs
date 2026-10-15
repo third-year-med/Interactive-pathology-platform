@@ -445,7 +445,7 @@ function gateRequest_(module, p) {
   if (p.action !== 'studentLogout') { var xl = exTeachingLock_(module, st.username); if (xl) return xl; }
   p.__role = 'student'; p.__student = st;
   var email = studentEmail_(st), a = p.action;
-  if (a === 'liveJoin') { p.name = st.name; p.email = email; }
+  if (a === 'liveJoin') { p.name = st.name; p.email = email; p.classCode = liveStore_().classCode(module); } // 2026-10-15: a signed-in registered student needs no class code
   if (/^live/.test(a)) p.participantId = LE_pidFor(module, email);
   if (a === 'submitAttendance' || a === 'submitAttendanceByCode') { p.name = st.name; p.studentId = st.username; p.email = st.email || ''; p.participantId = 'acct:' + st.username; }
   if (a === 'getMyAssessments' || a === 'startAttempt' || a === 'submitAttempt' || /^study/.test(a)) { p.email = email; if (a === 'startAttempt') p.name = st.name; }

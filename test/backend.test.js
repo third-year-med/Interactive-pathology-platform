@@ -2010,3 +2010,23 @@ test('Results & attendance use the Teaching Sessions statuses: late, excused (no
   assert.strictEqual(by.b2.status[L3.sessionId], 'waiting'); assert.strictEqual(by.b1.status[r.sessions[0].sessionId], 'late');
   assert.ok(r.sessions.every(function (z) { return z.teaching; }));
 });
+
+test('module Live Classroom: a signed-in registered student joins without the class code (name/email from the account); no session → refused', function () {
+  const S = setup();
+  const stu = S.call({ module: 'cellinjury', action: 'studentLogin', username: 's1', password: PW }).token;
+  // no code, a wrong code, a made-up name: the account decides
+  const j = S.call({ module: 'cellinjury', action: 'liveJoin', stoken: stu, classCode: '', name: 'Someone Else', email: 'fake@x.zz' });
+  assert.ok(j.ok, JSON.stringify(j));
+  assert.strictEqual(j.name, 'Student One');
+  const j2 = S.call({ module: 'cellinjury', action: 'liveJoin', stoken: stu, classCode: 'WRONG-1' });
+  assert.ok(j2.ok && j2.participantId === j.participantId, 'same person, same participant');
+  const sy = S.call({ module: 'cellinjury', action: 'liveSync', stoken: stu, participantId: j.participantId, full: true });
+  assert.ok(sy.ok, JSON.stringify(sy));
+  // without a student session the module refuses before any code check
+  assert.strictEqual(S.call({ module: 'cellinjury', action: 'liveJoin', classCode: 'CLASSROOM-2026', name: 'Intruder', email: 'x@y.zz' }).code, 'studentauth');
+  // a deactivated student can no longer get in
+  assert.ok(S.call({ module: 'cellinjury', action: 'setStudentActive', token: S.tokens.cellinjury, username: 's2', active: true }).ok);
+  const s2 = S.call({ module: 'cellinjury', action: 'studentLogin', username: 's2', password: PW }).token;
+  assert.ok(S.call({ module: 'cellinjury', action: 'setStudentActive', token: S.tokens.cellinjury, username: 's2', active: false }).ok);
+  assert.strictEqual(S.call({ module: 'cellinjury', action: 'liveJoin', stoken: s2 }).code, 'studentauth');
+});
