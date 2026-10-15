@@ -120,6 +120,10 @@ full. The student group card (`portalGroupSessions` → `mine`) now shows the sa
 post would expose a student's attendance to the class). Exports: CSV = the old "attendance-by-student" columns + Absence %
 + Status; xlsx sheets Overall / By module / Sessions / Register / Report info. Tests: 2 backend (equality with tsList_ on
 TS-only data; module + TS mix over two modules, isolation, access, student card), 1 e2e.
+Same day, at the user's request: the **Student Attendance** dashboard card was removed — its Teaching-Sessions-only
+by-student table is superseded by this view (`sessionsSection(…, { byStudent: false })` no longer draws it on the dashboard;
+`tsList_` still returns `students`), its **📊 Results & attendance** block (`reportBlock`) moved under the overall view, and
+`#/teacher/attendance` redirects to `#/teacher/overall`. Admin: 6 cards; personal teacher: 4.
 
 **Results & attendance (Step 10):** read-only overviews per delivery — Admin (Results & attendance tab: all deliveries)
 and personal teachers (📊 button: own deliveries); per-student table, attendance register, CSV. Students are matched to
