@@ -3207,17 +3207,34 @@ test('Overall Pathology Attendance: every module together, all registered studen
   // the student's group page: the overall figure with the same warning (shown, never sent)
   const q = await page();
   await q.goto(url + '?g=ov-a'); await signIn(q, '26010002', SP.o2);
-  await q.waitForFunction(function () { var e = document.querySelector('#ts-stu .ts-mine'); return e && /50%/.test(e.textContent); }, null, { timeout: 15000 });
-  const mine = await q.textContent('#ts-stu .ts-block:has(.ts-mine)');
+  await q.waitForFunction(function () { var e = document.querySelector('#ts-stu .ts-att-card'); return e && /50%/.test(e.textContent); }, null, { timeout: 15000 });
+  const mine = await q.textContent('#ts-stu .ts-att-card');
   assert.match(mine, /My attendance — all pathology modules/);
-  assert.match(mine, /50% attended · 50% absent — 2 of 4 session\(s\) attended · 2 absent · ⚠ below 75% — please talk to your teacher/);
-  assert.match(mine, /Cell Injury[^:]*: 1\/2 \(50%\)/);
+  assert.match(mine, /50%attended50% absent/);
+  assert.match(mine, /2 of 4 session\(s\) attended · 2 absent · ⚠ below 75% — please talk to your teacher/);
+  assert.match(mine, /Cell Injury[^1]*1\/2 · 50%/);
   assert.ok(await q.$eval('#ts-stu .ts-mine', function (e) { return e.classList.contains('warn-t'); }));
-  if (process.env.SHOTS) await (await q.$('#ts-stu')).screenshot({ path: path.join(process.env.SHOTS, 'overall-student.png') });
+  // redesign: slim welcome strip with the attendance chip; compact modules BEFORE the sessions panel; history folded away
+  assert.ok(await q.$eval('.hero', function (e) { return e.classList.contains('slim'); }));
+  assert.match(await q.textContent('.hero .att-chip'), /Attendance 50% · ⚠ below 75%/);
+  assert.ok(await q.evaluate(function () { var g = document.querySelector('.grid.compact'), t = document.querySelector('#ts-stu'); return !!(g && t && (g.compareDocumentPosition(t) & Node.DOCUMENT_POSITION_FOLLOWING)); }), 'modules first');
+  assert.strictEqual(await q.$eval('#ts-stu details.ts-hist', function (d) { return d.open; }), false, 'history collapsed');
+  assert.match(await q.textContent('#ts-stu details.ts-hist summary'), /Session history — last 4[\s\S]*✅ 2 · ❌ 2/);
+  assert.ok(!(await q.isVisible('#ts-stu .ts-hl')));
+  await q.click('#ts-stu details.ts-hist summary');
+  assert.strictEqual(await q.$$eval('#ts-stu .ts-h', function (x) { return x.length; }), 4);
+  await q.click('.hero .att-chip');
+  if (process.env.SHOTS) {
+    await q.click('#ts-stu details.ts-hist summary');
+    await q.evaluate(function () { window.scrollTo({ top: 0, behavior: 'instant' }); });
+    await q.screenshot({ path: path.join(process.env.SHOTS, 'student-home.png'), fullPage: true });
+    await q.setViewportSize({ width: 390, height: 844 }); await q.screenshot({ path: path.join(process.env.SHOTS, 'student-home-phone.png'), fullPage: true });
+    assert.ok(await q.evaluate(function () { return document.documentElement.scrollWidth - window.innerWidth; }) <= 1, 'student page fits a phone');
+  }
   await q.context().close();
   const q2 = await page();
   await q2.goto(url + '?g=ov-a'); await signIn(q2, '26010003', SP.o3);
-  await q2.waitForFunction(function () { var e = document.querySelector('#ts-stu .ts-mine'); return e && /75%/.test(e.textContent); }, null, { timeout: 15000 });
+  await q2.waitForFunction(function () { var e = document.querySelector('#ts-stu .ts-att-card'); return e && /75%/.test(e.textContent); }, null, { timeout: 15000 });
   assert.ok(!/below/.test(await q2.textContent('#ts-stu .ts-mine')), '75 % is not below 75 %');
   await q2.context().close();
   main.call({ module: 'portal', action: 'logout', token: t });

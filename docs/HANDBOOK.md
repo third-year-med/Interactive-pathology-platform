@@ -124,6 +124,13 @@ Same day, at the user's request: the **Student Attendance** dashboard card was r
 by-student table is superseded by this view (`sessionsSection(…, { byStudent: false })` no longer draws it on the dashboard;
 `tsList_` still returns `students`), its **📊 Results & attendance** block (`reportBlock`) moved under the overall view, and
 `#/teacher/attendance` redirects to `#/teacher/overall`. Admin: 6 cards; personal teacher: 4.
+**Student front page redesign (2026-10-15, front end only):** signed in → `.hero.slim` (welcome strip: name, ID, "You can open
+N of M", attendance chip `.att-chip` → scrolls to #ts-stu; red with ⚠ below the threshold) → **My modules** as
+`.grid.compact` cards (icon · status pill · title · Open; description only as the card's tooltip; same `card()` markup,
+CSS grid with `.mod-top{display:contents}`) → the Teaching Sessions panel: `.ts-grid2` = My attendance (big %, meter with
+the threshold marker, per-module lines) | Upcoming (3 shown, rest in "+ N more"), then `details.ts-hist` (collapsed, one
+line per session, tally in the summary). A live lecture moves the panel right under the strip (check-in without
+scrolling). The page before sign-in keeps the full hero and the full cards. Element names the tests use are unchanged.
 
 **Results & attendance (Step 10):** read-only overviews per delivery — Admin (Results & attendance tab: all deliveries)
 and personal teachers (📊 button: own deliveries); per-student table, attendance register, CSV. Students are matched to

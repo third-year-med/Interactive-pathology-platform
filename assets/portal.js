@@ -118,7 +118,7 @@
     else if (m.status === 'closed') { msg = 'This module is closed for your group.'; cta = '<button class="btn" type="button" disabled>Closed</button>'; }
     else { msg = 'This chapter is in preparation.'; cta = '<button class="btn" type="button" disabled>Coming soon</button>'; }
     var d = descOf(m);
-    var el = h('<article class="mod ' + state + ' st-' + esc(m.status) + '" style="--c:' + esc(m.color) + '" data-id="' + esc(m.id) + '">' +
+    var el = h('<article class="mod ' + state + ' st-' + esc(m.status) + '" style="--c:' + esc(m.color) + '" data-id="' + esc(m.id) + '"' + (d ? ' title="' + esc(d) + '"' : '') + '>' +
       '<div class="mod-top"><div class="mod-ico">' + iconHtml(m) + '</div>' + pill + '</div>' +
       '<div class="mod-body">' + (m.subtitle ? '<div class="cat">' + esc(m.subtitle) + '</div>' : '') + '<h3>' + esc(m.title) + '</h3>' + (d ? '<p class="desc">' + esc(d) + '</p>' : '') +
       (msg ? '<p class="msg">' + esc(msg) + '</p>' : '') + '<div class="act">' + cta + '</div>' + alt + '</div></article>');
@@ -147,25 +147,27 @@
     var shown = GROUP_NOTICE || (GINFO ? note : '');   // the redirect note is shown once
     if (shown) main.appendChild(h('<div class="note grp-notice" role="status">' + esc(shown) + '</div>'));
     var gh = GINFO ? '<p class="grp"><span class="grp-inst">' + esc(GINFO.institution.name) + '</span><span class="grp-name">' + esc(GINFO.group.name) + (GINFO.group.academicYear ? ' · ' + esc(GINFO.group.academicYear) : '') + '</span></p>' : '';
-    var hero = h('<section class="hero"><div class="hero-txt"><div class="eyebrow">' + (GINFO ? esc(GINFO.institution.shortName || GINFO.institution.name) + ' · Pathology' : 'Medical education · Pathology') + '</div><h1>' + esc(CFG.title || 'Interactive Pathology Teaching Platform') + '</h1>' + gh + '<p class="by">' + esc(CREATED) + '</p>' +
+    var slim = !!s;   // 2.15 redesign: a signed-in student gets a slim welcome strip — the modules come first
+    var hero = h('<section class="hero' + (slim ? ' slim' : '') + '"><div class="hero-txt"><div class="eyebrow">' + (GINFO ? esc(GINFO.institution.shortName || GINFO.institution.name) + ' · Pathology' : 'Medical education · Pathology') + '</div><h1>' + esc(CFG.title || 'Interactive Pathology Teaching Platform') + '</h1>' + gh + '<p class="by">' + esc(CREATED) + '</p>' +
       '<p class="lead">Interactive lectures, practice questions, case-based learning and assessments for every pathology chapter, in one place.</p>' +
       '<ul class="facts"><li><b>' + MODULES.length + '</b> chapter' + (MODULES.length === 1 ? '' : 's') + '</li><li><b>' + avail + '</b> available now</li><li>🔒 Secure student sign-in</li></ul></div><div class="hero-side"></div></section>');
     var side = $('.hero-side', hero);
-    if (s) side.appendChild(h('<div class="card welcome"><div class="small muted">Signed in as</div><div class="wname">' + esc(s.student.name || s.student.username) + '</div><div class="small muted">Student ID ' + esc(s.student.username) + '</div><p>You can open <b>' + mine + '</b> of the ' + avail + ' available module' + (avail === 1 ? '' : 's') + '.</p><p class="small muted">Modules not registered for your account stay locked — ask your teacher if one is missing.</p></div>'));
+    if (s) side.appendChild(h('<div class="card welcome"><div class="small muted">Signed in as</div><div class="wname">' + esc(s.student.name || s.student.username) + '</div><div class="small muted">Student ID ' + esc(s.student.username) + '</div><p>You can open <b>' + mine + '</b> of the ' + avail + ' available module' + (avail === 1 ? '' : 's') + '.</p>' +
+      '<p class="small muted w-help">Modules not registered for your account stay locked — ask your teacher if one is missing.</p><div class="att-chip-box"></div></div>'));
     else side.appendChild(signInForm());
     main.appendChild(hero);
-    if (s && GINFO) main.appendChild(lecturesSection(s));
-    main.appendChild(h('<div class="sec-head"><h2>' + (GINFO ? 'Modules for ' + esc(GINFO.group.name) : 'Pathology modules') + '</h2><div class="legend"><span class="pill available">● Available</span><span class="pill ready">◆ Completed – not yet released</span><span class="pill soon">○ Coming soon</span>' + (MODULES.some(function (m) { return m.status === 'closed'; }) ? '<span class="pill locked">■ Closed</span>' : '') + '</div></div>'));
-    var grid = h('<div class="grid" aria-label="Pathology modules"></div>');
+    main.appendChild(h('<div class="sec-head' + (slim ? ' mods-head' : '') + '"><h2>' + (slim ? 'My modules' : GINFO ? 'Modules for ' + esc(GINFO.group.name) : 'Pathology modules') + '</h2><div class="legend"><span class="pill available">● Available</span><span class="pill ready">◆ Completed – not yet released</span><span class="pill soon">○ Coming soon</span>' + (MODULES.some(function (m) { return m.status === 'closed'; }) ? '<span class="pill locked">■ Closed</span>' : '') + '</div></div>'));
+    var grid = h('<div class="grid' + (slim ? ' compact' : '') + '" aria-label="Pathology modules"></div>');
     MODULES.forEach(function (m) { grid.appendChild(card(m, s)); });
     if (!MODULES.length) grid.appendChild(h('<p class="muted">No modules yet.</p>'));
     main.appendChild(grid);
+    if (s && GINFO) main.appendChild(lecturesSection(s));   // after the modules; a live lecture moves itself up (no scrolling to check in)
     if (s && GINFO) refreshNewModules(s);
   }
   /* ---------------- Group page: 🎓 Teaching Sessions card (2.8) — live lecture + check-in, upcoming, my attendance ---------------- */
   function stuTokens(s) { var o = {}, mods = (s && s.modules) || {}; Object.keys(mods).forEach(function (k) { if (mods[k] && mods[k].access && mods[k].token) o[k] = mods[k].token; }); return o; }
   function lecturesSection(s) {
-    var sec = h('<section class="t-sec ts-stu" id="ts-stu" hidden><div class="sec-head"><h2>🎓 Teaching Sessions</h2><span class="roster-btns"><a class="btn primary small" href="#/live" data-a="live">💬 Live Classroom</a><button class="btn small" type="button" data-a="r">↻ Refresh</button></span></div><div class="ts-stu-body"></div></section>');
+    var sec = h('<section class="t-sec ts-stu" id="ts-stu" hidden tabindex="-1"><div class="sec-head"><h2>🎓 Teaching Sessions</h2><span class="roster-btns"><a class="btn primary small" href="#/live" data-a="live">💬 Live Classroom</a><button class="btn small" type="button" data-a="r">↻ Refresh</button></span></div><div class="ts-stu-body"></div></section>');
     var body = $('.ts-stu-body', sec), timer = null;
     $('[data-a=r]', sec).onclick = function () { load(); };
     function call(action, o) { return post(CFG.backendUrl, Object.assign({ module: 'portal', action: action, g: GINFO.group.linkCode, sessions: stuTokens(session()) }, o || {})); }
@@ -179,14 +181,16 @@
         }
         sec.hidden = false; sec.dataset.drawn = '1';
         draw(r);
-        var hero = sec.parentNode && $('.hero', sec.parentNode);   // a live lecture comes first (no scrolling to check in), otherwise after the welcome
-        if (hero) { if (r.live.length) { if (sec.nextElementSibling !== hero) hero.before(sec); } else if (hero.nextElementSibling !== sec) hero.after(sec); }
+        // a live lecture comes right under the welcome strip (no scrolling to check in); otherwise the panel sits below the modules
+        var hero = sec.parentNode && $('.hero', sec.parentNode), grid = sec.parentNode && $('.grid', sec.parentNode);
+        if (hero && r.live.length) { if (hero.nextElementSibling !== sec) hero.after(sec); }
+        else if (grid && grid.nextElementSibling !== sec) grid.after(sec);
         var soon = r.upcoming.some(function (x) { return !x.cancelled && x.startAt - r.serverTime < 30 * 60e3; });
         if (r.live.length || soon) timer = setTimeout(function () { if (sec.isConnected && !document.hidden) load(); else if (sec.isConnected) timer = setTimeout(load, 30000); }, r.live.length ? 30000 : 60000);
       });
     }
     function draw(r) {
-      var tz = r.settings.timeZone, M = r.mine;
+      var tz = r.settings.timeZone, M = r.mine, th = r.settings.threshold;
       body.innerHTML = '';
       var link = function (x) { return x.materialsUrl ? ' <a class="small" href="' + esc(x.materialsUrl) + '" target="_blank" rel="noopener noreferrer">📎 Lecture materials</a>' : ''; };
       var what = function (x) { return '<b>' + esc(x.title) + '</b><div class="small muted">' + esc(x.icon + ' ' + x.module) + (x.chapter ? ' · ' + esc(x.chapter) : '') + (x.teacher ? ' · ' + esc(x.teacher) : '') + '</div>'; };
@@ -214,18 +218,43 @@
         }
         body.appendChild(el);
       });
-      var up = h('<div class="ts-block"><h3>📅 Upcoming lectures</h3><div class="dir-list"></div></div>');
-      if (!r.upcoming.length) $('.dir-list', up).appendChild(h('<p class="muted small">No lectures scheduled.</p>'));
-      r.upcoming.forEach(function (x) {
-        $('.dir-list', up).appendChild(h('<div class="dir-row' + (x.cancelled ? ' off' : '') + '"><div class="dir-main">' + what(x) + '<div class="small">' + esc(tzShow(x.startAt, tz)) + (x.cancelled ? ' · <b>Cancelled</b>' : ' · ' + x.durationMin + ' min') + link(x) + '</div></div></div>'));
-      });
-      body.appendChild(up);
-      if (M.counted || r.recent.length) {
-        var L = { present: '✅ Present', late: '🕒 Late', excused: '📝 Excused', absent: '❌ Absent' };
-        var unit = M.overall ? 'session(s)' : 'lecture(s)';   // 2.15: the overall figure over every pathology module of the group
-        body.appendChild(h('<div class="ts-block"><h3>📋 My attendance' + (M.overall ? ' <span class="small muted">— all pathology modules</span>' : '') + '</h3><p class="ts-mine' + (M.warn ? ' warn-t' : '') + '">' + (M.pct == null ? 'No ' + unit.replace('(s)', 's') + ' counted yet.' : '<b>' + M.pct + '%</b> attended' + (M.absencePct != null ? ' · ' + M.absencePct + '% absent' : '') + ' — ' + M.attended + ' of ' + M.counted + ' ' + unit + ' attended' + (M.late ? ' (' + M.late + ' late)' : '') + (M.excused ? ' · ' + M.excused + ' excused' : '') + (M.absent ? ' · ' + M.absent + ' absent' : '') + (M.warn ? ' · ⚠ below ' + r.settings.threshold + '% — please talk to your teacher' : '')) + '</p>' +
-          (M.modules && M.modules.length > 1 ? '<p class="small muted ts-mine-mods">' + M.modules.map(function (m) { return esc(m.icon + ' ' + m.module) + ': ' + (m.counted ? m.attended + '/' + m.counted + ' (' + m.pct + '%)' : '—'); }).join(' · ') + '</p>' : '') +
-          (r.recent.length ? '<div class="dir-list">' + r.recent.map(function (x) { return '<div class="dir-row"><div class="dir-main">' + what(x) + '<div class="small">' + esc(tzShow(x.startAt, tz)) + ' · ' + (L[x.me] || esc(x.me)) + link(x) + '</div></div></div>'; }).join('') + '</div>' : '') + '</div>'));
+      // 2.15 redesign: one panel — My attendance | Upcoming lectures, then the session history folded away
+      var unit = M.overall ? 'session' : 'lecture', grid2 = h('<div class="ts-grid2"></div>');
+      var att = h('<div class="ts-card ts-att-card"><h3>📋 My attendance' + (M.overall ? ' <span class="small muted">— all pathology modules</span>' : '') + '</h3></div>');
+      if (M.pct == null) att.appendChild(h('<p class="ts-mine muted">No ' + unit + 's counted yet.</p>'));
+      else {
+        att.appendChild(h('<div class="ts-big' + (M.warn ? ' bad' : ' good') + '"><b>' + M.pct + '%</b><span>attended' + (M.absencePct != null ? '<br>' + M.absencePct + '% absent' : '') + '</span></div>'));
+        att.appendChild(h('<div class="ts-meter' + (M.warn ? ' bad' : '') + '" role="img" aria-label="Attendance ' + M.pct + '%, minimum ' + th + '%"><span class="ts-fill" style="width:' + Math.max(0, Math.min(100, M.pct)) + '%"></span><span class="ts-mark" style="left:' + th + '%" title="Minimum ' + th + '%"></span></div>'));
+        att.appendChild(h('<p class="ts-mine' + (M.warn ? ' warn-t' : '') + '">' + M.attended + ' of ' + M.counted + ' ' + unit + '(s) attended' + (M.late ? ' (' + M.late + ' late)' : '') + (M.excused ? ' · ' + M.excused + ' excused' : '') + (M.absent ? ' · ' + M.absent + ' absent' : '') +
+          (M.warn ? ' · ⚠ below ' + th + '% — please talk to your teacher' : ' · minimum ' + th + '%') + '</p>'));
+      }
+      if (M.modules && M.modules.length > 1) att.appendChild(h('<ul class="ts-mods ts-mine-mods">' + M.modules.map(function (m) { return '<li><span>' + esc(m.icon + ' ' + m.module) + '</span><b' + (m.pct != null && m.pct < th ? ' class="bad"' : '') + '>' + (m.counted ? m.attended + '/' + m.counted + ' · ' + m.pct + '%' : '—') + '</b></li>'; }).join('') + '</ul>'));
+      grid2.appendChild(att);
+      var upList = r.upcoming, up = h('<div class="ts-card ts-up-card"><h3>📅 Upcoming lectures</h3></div>');
+      var upRow = function (x) { return '<li class="ts-up' + (x.cancelled ? ' off' : '') + '"><span class="ts-up-d">' + esc(tzShow(x.startAt, tz)) + '</span>' + what(x) + '<div class="small">' + (x.cancelled ? '<b>Cancelled</b>' : x.durationMin + ' min') + link(x) + '</div></li>'; };
+      if (!upList.length) up.appendChild(h('<p class="muted small">No lectures scheduled.</p>'));
+      else {
+        up.appendChild(h('<ul class="ts-list">' + upList.slice(0, 3).map(upRow).join('') + '</ul>'));
+        if (upList.length > 3) up.appendChild(h('<details class="ts-more"><summary class="small">+ ' + (upList.length - 3) + ' more</summary><ul class="ts-list">' + upList.slice(3).map(upRow).join('') + '</ul></details>'));
+      }
+      grid2.appendChild(up);
+      body.appendChild(grid2);
+      if (r.recent.length) {
+        var L = { present: ['✅', 'Present'], late: ['🕒', 'Late'], excused: ['📝', 'Excused'], absent: ['❌', 'Absent'] }, n = {};
+        r.recent.forEach(function (x) { n[x.me] = (n[x.me] || 0) + 1; });
+        var tally = ['present', 'late', 'excused', 'absent'].filter(function (k) { return n[k]; }).map(function (k) { return L[k][0] + ' ' + n[k]; }).join(' · ');
+        body.appendChild(h('<details class="ts-hist"><summary><span><b>🗂️ Session history</b> <span class="small muted">— last ' + r.recent.length + (M.counted > r.recent.length ? ' of ' + M.counted : '') + '</span></span><span class="small ts-tally">' + tally + '</span></summary>' +
+          '<ul class="ts-hl">' + r.recent.map(function (x) { var l = L[x.me] || ['•', x.me]; return '<li class="ts-h ts-h-' + esc(x.me) + '"><span class="ts-h-i" aria-hidden="true">' + l[0] + '</span><span class="ts-h-t"><b>' + esc(x.title) + '</b><span class="small muted">' + esc(x.icon + ' ' + x.module) + ' · ' + esc(tzShow(x.startAt, tz)) + '</span></span><span class="ts-h-s">' + esc(l[1]) + '</span>' + (x.materialsUrl ? link(x) : '') + '</li>'; }).join('') + '</ul></details>'));
+      }
+      // the attendance chip in the welcome strip: the warning is visible without scrolling
+      var chip = $('.hero .att-chip-box');
+      if (chip) {
+        chip.innerHTML = '';
+        if (M.pct != null) {
+          var b = h('<button type="button" class="att-chip' + (M.warn ? ' bad' : '') + '">📋 Attendance <b>' + M.pct + '%</b>' + (M.warn ? ' · ⚠ below ' + th + '%' : '') + '</button>');
+          b.onclick = function () { sec.scrollIntoView({ behavior: 'smooth', block: 'start' }); try { sec.focus({ preventScroll: true }); } catch (e) { } };
+          chip.appendChild(b);
+        }
       }
     }
     load();
