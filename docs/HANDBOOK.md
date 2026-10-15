@@ -92,6 +92,14 @@ The tests still use the name `vulva` for a simulated second backend; that is onl
   bullet each with its own **bold** key words, and no Learning Block tags (they stay on screen). It takes over the
   module's `lmrPrintFacts` once the app has started; other modules use `window.PlatformHY.print(facts, { unitOf })`.
   Change the layout only there, then `refresh` every module — never per module.
+- **Module attendance report (2026-10-15):** Teacher Portal → Attendance → a session's report (screen, 🖨 Print, CSV)
+  lists every active student registered for that module/group (`listStudents`, the same Students list the sign-in uses),
+  each Present or Absent, with Registered / Present / Absent and Attendance % = round(present ÷ registered × 100),
+  Absence % = 100 − Attendance %. Check-ins match accounts by Student ID (the server stores the signed-in username), else
+  by a unique full name (older records). "Absent" appears only after the session is closed (before that: "Not checked
+  in yet"). A check-in whose student is no longer on the list is shown apart and not counted. Client-side only — no
+  Code.gs change; stored records, codes, group separation and the Drive copy are unchanged. New modules keep the model
+  modules' attendance code (`reportCard`, `attRegister`, `loadRoster`, `exportCSV`, `printReport`).
 
 **Results & attendance (Step 10):** read-only overviews per delivery — Admin (Results & attendance tab: all deliveries)
 and personal teachers (📊 button: own deliveries); per-student table, attendance register, CSV. Students are matched to

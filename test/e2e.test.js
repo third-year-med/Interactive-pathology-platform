@@ -2958,4 +2958,90 @@ test('15-minute review: 🖨 Print gives the whole list (every item once, labels
   await p.context().close();
 });
 
+test('Module attendance report: every registered student of the group, Present / Absent (Absent only after closing), totals and percentages — on screen, printed and in the CSV; other groups and deactivated students kept apart', { skip: SKIP || ((!fs.existsSync(REAL[0][2]) || !REAL[0][3]) && 'module page or key not available') }, async function () {
+  const M = REAL[0];
+  groupFixture();
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  assert.ok(main.call({ module: 'portal', action: 'tsSettings', token: t, hideModuleLive: false }).ok);
+  main.addStudents(M[0], [{ username: 'reg-a1', name: 'Amal Present', password: PW, mustChange: false }, { username: 'reg-b2', name: 'Basma ByName', password: PW, mustChange: false },
+    { username: 'reg-c3', name: 'Camal Absent', password: PW, mustChange: false }, { username: 'reg-d4', name: 'Dalia Typo', password: PW, mustChange: false }]);
+  main.addStudents(M[0] + '-tr-a', [{ username: 'reg-x9', name: 'Other Group Student', password: PW, mustChange: false }]);
+  const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: [M[0]] }).modules[M[0]];
+  const st = main.call({ module: M[0], action: 'startAttendanceSession', token: tt.token, sessionTitle: 'L9: Register test', course: 'Cell Injury', academicYear: '2026-2027', teacher: 'Dr. Test' });
+  assert.ok(st.ok, JSON.stringify(st));
+  // check-in needs a signed-in student; the server records that account's name and ID
+  const sub = function (user) {
+    const stoken = main.call({ module: M[0], action: 'studentLogin', username: user, password: PW }).token;
+    const r = main.call({ module: M[0], action: 'submitAttendanceByCode', stoken: stoken, code: st.code, name: 'typed', studentId: '', participantId: 'p-' + user }); assert.ok(r.ok, JSON.stringify(r));
+  };
+  sub('reg-a1'); sub('reg-b2'); sub('reg-d4');
+  // reg-d4 is deactivated after checking in → no longer on the list: shown apart, not counted
+  assert.ok(main.call({ module: M[0], action: 'setStudentActive', token: tt.token, username: 'reg-d4', active: false }).ok);
+  const roster = main.call({ module: M[0], action: 'listStudents', token: tt.token }).students.filter(function (s) { return s.active !== false; });
+  const N = roster.length;
+  assert.ok(N >= 3 && !roster.some(function (s) { return s.username === 'reg-x9' || s.username === 'reg-d4'; }), 'group roster');
+  const p = await realPage(M, []);
+  await p.addInitScript(function (v) { localStorage.setItem('ci_backend_token_v1', v); }, JSON.stringify({ token: tt.token, expiresAt: tt.expiresAt }));
+  const openReport = async function () {
+    await p.goto('https://third-year-med.github.io/' + M[1] + '/#/teacher/attendance');
+    await p.reload();   // a fresh page each time (history and report read again)
+    await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+    const view = 'tr:has-text("L9: Register test") button:has-text("View")';
+    await p.waitForSelector(view, { timeout: 20000 });
+    await p.click(view);
+    await p.waitForSelector('.modal .att-register tbody tr', { timeout: 15000 });
+    await p.waitForFunction(function () { return !/Loading the registered student list/.test(document.querySelector('.modal').textContent); }, null, { timeout: 15000 });
+    return p.evaluate(function () {
+      const m = document.querySelector('.modal');
+      const stats = {}; m.querySelectorAll('.stat').forEach(function (s) { stats[s.querySelector('.k').textContent] = s.querySelector('.v').textContent; });
+      const rows = Array.from(m.querySelectorAll('.att-register tbody tr')).map(function (tr) { const td = tr.querySelectorAll('td'); return td.length < 7 ? { note: tr.textContent } : { name: td[1].textContent, id: td[2].textContent, status: td[5].textContent, absent: tr.classList.contains('att-absent'), del: !!td[6].querySelector('button') }; });
+      return { stats: stats, rows: rows, text: m.textContent };
+    });
+  };
+  // 1) still open: nobody is called absent yet
+  let r = await openReport();
+  assert.strictEqual(r.stats['Registered'], String(N));
+  assert.strictEqual(r.stats['Present'], '2', JSON.stringify(r.rows));
+  assert.strictEqual(r.stats['Not checked in yet'], String(N - 2));
+  assert.strictEqual(r.stats['Absence'], '—');
+  assert.ok(!r.rows.some(function (x) { return x.status === 'Absent'; }), 'no Absent while open');
+  assert.match(r.text, /Absences are finalised when attendance is closed/);
+  // 2) close → Absent, totals, percentages
+  assert.ok(main.call({ module: M[0], action: 'closeAttendanceSession', token: tt.token, sessionId: st.sessionId }).ok);
+  r = await openReport();
+  const pct = Math.round(2 / N * 100);
+  assert.deepStrictEqual([r.stats['Registered'], r.stats['Present'], r.stats['Absent'], r.stats['Attendance'], r.stats['Absence']], [String(N), '2', String(N - 2), pct + '%', (100 - pct) + '%']);
+  const people = r.rows.filter(function (x) { return !x.note; });
+  assert.strictEqual(people.length, N + 1, 'every registered student once + the deactivated one');
+  roster.forEach(function (s) { assert.strictEqual(people.filter(function (x) { return x.id === s.username; }).length, 1, s.username); });
+  const by = function (id) { return people.filter(function (x) { return x.id === id; })[0]; };
+  assert.ok(/Present/.test(by('reg-a1').status) && !by('reg-a1').absent && by('reg-a1').del);
+  assert.ok(/Present/.test(by('reg-b2').status));
+  assert.ok(by('reg-c3').status === 'Absent' && by('reg-c3').absent && !by('reg-c3').del);
+  assert.strictEqual(people.filter(function (x) { return x.status === 'Absent'; }).length, N - 2);
+  assert.ok(/not on the list/.test(by('reg-d4').status), 'a deactivated student\'s check-in is listed apart');
+  assert.ok(!/Other Group Student/.test(r.text), 'another group\'s student never appears');
+  if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'att-register.png'), fullPage: true });
+  // 3) printed report
+  await p.evaluate(function () { window.open = function () { return { document: { write: function (h) { window.__att = h; }, close: function () { } } }; }; });
+  await p.click('.modal button:has-text("Print attendance report")');
+  const html = await p.evaluate(function () { return window.__att || ''; });
+  assert.match(html, /Registered students/);
+  assert.ok(html.indexOf('Registered: ' + N + ' · Present: 2 (' + pct + '%) · Absent: ' + (N - 2) + ' (' + (100 - pct) + '%)') > 0, 'printed totals');
+  assert.strictEqual((html.match(/<b>Absent<\/b>/g) || []).length, N - 2);
+  roster.forEach(function (s) { assert.ok(html.indexOf('>' + s.username + '<') > 0, 'printed ' + s.username); });
+  if (process.env.SHOTS) fs.writeFileSync(path.join(process.env.SHOTS, 'att-register-print.html'), html);
+  // 4) CSV
+  const dl = p.waitForEvent('download');
+  await p.click('.modal button:has-text("Export to Excel")');
+  const csv = fs.readFileSync(await (await dl).path(), 'utf8');
+  assert.match(csv, /Registered students,"?\d+/);
+  assert.match(csv, new RegExp('Attendance %,"?' + pct + '%'));
+  assert.strictEqual((csv.match(/,"?Absent"?\r?\n/g) || []).length, N - 2);
+  assert.match(csv, /Present \(not on the student list\)/);
+  assert.ok(main.call({ module: 'portal', action: 'tsSettings', token: t, hideModuleLive: true }).ok);
+  await p.context().close();
+});
+
 test('no JavaScript errors', { skip: SKIP }, function () { assert.deepStrictEqual(errors, []); });

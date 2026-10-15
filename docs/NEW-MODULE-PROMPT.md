@@ -32,6 +32,8 @@ STRICT RULES
   their **bold** key words, no Learning Block tags on paper). Keep the Last-Minute Review code of the model
   modules (LMR, lmrPrintFacts, lmrUnitOf) so the block takes over automatically; a module built differently
   calls window.PlatformHY.print(facts, { unitOf }). Never write a separate High-Yield print layout.
+- Keep the model modules' attendance code unchanged: the session report lists every registered student of the
+  group as Present / Absent with totals and percentages (HANDBOOK, "Module attendance report").
 - Use stable IDs for topics, sections, questions, cases and images (HANDBOOK §3).
 - Never commit or show in any file: content keys, Code.gs, GitHub tokens, unencrypted course
   HTML or seed files. Give me the new content key ONCE in the chat so I can store it in my
