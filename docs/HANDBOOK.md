@@ -327,6 +327,13 @@ The user is a pathologist, not a developer. They follow steps literally and send
 
 ## 8. Lessons learned (bugs we hit and what fixed them)
 
+- **New assessments missing from the Teacher Portal library (students still had them; "↻ Sync now" brought them
+  back), 2026-10-16:** several tabs of one module in one browser (teacher + student test tab) share the saved copy
+  and `last_server_time_v1`, but each has its own copy in memory. A tab read the time another tab had moved on, got
+  "nothing new", then saved its copy (without the new items) over the shared one. → Per-tab cursor `STATE_SINCE`
+  (sync from it, not from storage); a partial save lowers the saved time to the tab's cursor; only a tab whose whole
+  copy is saved (`STATE_PURE`, generation stamp `state_gen_v1`) moves it forward, otherwise it saves its whole copy
+  first; a failed save (storage full) clears the time → full sync next load. Patch `sync-cursor.py`; e2e "Two tabs…".
 - **"Incorrect Student ID or password"**: the student signed in on the main page instead of the group page; students
   added before deliveries existed had no accounts. → Membership password hashes, accounts created on add, main page
   redirects group members to their group page.

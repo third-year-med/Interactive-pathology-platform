@@ -3442,6 +3442,49 @@ test('Attendance (signed-in student): the page asks ONLY for the code — name, 
   } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
 });
 
+test('Two tabs of one module (shared browser copy): an item one tab received is never lost when the other tab saves — each tab syncs from its own cursor', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+  groupFixture();
+  const ST = 'cellinjury-tr-a', mod = syntheticModule(CI_PAGE), keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  try {
+    main.call({ module: ST, action: 'setup', password: 'teacher-' + ST + '-1' });
+    const tok = main.call({ module: ST, action: 'login', password: 'teacher-' + ST + '-1' }).token;
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });   // ONE browser profile, several tabs
+    await ctx.route('https://script.google.com/**', async function (route) {
+      const out = main.ctx.doPost({ postData: { contents: route.request().postData() || '' } }).getContent();
+      await route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: out });
+    });
+    ctx.on('page', function (pg) { pg.on('pageerror', function (e) { errors.push(e.message); }); pg.on('dialog', function (d) { d.accept(); }); });
+    const a = await ctx.newPage();
+    await ctx.route('https://third-year-med.github.io/cell-injury-teaching-platform/**', function (route) { return route.fulfill({ status: 200, contentType: 'text/html', body: mod.html }); });
+    const backendUrl = JSON.parse(/window\.NEO_CONFIG\s*=\s*(\{[\s\S]*?\});/.exec(mod.html)[1]).backendUrl;
+    await ctx.addInitScript(function (o) { try { if (!localStorage.getItem('ci_tr-a_backend_token_v1')) localStorage.setItem('ci_tr-a_backend_token_v1', JSON.stringify({ token: o.tok, expiresAt: Date.now() + 3600e3, url: o.url })); } catch (e) { } }, { tok: tok, url: backendUrl });
+    const URL = 'https://third-year-med.github.io/cell-injury-teaching-platform/?g=tr-a#/teacher/assessments';
+    const ready = function (p) { return p.waitForFunction(function () { return typeof Backend !== 'undefined' && Backend.syncedThisSession; }, null, { timeout: 20000 }); };
+    await a.goto(URL); await ready(a);
+    const b = await ctx.newPage(); await b.goto(URL); await ready(b);
+    const has = function (p) { return p.evaluate(function () { return (State.assessments || []).some(function (x) { return x.id === 'tabtest'; }); }); };
+    await a.waitForLoadState('networkidle'); await b.waitForLoadState('networkidle'); await b.waitForTimeout(1500);   // both tabs quiet (no check of their own in between)
+    // an assessment arrives on the server (created on another device / in another tab)
+    assert.ok(main.call({ module: ST, action: 'upsert', token: tok, collection: 'assessments', id: 'tabtest', data: { id: 'tabtest', title: 'Tab test', status: 'draft', questionIds: [] } }).ok);
+    await a.evaluate(function () { return Backend.syncFromBackend(); });          // tab A receives it (and moves the saved time on)
+    assert.ok(await has(a));
+    await b.evaluate(function () { return Backend.syncFromBackend(); });          // tab B must still receive it…
+    assert.ok(await has(b), 'the other tab receives it too (its own cursor)');
+    await b.evaluate(function () { State.hiddenTopics = State.hiddenTopics; saveStateField('hiddenTopics'); });   // …and B saving never drops it
+    await a.reload(); await ready(a);
+    assert.ok(await has(a), 'still in the teacher library after a reload');
+    // a tab whose copy is older than the saved time: its partial save lowers the saved time, so the next load fetches the gap
+    assert.ok(main.call({ module: ST, action: 'upsert', token: tok, collection: 'assessments', id: 'tabtest2', data: { id: 'tabtest2', title: 'Tab test 2', status: 'draft', questionIds: [] } }).ok);
+    await a.evaluate(function () { return Backend.syncFromBackend(); });
+    await b.evaluate(function () { saveStateField('hiddenTopics'); });         // B has not synced since: its saved field is older
+    const c = await ctx.newPage(); await c.goto(URL); await ready(c);
+    assert.ok(await c.evaluate(function () { return (State.assessments || []).some(function (x) { return x.id === 'tabtest2'; }); }), 'a new tab gets the item');
+    assert.strictEqual(errors.filter(function (e) { return !/ERR_TUNNEL|net::/.test(e); }).length, 0, errors.join('\n'));
+    await ctx.close();
+    ['tabtest', 'tabtest2'].forEach(function (id) { main.call({ module: ST, action: 'delete', token: tok, collection: 'assessments', id: id }); });   // leave the shared test storage as found
+  } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
+});
+
 test('Learning lock (2.18): Teacher Dashboard 🔒 Lock → the student sees only Assessments, every other address is blocked, the server refuses learning data; 🔓 Unlock opens it again', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
   groupFixture();
   const mod = syntheticModule(CI_PAGE), keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
