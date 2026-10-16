@@ -353,7 +353,7 @@ are kept in the new sheet **TeachingSessions** (created automatically the first 
 
 - **Assessments:** a signed-in student types only the **assessment password** — name and Student ID come from the account
   (results, grading and reports are recorded under the account as before).
-- **🔒 Lock Learning Module:** Teacher Dashboard → **Teaching Modules** → *Learning Module lock* → the group + module →
+- **🔒 Lock Learning Module:** Teacher Dashboard → **Teaching Modules** → the small *Learning Module lock* card (click it to open) → the group + module →
   **🔒 Lock Learning Module**. Its students can then open only **Assessments** in that module (within a minute); every other
   page and address is closed and the server stops sending them learning material. **🔓 Unlock Learning Module** opens it
   again. Teachers are never locked.

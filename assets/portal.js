@@ -1288,18 +1288,33 @@
   }
   /* ---------------- Learning lock (2.18): close a group's Learning module while an assessment runs ---------------- */
   function learnLockSection(call) {
-    var sec = h('<section class="t-sec ll-sec" id="t-lock"><div class="ts-block ll-box"><div class="ll-head"><h3>🔒 Learning Module lock</h3><button class="btn small" type="button" data-a="r">↻ Refresh</button></div>' +
+    // a small card (status in one line); a click opens the whole panel — remembered for this browser tab
+    var sec = h('<section class="t-sec ll-sec" id="t-lock"><button type="button" class="ll-card" aria-expanded="false" aria-controls="ll-panel"><span class="ll-ico" aria-hidden="true">🔒</span>' +
+      '<span class="ll-ct"><span class="ll-t">Learning Module lock</span><span class="ll-sum">Loading…</span></span><span class="ll-chev" aria-hidden="true">›</span></button>' +
+      '<div class="ts-block ll-box" id="ll-panel" hidden><div class="ll-head"><h3>🔒 Learning Module lock</h3><button class="btn small" type="button" data-a="r">↻ Refresh</button></div>' +
       '<p class="small muted">While a module is <b>LOCKED</b> for a group, its students can open only <b>Assessments</b> there — every Learning page (Learn, Explanation, Revision, Study Tools, Cases, Practical, Presentation …) is closed and its address is blocked; the server also stops sending them learning material. Teachers are never locked. ' +
       '<b>Automatic:</b> locked for the students of a scheduled assessment (start and end time, at most one day) while it runs, and for a student during a timed attempt — it opens again by itself when the assessment ends.</p><div class="ll-body"><p class="muted small">Loading…</p></div></div></section>');
-    var body = $('.ll-body', sec), R = null;
+    var body = $('.ll-body', sec), R = null, card = $('.ll-card', sec), panel = $('.ll-box', sec);
     $('[data-a=r]', sec).onclick = function () { load(); };
+    function setOpen(on) {
+      panel.hidden = !on; card.setAttribute('aria-expanded', on ? 'true' : 'false'); sec.classList.toggle('open', on);
+      try { if (on) sessionStorage.setItem('pp_ll_open', '1'); else sessionStorage.removeItem('pp_ll_open'); } catch (e) { }
+    }
+    card.onclick = function () { setOpen(panel.hidden); };
+    try { if (sessionStorage.getItem('pp_ll_open') === '1') setOpen(true); } catch (e) { }
+    function summary(n, names, total) {
+      var sm = $('.ll-sum', card);
+      card.classList.toggle('on', n > 0);
+      sm.textContent = n ? n + ' LOCKED · ' + names.slice(0, 2).join(', ') + (names.length > 2 ? ' +' + (names.length - 2) + ' more' : '')
+        : total ? 'All unlocked · ' + total + ' module' + (total === 1 ? '' : 's') : 'No group with teaching modules yet';
+    }
     function tz() { return (R && R.settings && R.settings.timeZone) || 'UTC'; }
     function fail(r) {
       if (r.code === 'auth') { sdel(TKEY); toast('Your session has ended — please sign in again.'); route(); return; }
       if (r.code === 'mustchange') { teacherPwForm(true); return; }
       body.innerHTML = '<p class="small ' + (r.code === 'badaction' ? 'muted' : 'err') + '">' + esc(r.code === 'badaction' ? 'Update Portal.gs on the backend (version 2.18) to lock the Learning module.' : r.error || 'Something went wrong.') + '</p>';
     }
-    function load() { call('llList').then(function (r) { if (!r.ok) { fail(r); badge(0); return; } R = r; draw(); }); }
+    function load() { call('llList').then(function (r) { if (!r.ok) { fail(r); badge(0); $('.ll-sum', card).textContent = r.code === 'badaction' ? 'Update Portal.gs (2.18)' : 'Not available — open for details'; return; } R = r; draw(); }); }
     function badge(n) {
       if (!DASH || !DASH.views.modules) return;
       DASH.llN = n;
@@ -1308,13 +1323,13 @@
     }
     function draw() {
       body.innerHTML = '';
-      var n = 0;
+      var n = 0, names = [], total = 0;
       if (!R.groups.length) body.appendChild(h('<p class="muted small">No group with teaching modules yet.</p>'));
       R.groups.forEach(function (g) {
         var box = h('<div class="ll-group"><h4>' + esc(g.label) + '</h4><div class="ll-rows"></div></div>');
         g.modules.forEach(function (m) {
           var autoNow = m.auto && (m.running.length > 0 || m.attempts > 0), locked = m.locked || autoNow;
-          if (locked) n++;
+          total++; if (locked) { n++; names.push(m.title + ' · ' + g.label.replace(/^.*?·\s*/, '').replace(/\s*\([^)]*\)\s*$/, '')); }
           var t = function (x) { return tzShow(x, tz(), true); };
           var detail = m.locked ? 'Locked by ' + (m.lockedBy || 'a teacher') + (m.lockedAt ? ' at ' + t(m.lockedAt) : '') + ' — stays locked until you unlock it.'
             : m.running.length ? 'Automatic: ' + m.running.map(function (w) { return '“' + w.title + '” until ' + t(w.to) + ' (' + (w.all ? 'all students' : w.students + ' student' + (w.students === 1 ? '' : 's')) + ')'; }).join('; ') + '. To open it now, untick “automatic”.'
@@ -1341,7 +1356,7 @@
         });
         body.appendChild(box);
       });
-      badge(n);
+      badge(n); summary(n, names, total);
     }
     load();
     return sec;

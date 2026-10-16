@@ -3410,7 +3410,15 @@ test('Learning lock (2.18): Teacher Dashboard 🔒 Lock → the student sees onl
     await t.goto(url + '#/teacher'); await t.fill('#t-p', TPW); await t.click('form.card button[type=submit]');
     await dash(t, 'modules');
     const row = '#t-lock .ll-row[data-storage="cellinjury-tr-a"]';
-    await t.waitForSelector(row);
+    // a small card first: closed, status in one line; a click opens the whole panel
+    await t.waitForFunction(function () { return /All unlocked · \d+ modules?/.test(document.querySelector('#t-lock .ll-sum').textContent); });
+    assert.ok(!(await t.isVisible('#t-lock .ll-box')), 'panel closed');
+    assert.strictEqual(await t.getAttribute('#t-lock .ll-card', 'aria-expanded'), 'false');
+    const cardBox = await (await t.$('#t-lock .ll-card')).boundingBox(); assert.ok(cardBox.height < 70 && cardBox.width <= 470, JSON.stringify(cardBox));
+    if (process.env.SHOTS) await (await t.$('.dash-view[data-view=modules]')).screenshot({ path: path.join(process.env.SHOTS, 'lock-card-closed.png'), clip: undefined });
+    await t.click('#t-lock .ll-card');
+    await t.waitForSelector(row, { state: 'visible' });
+    assert.strictEqual(await t.getAttribute('#t-lock .ll-card', 'aria-expanded'), 'true');
     assert.match(await t.textContent(row), /Learning Module: UNLOCKED[\s\S]*🔒 Lock Learning Module/);
     // the student is in the module, Learning open
     const s = await page(), calls = [];
@@ -3419,6 +3427,8 @@ test('Learning lock (2.18): Teacher Dashboard 🔒 Lock → the student sees onl
     await t.click(row + ' [data-a=lock]');
     await t.waitForFunction(function (sel) { return /Learning Module: LOCKED/.test(document.querySelector(sel).textContent); }, row);
     assert.match(await t.textContent(row), /🔓 Unlock Learning Module[\s\S]*/); assert.match(await t.textContent(row), /Locked by/);
+    assert.match(await t.textContent('#t-lock .ll-sum'), /^1 LOCKED · Cell Injury & Cell Death · Group A$/);
+    assert.ok(await t.$eval('#t-lock .ll-card', function (c) { return c.classList.contains('on'); }));
     // the server: learning data refused to the student (assessments untouched)
     const stok = main.call({ module: 'cellinjury-tr-a', action: 'studentLogin', username: 'ahmed', password: PW }).token;
     assert.strictEqual(main.call({ module: 'cellinjury-tr-a', action: 'getAllContent', stoken: stok }).code, 'learnlock');

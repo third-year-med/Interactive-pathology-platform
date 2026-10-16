@@ -161,6 +161,8 @@ chapter position (HANDBOOK §5 step 5) — that position is its place on every g
   The platform block (modules/platform-nav.js, last section) polls learnLockStatus (20 s locked / 60 s / on tab show,
   last state in sessionStorage `pf_ll:<storage>`), hides every nav button but Assessments, the quick links and every
   `#view-*` but `#view-quiz`, and sends every other address to `#/quiz`. Teachers are never locked.
+- Dashboard UI: a small card (`.ll-card`: "All unlocked · N modules" / red "N LOCKED · module · group"); a click opens the
+  panel (`#ll-panel`), the open state is remembered for the tab (sessionStorage `pp_ll_open`).
 - Honest limit: the packaged course is still decrypted in the student's browser (the Assessments page needs the app);
   a student with developer tools could dig it out. For high-stakes exams use Official Exams (separate app, no course
   content) with the teaching lock.

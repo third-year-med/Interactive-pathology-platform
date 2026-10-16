@@ -399,3 +399,20 @@ code.pw{font-size:14px;font-weight:700;letter-spacing:.03em}
 .ll-act{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
 .ll-act .chk{margin:0;font-weight:500;color:var(--muted);display:flex;gap:6px;align-items:center}
 @media (max-width:760px){.ll-row{grid-template-columns:1fr}.ll-act{align-items:stretch}}
+/* Learning Module lock as a small card that opens the panel */
+.ll-card{display:flex;align-items:center;gap:11px;width:min(460px,100%);text-align:left;font:inherit;cursor:pointer;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:9px 13px;margin-top:6px;box-shadow:0 1px 2px rgba(15,42,74,.05);transition:border-color .15s,box-shadow .15s}
+.ll-card:hover{border-color:var(--teal);box-shadow:var(--shadow)}
+.ll-card:focus-visible{outline:3px solid #f0b429;outline-offset:2px}
+.ll-card.on{border-color:#f0b9b4;background:var(--bad-soft)}
+.ll-ico{flex:0 0 32px;height:32px;border-radius:9px;display:grid;place-items:center;background:var(--teal-soft);font-size:16px}
+.ll-card.on .ll-ico{background:#fff}
+.ll-ct{display:flex;flex-direction:column;min-width:0;flex:1}
+.ll-t{font-weight:700;font-size:14.5px;color:var(--navy);line-height:1.25}
+.ll-sum{font-size:12.5px;color:var(--good);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ll-card.on .ll-sum{color:var(--bad)}
+.ll-chev{font-size:22px;line-height:1;color:var(--muted);transition:transform .15s}
+.ll-sec.open .ll-card{width:100%;border-bottom-left-radius:0;border-bottom-right-radius:0}
+.ll-sec.open .ll-chev{transform:rotate(90deg)}
+.ll-sec.open .ll-box{margin-top:0;border-top:0;border-top-left-radius:0;border-top-right-radius:0}
+.ll-sec.open .ll-box .ll-head h3{display:none}
+.ll-sec.open .ll-box .ll-head{justify-content:flex-end}
