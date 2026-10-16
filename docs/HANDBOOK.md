@@ -186,6 +186,9 @@ chapter position (HANDBOOK §5 step 5) — that position is its place on every g
   `assess_resp_<attemptId>` and the list shows "In progress · ▶ Resume" (`start()` resumes server-side without a password
   and restores the parked answers). A teacher preview is kept. The runner header shows "Student ID …" instead of the
   synthetic `@student.local` address. Patch: `quiz-list-first.py`.
+- **Password copy (2026-10-16, module patch only):** `apwSecret` adds 📋 Copy (`data-a=copy`, clipboard API with an
+  execCommand fallback; the password stays covered and is never in the toast); the Hide button is plain "Hide" (no 🙈).
+  Patch: `pw-copy.py`.
 - **Student header (2026-10-16, module patch only, user's request):** `renderHeaderStatus` — `stuOnly` (NEO_BOOT role
   student with a student, not a teacher): no `uxTeacherLink`, no clickable Class server chip (only a non-clickable
   Offline / Syncing chip when relevant). Patch: `stu-header.py`.

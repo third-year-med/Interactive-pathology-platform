@@ -358,7 +358,7 @@ are kept in the new sheet **TeachingSessions** (created automatically the first 
   only that assessment. Set them in the module: Teacher Portal → **📝 Assessments** — the *🔑 Assessment passwords* strip above the
   sub-tabs (how many are set; published ones without a password flagged), the **Password** column of the Assessment Library
   (🔑 to change one), and the **🔑 Passwords** sub-tab. Passwords are **covered (••••••)** on your screen — press **👁 Show**
-  next to the one you want to give the class (only one shows at a time; it covers itself again after 2 minutes). (One row per assessment:
+  next to the one you want to give the class (only one shows at a time; it covers itself again after 2 minutes). **📋 Copy** puts a password on the clipboard without showing it on screen — paste it into your message to the students. (One row per assessment:
   **＋ Set / ✏ Change**, **🎲 New random**, **✕ Remove password**; **🎲 Give each of them a random password** for all that
   still have none). **Portal.gs 2.20:** the class quiz password is retired — an assessment WITHOUT its own password cannot
   be started (students see "🔒 Not open yet"). Students see correct answers in a review only if the assessment's

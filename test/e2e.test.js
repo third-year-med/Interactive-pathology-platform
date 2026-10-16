@@ -3614,7 +3614,7 @@ test('Assessment passwords (2.19/2.20): Assessments open without a password; eac
     assert.match(q2pw, /^[A-Z2-9]{6}$/);
     assert.strictEqual(await t.textContent('.apw-tbl tr[data-assessment="q1"] .apw-pw'), '••••••');
     assert.strictEqual(await t.$$eval('.apw-pw:not(.apw-covered)', function (x) { return x.length; }), 1);
-    await t.click('.apw-tbl tr[data-assessment="q2"] [data-a=reveal]');   // 🙈 Hide
+    await t.click('.apw-tbl tr[data-assessment="q2"] [data-a=reveal]');   // Hide
     assert.strictEqual(await t.$$eval('.apw-pw:not(.apw-covered)', function (x) { return x.length; }), 0);
     // the remaining assessment without a password (the migrated Formal Quiz 1) gets one with one click
     assert.match(await t.textContent('.apw-card'), /⚠ 1 assessment has no password yet/);
@@ -3624,9 +3624,18 @@ test('Assessment passwords (2.19/2.20): Assessments open without a password; eac
     await t.click('.sub-tabs .chip:has-text("Assessment Library")');
     await t.waitForSelector('.data-table th:text-is("Password")');
     const libRow = '.data-table tr:has(a:has-text("Quiz 1 — Necrosis"))';
-    assert.match(await t.textContent(libRow + ' .apw-cell'), /••••••[\s\S]*👁 Show/);
+    assert.match(await t.textContent(libRow + ' .apw-cell'), /••••••[\s\S]*👁 Show[\s\S]*📋 Copy/);
+    // 📋 Copy puts the password on the clipboard while it stays covered on screen (and never appears in the message)
+    await t.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: 'https://third-year-med.github.io' });
+    await t.click(libRow + ' [data-a=copy]');
+    await t.waitForSelector(libRow + ' [data-a=copy]:has-text("✓ Copied")');
+    assert.strictEqual(await t.evaluate(function () { return navigator.clipboard.readText(); }), 'Necro-26');
+    assert.strictEqual(await t.textContent(libRow + ' .apw-pw'), '••••••', 'still covered');
+    assert.ok(!/Necro-26/.test(await t.evaluate(function () { return document.body.innerText; })), 'not in the message either');
+    if (process.env.SHOTS) await (await t.$(libRow)).screenshot({ path: path.join(process.env.SHOTS, 'library-pw-copy.png') });
     await t.click(libRow + ' [data-a=reveal]');
-    assert.match(await t.textContent(libRow + ' .apw-cell'), /Necro-26[\s\S]*🙈 Hide/);
+    assert.match(await t.textContent(libRow + ' .apw-cell'), /Necro-26[\s\S]*Hide/);
+    assert.ok(!/🙈/.test(await t.textContent('#view-teacher')), 'no monkey on the Hide button');
     await t.click(libRow + ' [data-a=reveal]');
     assert.match(await t.textContent('.apw-strip'), /3 of 3 set/);
     t.once('dialog', function (d) { d.accept(); });
