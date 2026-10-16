@@ -26,3 +26,6 @@ Essentials:
 - Test before every push: `cd test && node --test backend.test.js && node --test e2e.test.js` (real module pages from the
   sibling repos; set the content keys as env variables to unlock them). Reproduce bugs on the real page first.
 - Keep the user's plan order, explain in plain language with exact buttons, preserve existing features and data.
+- **Merging (user's standing instruction, 2026-10-16):** once a change is finished and all tests pass, merge it into
+  `main` and push directly (platform and module repos) — do not ask for authorization first. Still tell the user what
+  went live and give the Portal.gs deploy steps when the backend changed.
