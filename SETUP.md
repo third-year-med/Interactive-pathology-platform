@@ -349,6 +349,19 @@ The attendance of a lecture is the module's own attendance (the same as the modu
 Drive copy, and **Results & attendance**), so nothing changes for the modules. The schedule and the teacher's marks
 are kept in the new sheet **TeachingSessions** (created automatically the first time you save a lecture).
 
+## Assessments and the Learning lock (Portal.gs 2.18)
+
+- **Assessments:** a signed-in student types only the **assessment password** — name and Student ID come from the account
+  (results, grading and reports are recorded under the account as before).
+- **🔒 Lock Learning Module:** Teacher Dashboard → **Teaching Modules** → *Learning Module lock* → the group + module →
+  **🔒 Lock Learning Module**. Its students can then open only **Assessments** in that module (within a minute); every other
+  page and address is closed and the server stops sending them learning material. **🔓 Unlock Learning Module** opens it
+  again. Teachers are never locked.
+- **Automatic** (ticked by default): a scheduled assessment — an assignment with a start AND an end time, at most one
+  day — locks the Learning module for its students from the start to the end; a timed attempt locks that student until it
+  is submitted. Untick *Lock automatically during scheduled assessments* to switch this off for a group + module.
+- Limit: the course itself is still in the student's browser; for high-stakes exams use **Official Exams**.
+
 ## Module order on the student page (Portal.gs 2.17)
 
 The teaching modules on every group page appear in the order of the **front-page module list** (Teacher Dashboard →

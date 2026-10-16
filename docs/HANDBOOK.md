@@ -147,6 +147,25 @@ from that list follow in directory order; Official Exams (`EXAM_MODULE`) always 
 section `.exams-sec` ("📝 Exams & Assessments", card `.mod.exam`) below the teaching grid, then the Teaching Sessions panel;
 facts and "You can open N of M" count teaching modules only. **New module:** add its card in Teacher Management at its
 chapter position (HANDBOOK §5 step 5) — that position is its place on every group page.
+**Assessments sign-in + Learning lock (Portal.gs 2.18, module patch 2026-10-16):**
+- Module Assessments page: a signed-in student (`NEO_BOOT.role === 'student'`) sees only the assessment password
+  (`Views.quiz.acct()` / `renderAccountGate`); identity = the account (`email` or `<id>@student.local`, as Code.gs
+  `studentEmail_`), which Code.gs `gateRequest_` already forces on getMyAssessments/startAttempt/submitAttempt. Teacher
+  preview and local mode keep the old name/email form. Patched in all three module index.html (identical code).
+- Learning lock: settings `ll:<storage>` (manual, Teacher Dashboard → Teaching Modules → 🔒 Lock Learning Module; Admin
+  or the delivery's personal teacher; `llList`/`llSet`) and `llauto:<storage>` ('off' disables the automatic lock).
+  Automatic = an active assignment with availableFrom AND dueAt (≤ 24 h) locks its students in its window; a TIMED attempt
+  in progress locks that student until submitted or deadline + 2 min (`llAutoData_`, cached 30 s in `lla:<storage>`,
+  cleared by start/submit/assignment actions). `learnLockHook_` in portalHook_: `learnLockStatus` for the page; a locked
+  student's getAllContent/study* → `learnlock` (cheap `llAny_` check first so the getAllContent fast path stays fast).
+  The platform block (modules/platform-nav.js, last section) polls learnLockStatus (20 s locked / 60 s / on tab show,
+  last state in sessionStorage `pf_ll:<storage>`), hides every nav button but Assessments, the quick links and every
+  `#view-*` but `#view-quiz`, and sends every other address to `#/quiz`. Teachers are never locked.
+- Honest limit: the packaged course is still decrypted in the student's browser (the Assessments page needs the app);
+  a student with developer tools could dig it out. For high-stakes exams use Official Exams (separate app, no course
+  content) with the teaching lock.
+- Tests: a module page is tested WITHOUT the real content keys by encrypting a small synthetic course with a throwaway
+  key into the real index.html (`syntheticModule` in e2e.test.js; the harness backend returns that key).
 
 **Results & attendance (Step 10):** read-only overviews per delivery — Admin (Results & attendance tab: all deliveries)
 and personal teachers (📊 button: own deliveries); per-student table, attendance register, CSV. Students are matched to

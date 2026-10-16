@@ -3338,3 +3338,122 @@ test('student homepage: modules in curricular order (front-page list), Official 
   await p.context().close();
   main.call({ module: 'portal', action: 'logout', token: t });
 });
+
+/* ---------------- Assessments sign-in + Learning lock (2.18) on the REAL module page ----------------
+   The real cell-injury index.html (app code, sign-in gate, platform block) with a small synthetic course encrypted with a
+   throwaway key — so these tests run without the real content keys. Code.gs's student assessment routes are not in the
+   test copy of Code.gs, so getMyAssessments is answered by a stub that records what the page sent. */
+const CI_PAGE = [process.env.CI_MODULE_HTML, '/home/user/repos/cell-injury-teaching-platform/index.html', '/home/user/cell-injury-teaching-platform/index.html'].filter(function (f) { return f && fs.existsSync(f); })[0];
+function syntheticModule(file) {
+  const crypto = require('crypto');
+  const data = { course: { title: 'Cell Injury (test course)', chapter: 'Chapter T', author: 'Test Author', subtitle: 'Test', storagePrefix: 'ci_', moduleKey: 'cellinjury', fileStem: 'test', defaultQuizPassword: 'QUIZ-1', localTeacherPassword: 'x' },
+    topics: [], questions: [], glossary: [], images: {}, imageProviders: {}, diagrams: {}, figures: {}, comparisons: [], sequences: [], cases: [], caseLevels: [], quizIds: [] };
+  const key = crypto.randomBytes(32), iv = crypto.randomBytes(12), c = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const ct = Buffer.concat([c.update(JSON.stringify(data), 'utf8'), c.final(), c.getAuthTag()]);
+  const html = fs.readFileSync(file, 'utf8').replace(/(<script id="neo-enc"[^>]*>)([\s\S]*?)(<\/script>)/, function (m, a, b, z) { return a + JSON.stringify({ iv: iv.toString('base64'), ct: ct.toString('base64') }) + z; });
+  return { html: html, key: key.toString('base64') };
+}
+async function openSyntheticModule(p, mod, assessCalls) {
+  await p.route('https://third-year-med.github.io/cell-injury-teaching-platform/**', function (route) { return route.fulfill({ status: 200, contentType: 'text/html', body: mod.html }); });
+  await p.route('https://script.google.com/**', async function (route) {   // registered last → asked first
+    const q = JSON.parse(route.request().postData() || '{}');
+    if (q.action === 'getMyAssessments') { assessCalls.push(q); return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ ok: true, items: [] }) }); }
+    return route.fallback();
+  });
+  await p.goto('https://third-year-med.github.io/cell-injury-teaching-platform/?g=tr-a');
+  await p.waitForSelector('#nb-user');
+  await p.fill('#nb-user', 'ahmed'); await p.fill('#nb-pass', PW); await p.click('#neo-boot button[type=submit]');
+  await p.waitForSelector('.nav-btn[data-view="quiz"]', { timeout: 20000 });
+}
+
+test('module Assessments (2.18): a signed-in student enters only the assessment password; identity comes from the account', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+  groupFixture();
+  const mod = syntheticModule(CI_PAGE), keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  try {
+    const p = await page(), calls = [];
+    await openSyntheticModule(p, mod, calls);
+    await p.evaluate(function () { location.hash = '#/quiz'; });
+    await p.waitForSelector('#view-quiz #quiz-pw');
+    const gate = await p.textContent('#view-quiz');
+    assert.strictEqual(await p.$$eval('#view-quiz input', function (x) { return x.length; }), 1, 'only the password field');
+    assert.ok(!/Full name|Email address/.test(gate), gate);
+    assert.match(gate, /My Assessments — Cell Injury \(test course\)/);
+    assert.match(gate, /Enter the assessment password provided by your teacher\./);
+    assert.match(gate, /Assessment password/);
+    assert.match(gate, /Signed in as Student Ahmed \(Student ID ahmed\)/);
+    await p.click('#view-quiz button.btn-primary');
+    await p.waitForFunction(function () { return /password/.test(document.querySelector('#view-quiz [role=status]').textContent); });   // empty password is refused
+    await p.fill('#quiz-pw', 'QUIZ-1'); await p.press('#quiz-pw', 'Enter');
+    await p.waitForFunction(function () { return /Student ID ahmed/.test(document.querySelector('#view-quiz').textContent) && !document.querySelector('#quiz-pw'); });
+    assert.strictEqual(calls.length, 1);
+    assert.deepStrictEqual([calls[0].email, calls[0].password, !!calls[0].stoken], ['ahmed@student.local', 'QUIZ-1', true], 'the account identity + the signed-in session');
+    const dashTxt = await p.textContent('#view-quiz');
+    assert.match(dashTxt, /Student Ahmed · Student ID ahmed/); assert.ok(!/Not you\? Switch/.test(dashTxt));
+    if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'module-assess-dashboard.png') });
+    // the gate again (password forgotten in this tab): still only the password
+    await p.evaluate(function () { sessionStorage.clear(); });
+    await p.reload(); await p.waitForSelector('#nb-user, .nav-btn[data-view="quiz"]');
+    if (await p.$('#nb-user')) { await p.fill('#nb-user', 'ahmed'); await p.fill('#nb-pass', PW); await p.click('#neo-boot button[type=submit]'); await p.waitForSelector('.nav-btn[data-view="quiz"]'); }
+    await p.evaluate(function () { location.hash = '#/quiz'; }); await p.waitForSelector('#view-quiz #quiz-pw');
+    if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'module-assess-gate.png') });
+    assert.strictEqual(errors.filter(function (e) { return !/ERR_TUNNEL|net::/.test(e); }).length, 0, errors.join('\n'));
+    await p.context().close();
+  } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
+});
+
+test('Learning lock (2.18): Teacher Dashboard 🔒 Lock → the student sees only Assessments, every other address is blocked, the server refuses learning data; 🔓 Unlock opens it again', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+  groupFixture();
+  const mod = syntheticModule(CI_PAGE), keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  try {
+    // the teacher's control
+    const t = await page();
+    await t.goto(url + '#/teacher'); await t.fill('#t-p', TPW); await t.click('form.card button[type=submit]');
+    await dash(t, 'modules');
+    const row = '#t-lock .ll-row[data-storage="cellinjury-tr-a"]';
+    await t.waitForSelector(row);
+    assert.match(await t.textContent(row), /Learning Module: UNLOCKED[\s\S]*🔒 Lock Learning Module/);
+    // the student is in the module, Learning open
+    const s = await page(), calls = [];
+    await openSyntheticModule(s, mod, calls);
+    assert.ok(await s.isVisible('.nav-btn[data-view="learn"]'));
+    await t.click(row + ' [data-a=lock]');
+    await t.waitForFunction(function (sel) { return /Learning Module: LOCKED/.test(document.querySelector(sel).textContent); }, row);
+    assert.match(await t.textContent(row), /🔓 Unlock Learning Module[\s\S]*/); assert.match(await t.textContent(row), /Locked by/);
+    // the server: learning data refused to the student (assessments untouched)
+    const stok = main.call({ module: 'cellinjury-tr-a', action: 'studentLogin', username: 'ahmed', password: PW }).token;
+    assert.strictEqual(main.call({ module: 'cellinjury-tr-a', action: 'getAllContent', stoken: stok }).code, 'learnlock');
+    // the page picks it up (polls; here: the student comes back to the tab)
+    await s.evaluate(function () { document.dispatchEvent(new Event('visibilitychange')); });
+    await s.waitForFunction(function () { return document.body.classList.contains('pf-ll') && location.hash === '#/quiz'; }, null, { timeout: 15000 });
+    assert.match(await s.textContent('#pf-ll-bar'), /Learning Module: LOCKED[\s\S]*locked the Learning module/);
+    const visibleNav = await s.$$eval('.nav-btn', function (b) { return b.filter(function (x) { return x.offsetParent !== null; }).map(function (x) { return x.dataset.view; }); });
+    assert.deepStrictEqual(visibleNav, ['quiz']);
+    assert.ok(!(await s.isVisible('.ux-quick')), 'quick links (All topics, Glossary, Presentation) hidden');
+    for (const addr of ['#/learn', '#/explain/overview', '#/revision', '#/study/glossary', '#/present', '#/cases', '#/']) {
+      await s.evaluate(function (a) { location.hash = a; }, addr);
+      await s.waitForFunction(function () { return location.hash === '#/quiz'; });
+      assert.ok(await s.isVisible('#view-quiz'), addr + ' → Assessments');
+      assert.ok(!(await s.isVisible('#view-explain')) && !(await s.isVisible('#view-learn')), addr + ': no Learning page shown');
+    }
+    // a reload stays locked from the first moment
+    await s.reload(); await s.waitForSelector('.nav-btn[data-view="quiz"]', { timeout: 20000 });
+    await s.waitForFunction(function () { return document.body.classList.contains('pf-ll') && location.hash === '#/quiz'; });
+    if (process.env.SHOTS) { await s.screenshot({ path: path.join(process.env.SHOTS, 'module-locked.png') }); await t.screenshot({ path: path.join(process.env.SHOTS, 'dashboard-lock.png'), fullPage: true }); }
+    // the dashboard card shows the lock
+    await t.click('.dash-view[data-view=modules] .dv-back'); await t.waitForSelector('.dash-grid', { state: 'visible' });
+    assert.match(await t.textContent('.dash-card[data-view=modules] .dc-badges'), /🔒 1 locked/);
+    // 🔓 Unlock → open again
+    await dash(t, 'modules'); await t.click(row + ' [data-a=lock]');
+    await t.waitForFunction(function (sel) { return /Learning Module: UNLOCKED/.test(document.querySelector(sel).textContent); }, row);
+    assert.ok(main.call({ module: 'cellinjury-tr-a', action: 'getAllContent', stoken: stok }).ok);
+    await s.evaluate(function () { document.dispatchEvent(new Event('visibilitychange')); });
+    await s.waitForFunction(function () { return !document.body.classList.contains('pf-ll') && !document.getElementById('pf-ll-bar'); }, null, { timeout: 15000 });
+    await s.evaluate(function () { location.hash = '#/learn'; }); await s.waitForTimeout(300);
+    assert.strictEqual(await s.evaluate(function () { return location.hash; }), '#/learn');
+    assert.ok(await s.isVisible('.nav-btn[data-view="learn"]'));
+    if (process.env.SHOTS) { await t.setViewportSize({ width: 390, height: 844 }); await t.screenshot({ path: path.join(process.env.SHOTS, 'dashboard-lock-phone.png'), fullPage: true }); }
+    await t.setViewportSize({ width: 390, height: 844 });
+    assert.ok(await t.evaluate(function () { return document.documentElement.scrollWidth - window.innerWidth; }) <= 1, 'dashboard fits a phone');
+    await s.context().close(); await t.context().close();
+  } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
+});

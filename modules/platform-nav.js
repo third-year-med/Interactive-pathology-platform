@@ -252,3 +252,77 @@
   // the module's app code starts only after sign-in (it is added to the page then), so wait for it, then take over once
   if (!install()) { var tries = 0, iv = setInterval(function () { if (install() || ++tries > 2600) clearInterval(iv); }, 700); }
 })();
+/* ==========================================================================
+   Learning lock (Portal.gs 2.18) — while the teacher locks the Learning module (Teacher Dashboard → Teaching Modules),
+   or a scheduled assessment / a timed attempt is running, a signed-in STUDENT of this group sees only Assessments:
+   every other page, navigation button and quick link is hidden and every other address goes to #/quiz. The state
+   comes from the class server (learnLockStatus) — every 20 s while locked, every 60 s otherwise and whenever the tab is
+   shown again — and the server itself refuses the student's learning-data requests while locked. Teachers are never
+   locked. An older server without the lock answers "unknown action": nothing is locked then.
+   ========================================================================== */
+(function () {
+  'use strict';
+  var NC = window.NEO_CONFIG || {}, ON = false, timer = null, busy = false, off = false, bar = null;
+  var GROUP = (function () { try { var m = /[?&]g=([A-Za-z0-9_-]{1,24})/.exec(location.search); return m ? m[1] : ''; } catch (e) { return ''; } })();
+  function boot() { return window.NEO_BOOT || null; }
+  function backend() {   // the same address the sign-in gate uses (a teacher-set override first)
+    var pfx = String(NC.storagePrefix || '') + (GROUP ? GROUP + '_' : ''), u = '';
+    try { u = JSON.parse(localStorage.getItem(pfx + 'backend_url_v1') || 'null') || ''; } catch (e) { u = ''; }
+    return String(u || NC.backendUrl || '').trim();
+  }
+  function css() {
+    if (document.getElementById('pf-ll-css')) return;
+    var st = document.createElement('style'); st.id = 'pf-ll-css';
+    st.textContent = 'body.pf-ll .nav-btn:not([data-view="quiz"]),body.pf-ll .ux-quick,body.pf-ll [id^="view-"]:not(#view-quiz){display:none!important}' +
+      'body.pf-ll a.brand{pointer-events:none}' +
+      '.pf-ll-bar{position:sticky;top:0;z-index:9999;display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;padding:.6rem 1.2rem;background:#7f1d1d;color:#fff;font:600 .92rem/1.4 system-ui,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.2)}' +
+      '.pf-ll-bar b{font-weight:800}.pf-ll-bar span{font-weight:500;opacity:.92}' +
+      '@media print{.pf-ll-bar{display:none!important}}';
+    (document.head || document.documentElement).appendChild(st);
+  }
+  function hhmm(t) { try { return new Date(Number(t)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; } }
+  /** Only Assessments while locked: any other address (link, bookmark, typed) is sent there. */
+  function guard() { if (ON && !/^#\/?quiz(\/|$)/.test(String(location.hash || ''))) location.replace('#/quiz'); }
+  function skey() { var B = boot(); return 'pf_ll:' + ((B && B.module) || NC.moduleKey || ''); }
+  function set(on, r) {
+    var was = ON; ON = !!on;
+    try { if (ON) sessionStorage.setItem(skey(), JSON.stringify(r || {})); else sessionStorage.removeItem(skey()); } catch (e) { }   // a reload starts locked at once
+    css();
+    document.body.classList.toggle('pf-ll', ON);
+    if (ON) {
+      if (!bar) { bar = document.createElement('div'); bar.className = 'pf-ll-bar'; bar.id = 'pf-ll-bar'; bar.setAttribute('role', 'status'); document.body.insertBefore(bar, document.body.firstChild); }
+      bar.innerHTML = '';
+      var b = document.createElement('b'); b.textContent = '🔒 Learning Module: LOCKED'; bar.appendChild(b);
+      var s = document.createElement('span');
+      s.textContent = String((r && r.message) || 'Only Assessments are open.') + (r && r.until ? ' It reopens at about ' + hhmm(r.until) + '.' : r && r.reason === 'manual' ? ' Your teacher will unlock it after the assessment.' : '');
+      bar.appendChild(s);
+      guard();
+    } else {
+      if (bar) { bar.remove(); bar = null; }
+      if (was) { try { if (typeof toast === 'function') toast('🔓 The Learning module is open again.', 'ok', 5000); } catch (e) { } }
+    }
+  }
+  function poll() {
+    clearTimeout(timer); timer = null;
+    var B = boot();
+    if (!B || !B.role) { timer = setTimeout(poll, 2000); return; }   // the course has not opened yet (sign-in screen)
+    if (B.role !== 'student' || off) return;                         // teachers are never locked
+    if (!ON && !busy) { var last = null; try { last = JSON.parse(sessionStorage.getItem(skey()) || 'null'); } catch (e) { last = null; } if (last) set(true, last); }
+    var tok = typeof B.studentToken === 'function' ? B.studentToken() : '', u = backend();
+    if (!tok || !u || busy) { timer = setTimeout(poll, 20000); return; }
+    busy = true;
+    fetch(u, { method: 'POST', redirect: 'follow', cache: 'no-store', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ module: B.module, action: 'learnLockStatus', stoken: tok }) })
+      .then(function (res) { return res.json(); })
+      .then(function (r) {
+        busy = false;
+        if (r && r.ok) set(!!r.locked, r);
+        else if (r && (r.code === 'badaction' || /unknown action/i.test(String(r.error || '')))) { off = true; set(false); return; }   // older server: no lock
+        timer = setTimeout(poll, ON ? 20000 : 60000);
+      })
+      .catch(function () { busy = false; timer = setTimeout(poll, ON ? 20000 : 60000); });   // offline: keep the last known state
+  }
+  window.addEventListener('hashchange', guard);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden && !busy) poll(); });
+  window.PlatformLearnLock = { check: poll, isLocked: function () { return ON; } };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', poll); else poll();
+})();

@@ -513,7 +513,7 @@
      already load (no extra requests); where nothing reliable is loaded yet the card shows its short description. ---------------- */
   var DASH = null;
   var DASH_DEF = {
-    modules: ['📚', 'Teaching Modules', 'Open a module in teacher mode or its Teacher Portal.'],
+    modules: ['📚', 'Teaching Modules', 'Open a module in teacher mode or its Teacher Portal; lock the Learning module during an assessment.'],
     sessions: ['🎓', 'Teaching Sessions', 'Schedule or start lectures, live attendance, Live Classroom, history.'],
     overall: ['📊', 'Overall Pathology Attendance', 'All modules together: attendance and absence % per student, module breakdown, below-75% warnings, Excel and print; results of every module.'],
     exams: ['📝', 'Official Exams', 'Module and combined exams, exam banks, student exam pages, results.'],
@@ -568,6 +568,7 @@
   /** The summary line (and an optional small badge) of a card. */
   function dashSum(id, text, badge, cls) {
     if (!DASH || !DASH.views[id]) return; var c = DASH.views[id].card;
+    if (id === 'modules' && !badge && DASH.llN) { badge = '🔒 ' + DASH.llN + ' locked'; cls = 'locked'; }   // 2.18: keep the lock badge
     $('.dc-sum', c).textContent = text || '';
     $('.dc-badges', c).innerHTML = badge ? '<span class="pill ' + (cls || 'available') + '">' + esc(badge) + '</span>' : '';
   }
@@ -630,6 +631,7 @@
     var grid = $('.t-grid', tm);
     MODULES.forEach(function (m) { grid.appendChild(teacherCard(m)); });
     if (!MODULES.length) grid.appendChild(h('<p class="muted">No modules yet — add one under Teacher Management.</p>'));
+    var tmW = h('<div class="dv-wrap"></div>'); tmW.appendChild(learnLockSection(call)); tmW.appendChild(tm);   // 2.18: the lock first
     var ss = sessionsSection(call, true, { byStudent: false, onSummary: sessSummary });
     var ex = examsSection(call, true, examSummary);
     var ov = overallSection(call, overallSummary);
@@ -641,7 +643,7 @@
       dashSum('directory', n('institutions', 'institution').replace('institutionss', 'institutions') + ' · ' + n('groups', 'group') + ' · ' + n('deliveries', 'delivery').replace('deliverys', 'deliveries'));
     });
     main.appendChild(dashShell({ intro: 'Signed in as the platform administrator. Choose an area to open it.',
-      views: [['modules', tm], ['sessions', ss], ['overall', ov], ['exams', ex], ['manage', mg], ['directory', dir]] }));
+      views: [['modules', tmW], ['sessions', ss], ['overall', ov], ['exams', ex], ['manage', mg], ['directory', dir]] }));
     DASH.onOpen.directory = function () { var d = $('details.dir', dir); if (d && !d.open) d.open = true; };   // loads the directory the first time
     moduleSummary();
     dashShow();
@@ -713,8 +715,9 @@
     $('[data-a=pw]', bar).onclick = function () { teacherPwForm(false); };
     var box = h('<section class="t-sec" id="t-mine"><p class="muted">Loading…</p></section>');
     var sessW = h('<div class="dv-wrap"><p class="muted small">Loading…</p></div>'), exW = h('<div class="dv-wrap"><p class="muted small">Loading…</p></div>'), ovW = h('<div class="dv-wrap"><p class="muted small">Loading…</p></div>');
+    var boxW = h('<div class="dv-wrap"></div>'); boxW.appendChild(learnLockSection(call)); boxW.appendChild(box);   // 2.18: the lock first
     main.appendChild(dashShell({ intro: 'Signed in as <b>' + esc(u.name || u.username) + '</b> (' + esc(u.username) + '). Your groups and modules — choose an area to open it.', tools: bar,
-      views: [['modules', box], ['sessions', sessW], ['overall', ovW], ['exams', exW]] }));
+      views: [['modules', boxW], ['sessions', sessW], ['overall', ovW], ['exams', exW]] }));
     dashShow();
     post(CFG.backendUrl, { module: 'portal', action: 'teacherMe', ttoken: t.ttoken }).then(function (r) {
       if (!r.ok) { if (r.code === 'auth') { sdel(TKEY); toast('Your teacher session has ended — please sign in again.'); return route(); } box.innerHTML = '<p class="err">' + esc(r.error) + '</p>'; return; }
@@ -1282,6 +1285,66 @@
       (x.deleted ? '<p>This item is <b>hidden/removed for this group</b>. The master version (what the other groups see):</p>' + pvBody(x.collection, x.master)
       : x.master && !same ? '<div class="pv-cmp"><div><p class="pv-lab">This group’s version</p>' + pvBody(x.collection, x.data) + '</div><div><p class="pv-lab">Master version (published)</p>' + pvBody(x.collection, x.master) + '</div></div>'
       : (same ? '<p class="small">Same as the master.</p>' : '<p class="small">Not in the master — only this group has it.</p>') + pvBody(x.collection, x.data));
+  }
+  /* ---------------- Learning lock (2.18): close a group's Learning module while an assessment runs ---------------- */
+  function learnLockSection(call) {
+    var sec = h('<section class="t-sec ll-sec" id="t-lock"><div class="ts-block ll-box"><div class="ll-head"><h3>🔒 Learning Module lock</h3><button class="btn small" type="button" data-a="r">↻ Refresh</button></div>' +
+      '<p class="small muted">While a module is <b>LOCKED</b> for a group, its students can open only <b>Assessments</b> there — every Learning page (Learn, Explanation, Revision, Study Tools, Cases, Practical, Presentation …) is closed and its address is blocked; the server also stops sending them learning material. Teachers are never locked. ' +
+      '<b>Automatic:</b> locked for the students of a scheduled assessment (start and end time, at most one day) while it runs, and for a student during a timed attempt — it opens again by itself when the assessment ends.</p><div class="ll-body"><p class="muted small">Loading…</p></div></div></section>');
+    var body = $('.ll-body', sec), R = null;
+    $('[data-a=r]', sec).onclick = function () { load(); };
+    function tz() { return (R && R.settings && R.settings.timeZone) || 'UTC'; }
+    function fail(r) {
+      if (r.code === 'auth') { sdel(TKEY); toast('Your session has ended — please sign in again.'); route(); return; }
+      if (r.code === 'mustchange') { teacherPwForm(true); return; }
+      body.innerHTML = '<p class="small ' + (r.code === 'badaction' ? 'muted' : 'err') + '">' + esc(r.code === 'badaction' ? 'Update Portal.gs on the backend (version 2.18) to lock the Learning module.' : r.error || 'Something went wrong.') + '</p>';
+    }
+    function load() { call('llList').then(function (r) { if (!r.ok) { fail(r); badge(0); return; } R = r; draw(); }); }
+    function badge(n) {
+      if (!DASH || !DASH.views.modules) return;
+      DASH.llN = n;
+      var b = $('.dc-badges', DASH.views.modules.card);
+      b.innerHTML = n ? '<span class="pill locked">🔒 ' + n + ' locked</span>' : '';
+    }
+    function draw() {
+      body.innerHTML = '';
+      var n = 0;
+      if (!R.groups.length) body.appendChild(h('<p class="muted small">No group with teaching modules yet.</p>'));
+      R.groups.forEach(function (g) {
+        var box = h('<div class="ll-group"><h4>' + esc(g.label) + '</h4><div class="ll-rows"></div></div>');
+        g.modules.forEach(function (m) {
+          var autoNow = m.auto && (m.running.length > 0 || m.attempts > 0), locked = m.locked || autoNow;
+          if (locked) n++;
+          var t = function (x) { return tzShow(x, tz(), true); };
+          var detail = m.locked ? 'Locked by ' + (m.lockedBy || 'a teacher') + (m.lockedAt ? ' at ' + t(m.lockedAt) : '') + ' — stays locked until you unlock it.'
+            : m.running.length ? 'Automatic: ' + m.running.map(function (w) { return '“' + w.title + '” until ' + t(w.to) + ' (' + (w.all ? 'all students' : w.students + ' student' + (w.students === 1 ? '' : 's')) + ')'; }).join('; ') + '. To open it now, untick “automatic”.'
+            : m.attempts ? 'Automatic: ' + m.attempts + ' student' + (m.attempts === 1 ? '' : 's') + ' in a timed attempt.'
+            : m.next.length ? 'Next scheduled assessment: “' + m.next[0].title + '” ' + tzShow(m.next[0].from, tz()) + (m.auto ? ' (locks automatically)' : '') : '';
+          var row = h('<div class="ll-row' + (locked ? ' on' : '') + '" data-delivery="' + esc(m.deliveryId) + '" data-storage="' + esc(m.storage) + '">' +
+            '<div class="ll-mod">' + esc(m.icon + ' ' + m.title) + (m.active ? '' : ' <span class="small muted">(inactive)</span>') + '</div>' +
+            '<div class="ll-st"><span class="ll-pill ' + (locked ? 'locked' : 'open') + '">Learning Module: <b>' + (locked ? 'LOCKED' : 'UNLOCKED') + '</b>' + (!m.locked && autoNow ? ' (automatic)' : '') + '</span>' + (detail ? '<div class="small muted">' + esc(detail) + '</div>' : '') + '</div>' +
+            '<div class="ll-act"><button class="btn ' + (m.locked ? 'primary' : 'danger') + '" type="button" data-a="lock">' + (m.locked ? '🔓 Unlock Learning Module' : '🔒 Lock Learning Module') + '</button>' +
+            '<label class="chk small"><input type="checkbox" data-a="auto"' + (m.auto ? ' checked' : '') + '> Lock automatically during scheduled assessments</label></div></div>');
+          var lb = $('[data-a=lock]', row), ab = $('[data-a=auto]', row);
+          lb.onclick = function () {
+            lb.disabled = true;
+            call('llSet', { deliveryId: m.deliveryId, locked: !m.locked }).then(function (r) {
+              lb.disabled = false; if (!r.ok) return fail(r);
+              R = r; draw(); toast(!m.locked ? 'Learning Module LOCKED for ' + g.label + ' — ' + m.title + '. Students see only Assessments (within a minute).' : 'Learning Module unlocked for ' + g.label + ' — ' + m.title + '.');
+            });
+          };
+          ab.onchange = function () {
+            ab.disabled = true;
+            call('llSet', { deliveryId: m.deliveryId, auto: ab.checked }).then(function (r) { ab.disabled = false; if (!r.ok) return fail(r); R = r; draw(); });
+          };
+          $('.ll-rows', box).appendChild(row);
+        });
+        body.appendChild(box);
+      });
+      badge(n);
+    }
+    load();
+    return sec;
   }
   /* ---------------- Overall Pathology Attendance (2.15): every teaching module of a group in one report ----------------
      Read-only. The figures come from the backend (attOverall) — the same calculation as the Teaching Sessions

@@ -65,6 +65,7 @@
  *                     deletes its attendance session and every check-in with it)
  *   tsMark {tsId, studentId, mark: present|late|excused|clear|remove, recordId?}   the teacher's corrections
  *   tsSettings        Admin: platform time zone and attendance warning threshold
+ *   llList / llSet {deliveryId, locked?, auto?}  2.18: Learning-module lock per group + module (see "Learning lock" below)
  *   attOverall {groupId}  2.15: Overall Pathology Attendance — every student of the group over EVERY teaching module
  *                     (sessions taken inside the modules and Teaching Sessions alike, each counted once), same % and warning
  *   Sheet TeachingSessions (created on first use). Attendance itself stays in AttendanceSessions/AttendanceRecords.
@@ -187,7 +188,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.17';
+var PORTAL_VERSION = '2.18';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -216,6 +217,7 @@ function portalHook_(module, p) {
     if (act === 'examUpsert' || act === 'examRemove' || act === 'examCopyExam') { examListForget_(String(module)); if (p.to) examListForget_(String(p.to)); }   // the exam front page shows changes at once
     if (EXAM_BANK_ACTIONS[act]) return examBankHook_(String(module), p);   // 2.6: copy questions between exam banks and teaching banks
     var gl = examGroupLockHook_(String(module), act, p); if (gl) return gl;   // 2.6: a combined exam of the group closes all its modules for candidates
+    var ll = learnLockHook_(String(module), act, p); if (ll) return ll;   // 2.18: Learning module locked during assessments (students)
     // 2.5 speed: the frequent "anything new?" check is answered from memory when nothing changed for this storage
     if (act === 'getAllContent') { var fast = cvFastUnchanged_(String(module), p); if (fast) return fast; }
     else if (!CV_NO_CONTENT_WRITE[act]) cvMarkWrite_(String(module));
@@ -2322,7 +2324,7 @@ var TS_GRACE_MS = 20000;                        // …and the code it replaced i
 var TS_FAIL_MAX = 10, TS_FAIL_WINDOW_S = 600;  // per student and group: 10 wrong codes → wait 10 minutes
 var TS_STATUSES = { scheduled: 1, live: 1, ended: 1, cancelled: 1 };
 var TS_MARKS = { present: 1, late: 1, excused: 1 };
-var TS_ACTIONS = { tsGroups: 1, tsList: 1, tsSave: 1, tsStart: 1, tsState: 1, tsClose: 1, tsCancel: 1, tsDelete: 1, tsMark: 1, tsSettings: 1, attOverall: 1 };
+var TS_ACTIONS = { tsGroups: 1, tsList: 1, tsSave: 1, tsStart: 1, tsState: 1, tsClose: 1, tsCancel: 1, tsDelete: 1, tsMark: 1, tsSettings: 1, attOverall: 1, llList: 1, llSet: 1 };
 
 function tsRoute_(p) {
   if (p.ttoken) return tAuthed_(p, function (u) {
@@ -2347,6 +2349,8 @@ function tsDo_(p, who) {
     case 'tsDelete': return tsDelete_(who, p);
     case 'tsMark': return tsMark_(who, p);
     case 'attOverall': return attOverall_(who, p);
+    case 'llList': return llList_(who);
+    case 'llSet': return rosterWrite_(function () { return llSet_(who, p); });
     case 'tsSettings': return who.admin ? rosterWrite_(function () { return tsSettingsSave_(p); }) : { ok: false, code: 'forbidden', error: 'Only the platform administrator can change these settings.' };
   }
   return { ok: false, code: 'badaction', error: 'Unknown action.' };
@@ -2829,6 +2833,121 @@ function attOverall_(who, p) {
   r.partial = !!(all && all.modules.length > g.modules.length);   // a teacher who has only some of the group's modules
   r.groupModules = all ? all.modules.length : g.modules.length;
   return r;
+}
+
+/* ======================================================================
+ * Learning lock (2.18) — while an assessment runs, students of a group + module can use only the module's Assessments.
+ *   Manual: Teacher Dashboard → Teaching Modules → 🔒 Lock Learning Module (Admin, or a personal teacher for the deliveries
+ *           assigned to them). Setting ll:<storage> = {locked, by, at}.
+ *   Automatic (on unless switched off for that delivery, setting llauto:<storage> = 'off'):
+ *     - a SCHEDULED assessment: an active assignment with a start AND an end time, at most LL_AUTO_MAX_MS long, locks
+ *       every student it is assigned to from its start to its end (a week-long homework window never locks anything);
+ *     - a TIMED attempt in progress locks that student until it is submitted or its time is up.
+ *   Enforcement on the server: a locked student's learning-data requests (getAllContent — the teachers' added material —
+ *   and study*) are refused with code 'learnlock'; learnLockStatus tells the module page (platform block), which then
+ *   allows only the Assessments page and sends every other address there. Assessment actions are never touched, and
+ *   teachers are never locked. Nothing is stored per student; grades, attempts and accounts are unchanged.
+ * ====================================================================== */
+var LL_AUTO_MAX_MS = 24 * 3600e3;
+var LL_DATA_ACTIONS = { getAllContent: 1 };   // + every study* action
+var LL_FORGET = { startAttempt: 1, submitAttempt: 1, createAssignments: 1, cancelAssignment: 1, deleteAssessmentCascade: 1, saveAssessGroup: 1, deleteAssessGroup: 1 };
+function llManual_(storage) { var v = tsJson_(getSetting_('ll:' + storage), null); return v && v.locked ? v : null; }
+function llAutoOn_(storage) { return getSetting_('llauto:' + storage) !== 'off'; }
+function llNorm_(e) { return String(e || '').trim().toLowerCase(); }
+/** The scheduled windows and timed attempts of a storage that can lock Learning (cached 30 s; assessment actions clear it). */
+function llAutoData_(storage) {
+  var c = CacheService.getScriptCache(), k = 'lla:' + storage, hit = c.get(k);
+  if (hit) { try { return JSON.parse(hit); } catch (e) { } }
+  var out = { windows: [], attempts: {} }, now = Date.now();
+  if (typeof assessStore_ === 'function') {
+    try {
+      var st = assessStore_(storage), groups = {};
+      st.list('group').forEach(function (g) { groups[g.id] = g; });
+      st.list('assignment').forEach(function (a) {
+        var from = Number(a.availableFrom) || 0, to = Number(a.dueAt) || 0;
+        if (a.status !== 'active' || !from || !to || to - from > LL_AUTO_MAX_MS || to < now) return;
+        var w = { from: from, to: to, title: String(a.assessmentTitle || 'Assessment'), all: a.targetType === 'all', emails: [] };
+        if (a.targetType === 'group') { var g = groups[a.groupId]; w.emails = g && !g.deleted ? (g.members || []).map(function (m) { return llNorm_(m.email); }) : []; }
+        else if (a.targetType === 'students') w.emails = (a.emails || []).map(llNorm_);
+        out.windows.push(w);
+      });
+      st.list('attempt').forEach(function (t) {
+        var dl = Number(t.deadlineAt) || 0;
+        if (t.status !== 'in_progress' || !dl || dl + 120000 < now) return;   // untimed attempts never lock
+        var e = llNorm_(t.email), cur = out.attempts[e];
+        if (!cur || cur.to < dl) out.attempts[e] = { to: dl + 120000, title: String(t.assessmentTitle || 'Assessment') };
+      });
+    } catch (e) { console.log('learning lock: could not read the assessments of ' + storage + ' — ' + (e && e.message || e)); }
+  }
+  try { c.put(k, JSON.stringify(out), 30); } catch (e) { }
+  return out;
+}
+function llForget_(storage) { try { CacheService.getScriptCache().remove('lla:' + storage); } catch (e) { } }
+/** Could anybody be locked in this storage right now? (cheap — decides whether the student must be identified) */
+function llAny_(storage) {
+  if (llManual_(storage)) return true;
+  if (!llAutoOn_(storage)) return false;
+  var d = llAutoData_(storage), now = Date.now();
+  return Object.keys(d.attempts).length > 0 || d.windows.some(function (w) { return now >= w.from && now <= w.to; });
+}
+/** The lock for one student account (row of Students) or null. */
+function learnLockFor_(storage, st) {
+  var m = llManual_(storage);
+  if (m) return { locked: true, reason: 'manual', title: '', until: 0 };
+  if (!llAutoOn_(storage) || !st) return null;
+  var d = llAutoData_(storage), now = Date.now(), email = llNorm_(studentEmail_(st));
+  var at = d.attempts[email]; if (at && at.to > now) return { locked: true, reason: 'attempt', title: at.title, until: at.to };
+  for (var i = 0; i < d.windows.length; i++) {
+    var w = d.windows[i];
+    if (now >= w.from && now <= w.to && (w.all || w.emails.indexOf(email) >= 0)) return { locked: true, reason: 'assessment', title: w.title, until: w.to };
+  }
+  return null;
+}
+function llMessage_(L) {
+  return L.reason === 'manual' ? 'Your teacher has locked the Learning module during the assessment. Only Assessments are open.'
+    : 'The Learning module is locked while “' + L.title + '” is running. Only Assessments are open.';
+}
+/** portalHook_ for teaching modules: status for the module page; learning data refused to locked students. */
+function learnLockHook_(storage, act, p) {
+  if (LL_FORGET[act]) llForget_(storage);   // an attempt started/submitted, an assignment changed → fresh at once
+  if (act === 'learnLockStatus') {
+    if (!p.stoken) return { ok: true, locked: false, role: p.token ? 'teacher' : '' };
+    var s0 = studentFromSession_(storage, String(p.stoken)); if (!s0) return { ok: false, code: 'studentauth', error: 'Your session has ended — please sign in again.' };
+    var L0 = learnLockFor_(storage, s0);
+    return L0 ? { ok: true, locked: true, reason: L0.reason, title: L0.title, until: L0.until, message: llMessage_(L0), serverTime: Date.now() } : { ok: true, locked: false, serverTime: Date.now() };
+  }
+  if (!p.stoken || p.token || !(LL_DATA_ACTIONS[act] || /^study/.test(act))) return null;   // teachers and assessment actions: never
+  if (!llAny_(storage)) return null;
+  var st = studentFromSession_(storage, String(p.stoken)); if (!st) return null;   // Code.gs answers "session ended" itself
+  var L = learnLockFor_(storage, st);
+  return L ? { ok: false, code: 'learnlock', error: llMessage_(L), locked: true, reason: L.reason, title: L.title, until: L.until } : null;
+}
+/** Teacher Dashboard: the caller's deliveries with their lock state. */
+function llList_(who) {
+  var now = Date.now();
+  return { ok: true, serverTime: now, settings: tsSettings_(), groups: tsPlaces_(who).map(function (g) {
+    return { groupId: g.groupId, label: g.label, linkCode: g.linkCode, modules: g.modules.map(function (m) {
+      var man = llManual_(m.storage), auto = llAutoOn_(m.storage), d = auto ? llAutoData_(m.storage) : { windows: [], attempts: {} };
+      var running = d.windows.filter(function (w) { return now >= w.from && now <= w.to; }).map(function (w) { return { title: w.title, to: w.to, all: w.all, students: w.emails.length }; });
+      var next = d.windows.filter(function (w) { return w.from > now; }).sort(function (a, b) { return a.from - b.from; }).slice(0, 1).map(function (w) { return { title: w.title, from: w.from, to: w.to }; });
+      var att = Object.keys(d.attempts).filter(function (e) { return d.attempts[e].to > now; }).length;
+      return { deliveryId: m.deliveryId, moduleId: m.moduleId, title: m.title, icon: m.icon, storage: m.storage, active: m.active,
+        locked: !!man, lockedBy: man ? String(man.by || '') : '', lockedAt: man ? Number(man.at) || 0 : 0, auto: auto, running: running, next: next, attempts: att };
+    }) };
+  }) };
+}
+function llSet_(who, p) {
+  var m = null;
+  tsPlaces_(who).some(function (g) { return g.modules.some(function (x) { if (x.deliveryId === String(p.deliveryId || '')) { m = x; return true; } return false; }); });
+  if (!m) return { ok: false, code: 'forbidden', error: 'This group and module are not assigned to you.' };
+  if (p.locked != null) {
+    var on = p.locked === true || p.locked === 'true';
+    setSetting_('ll:' + m.storage, on ? JSON.stringify({ locked: true, by: who.name || (who.admin ? 'Administrator' : ''), at: Date.now() }) : '');
+    console.log('learning lock · ' + m.storage + ' · ' + (on ? 'LOCKED' : 'unlocked') + ' by ' + who.by);
+  }
+  if (p.auto != null) setSetting_('llauto:' + m.storage, p.auto === false || p.auto === 'false' ? 'off' : '');
+  llForget_(m.storage);
+  return llList_(who);
 }
 
 /* ---------------- Group Live Classroom (2.9, step 3) ----------------

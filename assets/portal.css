@@ -386,3 +386,16 @@ code.pw{font-size:14px;font-weight:700;letter-spacing:.03em}
 .exams-grid .mod.exam{border-left:4px solid var(--navy);background:linear-gradient(90deg,#eef3f9,#fff 55%)}
 .exams-grid .mod.exam .mod-top{background:none;border-bottom-color:var(--line)}
 .grid.compact.exams-grid .mod.exam .msg{display:block}
+/* Learning Module lock (2.18) */
+.ll-box{margin-top:6px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 15px}
+.ll-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.ll-head h3{margin:0}
+.ll-group h4{margin:12px 0 6px;font-size:14px;color:var(--navy-2)}
+.ll-rows{display:flex;flex-direction:column;gap:8px}
+.ll-row{display:grid;grid-template-columns:minmax(150px,1fr) minmax(0,1.6fr) auto;gap:6px 14px;align-items:center;padding:9px 11px;border:1px solid var(--line);border-radius:11px;background:#fbfcfd}
+.ll-row.on{border-color:#f0b9b4;background:var(--bad-soft)}
+.ll-mod{font-weight:700;color:var(--navy)}
+.ll-pill{display:inline-block;border-radius:999px;padding:2px 11px;font-size:13px;white-space:nowrap}
+.ll-pill.locked{background:var(--bad);color:#fff}.ll-pill.open{background:var(--good-soft);color:var(--good)}
+.ll-act{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.ll-act .chk{margin:0;font-weight:500;color:var(--muted);display:flex;gap:6px;align-items:center}
+@media (max-width:760px){.ll-row{grid-template-columns:1fr}.ll-act{align-items:stretch}}

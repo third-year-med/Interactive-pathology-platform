@@ -2170,3 +2170,75 @@ test('group page order (2.17): modules follow the front-page list (Teacher Manag
   const mi = S.call({ module: 'portal', action: 'portalGroupInfo', g: 'misrata-a-26' });
   assert.deepStrictEqual(mi.modules.map(function (m) { return m.id; }), ['cellinjury', 'cardio']);
 });
+
+/* ---------------- Learning lock (2.18) ---------------- */
+test('learning lock: manual lock per group + module; learning data refused to students only; assessments untouched; who may lock', function () {
+  const S = tsSetup(), CI = 'cellinjury-razi-a-26', IH = 'inflhealing-razi-a-26';
+  const stu = login(S, CI, 'b1', 'basma-pass-1').token, stuIH = login(S, IH, 'b1', 'basma-pass-1').token;
+  const ask = function (storage, tok, action, extra) { return S.call(Object.assign({ module: storage, action: action, stoken: tok }, extra || {})); };
+  assert.strictEqual(ask(CI, stu, 'learnLockStatus').locked, false);
+  assert.ok(ask(CI, stu, 'getAllContent').ok);
+  // a teacher of another group cannot lock it; the Admin and the group's teacher can
+  assert.strictEqual(S.tt('llSet', S.sara.tok, { deliveryId: S.ci.deliveryId, locked: true }).code, 'forbidden');
+  const L = S.tt('llSet', S.ahmed.tok, { deliveryId: S.ci.deliveryId, locked: true }); assert.ok(L.ok, JSON.stringify(L));
+  const row = L.groups[0].modules.filter(function (m) { return m.storage === CI; })[0];
+  assert.deepStrictEqual([row.locked, row.lockedBy, row.auto], [true, 'Dr. Ahmed', true]);
+  // the student: status says locked; learning data refused; the same student in the other module is not affected
+  const st = ask(CI, stu, 'learnLockStatus');
+  assert.deepStrictEqual([st.ok, st.locked, st.reason], [true, true, 'manual']); assert.match(st.message, /locked the Learning module/);
+  const g = ask(CI, stu, 'getAllContent'); assert.deepStrictEqual([g.ok, g.code], [false, 'learnlock']);
+  assert.strictEqual(ask(CI, stu, 'studySync').code, 'learnlock');
+  assert.ok(ask(IH, stuIH, 'getAllContent').ok, 'other module open');
+  // assessment, attendance and session actions are never refused by the lock; teachers are never locked
+  ['getMyAssessments', 'startAttempt', 'submitAttempt', 'studentSession', 'submitAttendanceByCode'].forEach(function (a) { assert.notStrictEqual(ask(CI, stu, a).code, 'learnlock', a); });
+  const tok = S.call({ module: CI, action: 'login', password: 'teacher-' + CI }).token;
+  assert.ok(S.call({ module: CI, action: 'getAllContent', token: tok }).ok, 'teacher reads content');
+  assert.strictEqual(S.call({ module: CI, action: 'learnLockStatus', token: tok }).locked, false);
+  // no session / a forged one: never a lock answer that leaks anything
+  assert.strictEqual(ask(CI, 'x'.repeat(64), 'learnLockStatus').code, 'studentauth');
+  // unlock → open again at once
+  assert.strictEqual(S.ts('llSet', { deliveryId: S.ci.deliveryId, locked: false }).groups[0].modules.filter(function (m) { return m.storage === CI; })[0].locked, false);
+  assert.ok(ask(CI, stu, 'getAllContent').ok); assert.strictEqual(ask(CI, stu, 'learnLockStatus').locked, false);
+  // nothing else was written: no student, attempt or content rows changed by locking
+  assert.strictEqual(S.b.ctx.rpRows_('AssessRecords').length, 0);
+});
+
+test('learning lock: automatic during a scheduled assessment (only its students, only in its window) and during a timed attempt; can be switched off', function () {
+  const S = tsSetup(), CI = 'cellinjury-razi-a-26', X = S.b.ctx, now = Date.now();
+  const tb1 = login(S, CI, 'b1', 'basma-pass-1').token, tah = login(S, CI, 'ahmed', PW).token;
+  const status = function (tok) { return S.call({ module: CI, action: 'learnLockStatus', stoken: tok }); };
+  const store = X.assessStore_(CI);
+  // a scheduled assessment for b1 only: from 1 min ago for 1 hour
+  store.put('assignment', 'asg1', { id: 'asg1', assessmentId: 'a1', assessmentTitle: 'Midterm quiz', targetType: 'students', emails: ['basma@uni.ly'], availableFrom: now - 60000, dueAt: now + 3600e3, status: 'active' });
+  // a week-long homework window for everyone never locks
+  store.put('assignment', 'asg2', { id: 'asg2', assessmentId: 'a2', assessmentTitle: 'Homework', targetType: 'all', emails: [], availableFrom: now - 864e5, dueAt: now + 6 * 864e5, status: 'active' });
+  X.llForget_(CI);
+  let s1 = status(tb1); assert.deepStrictEqual([s1.locked, s1.reason, s1.title], [true, 'assessment', 'Midterm quiz']); assert.ok(s1.until > now);
+  assert.strictEqual(status(tah).locked, false, 'not assigned → open');
+  assert.strictEqual(S.call({ module: CI, action: 'getAllContent', stoken: tb1 }).code, 'learnlock');
+  // the Dashboard list shows it
+  const row = S.ts('llList').groups.filter(function (g) { return g.groupId === S.ra.groupId; })[0].modules.filter(function (m) { return m.storage === CI; })[0];
+  assert.deepStrictEqual(row.running.map(function (r) { return r.title; }), ['Midterm quiz']);
+  // a window that has not started yet does not lock; a cancelled assignment does not lock
+  store.put('assignment', 'asg1', { id: 'asg1', assessmentId: 'a1', assessmentTitle: 'Midterm quiz', targetType: 'students', emails: ['basma@uni.ly'], availableFrom: now + 600000, dueAt: now + 3600e3, status: 'active' });
+  X.llForget_(CI); assert.strictEqual(status(tb1).locked, false);
+  store.put('assignment', 'asg3', { id: 'asg3', assessmentId: 'a1', assessmentTitle: 'Cancelled quiz', targetType: 'all', emails: [], availableFrom: now - 60000, dueAt: now + 3600e3, status: 'cancelled' });
+  X.llForget_(CI); assert.strictEqual(status(tb1).locked, false, 'cancelled → open');
+  // a TIMED attempt in progress locks that student until it is submitted
+  store.put('attempt', 'att1', { id: 'att1', assignmentId: 'asg2', assessmentTitle: 'Homework', email: 'ahmed@student.local', status: 'in_progress', deadlineAt: now + 900000 });
+  X.llForget_(CI);
+  const s2 = status(tah); assert.deepStrictEqual([s2.locked, s2.reason], [true, 'attempt']);
+  store.put('attempt', 'att1', { id: 'att1', assignmentId: 'asg2', assessmentTitle: 'Homework', email: 'ahmed@student.local', status: 'submitted', deadlineAt: now + 900000 });
+  S.call({ module: CI, action: 'submitAttempt', stoken: tah });   // any submit clears the cached state at once
+  assert.strictEqual(status(tah).locked, false);
+  // an untimed attempt never locks
+  store.put('attempt', 'att2', { id: 'att2', assignmentId: 'asg2', email: 'ahmed@student.local', status: 'in_progress', deadlineAt: null });
+  X.llForget_(CI); assert.strictEqual(status(tah).locked, false);
+  // switched off for this group + module → only the manual lock remains
+  store.put('assignment', 'asg1', { id: 'asg1', assessmentId: 'a1', assessmentTitle: 'Midterm quiz', targetType: 'students', emails: ['basma@uni.ly'], availableFrom: now - 60000, dueAt: now + 3600e3, status: 'active' });
+  X.llForget_(CI); assert.strictEqual(status(tb1).locked, true);
+  assert.ok(S.ts('llSet', { deliveryId: S.ci.deliveryId, auto: false }).ok);
+  assert.strictEqual(status(tb1).locked, false);
+  assert.ok(S.ts('llSet', { deliveryId: S.ci.deliveryId, locked: true }).ok);
+  assert.strictEqual(status(tb1).reason, 'manual');
+});
