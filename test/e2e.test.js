@@ -3596,6 +3596,30 @@ test('Assessment passwords (2.19/2.20): Assessments open without a password; eac
     await s.waitForFunction(function () { return /Your answer:[\s\S]*Correct answer:/.test(document.querySelector('#view-quiz').textContent); });
     assert.strictEqual(await s.$('.modal input[type=password]'), null, 'no password for a review');
     if (process.env.SHOTS) await s.screenshot({ path: path.join(process.env.SHOTS, 'student-review.png'), fullPage: true });
+    // ---- an attempt in progress: the tab opens on the LIST (not the runner); ▶ Resume continues it with the answers kept ----
+    await s.click('#view-quiz button:has-text("My Assessments")');
+    await s.click(card('Quiz 2 — Apoptosis') + ' button.btn-primary');
+    await s.click('.modal button:has-text("Start")');
+    await s.waitForSelector('.modal input[type=password]');
+    await s.fill('.modal input[type=password]', q2pw); await s.press('.modal input[type=password]', 'Enter');
+    await s.waitForSelector('.quiz-run', { timeout: 15000 });
+    assert.match(await s.textContent('#view-quiz'), /Student Ahmed · Student ID ahmed/); assert.ok(!/@student\.local/.test(await s.textContent('#view-quiz')), 'no synthetic e-mail in the runner');
+    await s.click('.quiz-run label.opt:has-text("False")');
+    await s.evaluate(function () { location.hash = '#/home'; });
+    await s.waitForFunction(function () { return !document.querySelector('#view-quiz.active'); });
+    await s.evaluate(function () { location.hash = '#/quiz'; });
+    await s.waitForSelector(card('Quiz 2 — Apoptosis'), { timeout: 15000 });
+    assert.strictEqual(await s.$('.quiz-run'), null, 'the list, not the runner');
+    assert.match(await s.textContent(card('Quiz 2 — Apoptosis')), /In progress[\s\S]*Resume/);
+    await s.reload();                                                       // also after closing / reloading the page
+    await s.waitForSelector('#app-nav', { timeout: 20000 });
+    await s.evaluate(function () { if (location.hash !== '#/quiz') location.hash = '#/quiz'; });
+    await s.waitForSelector(card('Quiz 2 — Apoptosis'), { timeout: 15000 });
+    assert.strictEqual(await s.$('.quiz-run'), null, 'the list after a reload too');
+    await s.click(card('Quiz 2 — Apoptosis') + ' button:has-text("Resume")');
+    await s.waitForSelector('.quiz-run', { timeout: 15000 });
+    assert.strictEqual(await s.$('.modal input[type=password]'), null, 'resuming needs no password');
+    assert.ok(await s.$('.quiz-run label.opt:has-text("False") input:checked'), 'the answer given before leaving is kept');
     // the attempt is stored under the account (grading + teacher reports unchanged)
     const att = main.ctx.assessStore_(ST).list('attempt').filter(function (x) { return x.assessmentId === 'q1'; })[0];
     assert.deepStrictEqual([att.email, att.name, att.status, att.percent], ['ahmed@student.local', 'Student Ahmed', 'submitted', 100]);
@@ -3604,7 +3628,7 @@ test('Assessment passwords (2.19/2.20): Assessments open without a password; eac
     await t.waitForFunction(function () { return /none yet/.test(document.querySelector('.apw-tbl tr[data-assessment="q1"]').textContent); });
     assert.ok(Object.keys(main.call({ module: ST, action: 'aePwList', token: tok }).passwords).indexOf('q1') < 0);
     // the student: Quiz 1 is "not open yet" (no Start), the completed attempt stays reviewable
-    await s.click('#view-quiz button:has-text("My Assessments")');
+    await s.evaluate(function () { location.hash = '#/home'; }); await s.evaluate(function () { location.hash = '#/quiz'; });   // leave the runner: back on the list
     await s.click('#view-quiz button:has-text("Refresh")');
     await s.waitForFunction(function () { var c = Array.prototype.filter.call(document.querySelectorAll('#view-quiz .assess-card'), function (x) { return /Quiz 1 — Necrosis/.test(x.textContent); })[0]; return c && /Not open yet/.test(c.textContent); });
     assert.strictEqual(await s.$(card('Quiz 1 — Necrosis') + ' .row.mt1 button.btn-primary'), null, 'no Start button');

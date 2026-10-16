@@ -181,6 +181,11 @@ chapter position (HANDBOOK §5 step 5) — that position is its place on every g
   `nopw` (no Code.gs fallback); getMyAssessments items carry `passwordSet` (boolean only) → the card shows "🔒 Not open
   yet" instead of Start; Teacher Portal shows no class-password card with a class server (local mode keeps it), rows
   without a password say "⚠ none yet", "✕ Remove password", and "🎲 Give each of them a random password".
+- **List first (2026-10-16, module patch only, user's request):** entering `#/quiz` (`Views.quiz.show(params, entering)`)
+  never jumps into an attempt in progress: the in-memory `st` / saved `assess_progress_v1` is parked as
+  `assess_resp_<attemptId>` and the list shows "In progress · ▶ Resume" (`start()` resumes server-side without a password
+  and restores the parked answers). A teacher preview is kept. The runner header shows "Student ID …" instead of the
+  synthetic `@student.local` address. Patch: `quiz-list-first.py`.
 - **Passwords inside 📝 Assessments (2026-10-16, module patch only):** the separate Administration tab is gone
   (`#/teacher/password` → Assessments with `AssessUI.sub = 'passwords'`). `AssessUI.loadPrivate` also loads `aePwList`
   (`AssessUI.pw`, null in local mode / older server) → `renderPwStrip` above the sub-tabs, a 4th sub-tab 🔑 Passwords
