@@ -181,6 +181,11 @@ chapter position (HANDBOOK §5 step 5) — that position is its place on every g
   `nopw` (no Code.gs fallback); getMyAssessments items carry `passwordSet` (boolean only) → the card shows "🔒 Not open
   yet" instead of Start; Teacher Portal shows no class-password card with a class server (local mode keeps it), rows
   without a password say "⚠ none yet", "✕ Remove password", and "🎲 Give each of them a random password".
+- **Passwords inside 📝 Assessments (2026-10-16, module patch only):** the separate Administration tab is gone
+  (`#/teacher/password` → Assessments with `AssessUI.sub = 'passwords'`). `AssessUI.loadPrivate` also loads `aePwList`
+  (`AssessUI.pw`, null in local mode / older server) → `renderPwStrip` above the sub-tabs, a 4th sub-tab 🔑 Passwords
+  (`Views.teacher.renderAssessPw`; local mode: `tabPassword` with the class password), and a Password column with 🔑
+  (`AssessUI.editPw`) in the library.
 - Honest limit: the packaged course is still decrypted in the student's browser (the Assessments page needs the app);
   a student with developer tools could dig it out. For high-stakes exams use Official Exams (separate app, no course
   content) with the teaching lock.

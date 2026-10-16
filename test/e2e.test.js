@@ -3510,7 +3510,11 @@ test('Assessment passwords (2.19/2.20): Assessments open without a password; eac
     await t.addInitScript(function (o) { try { localStorage.setItem('ci_tr-a_backend_token_v1', JSON.stringify({ token: o.tok, expiresAt: Date.now() + 3600e3, url: o.url })); } catch (e) { } }, { tok: tok, url: backendUrl });
     await t.goto('https://third-year-med.github.io/cell-injury-teaching-platform/?g=tr-a#/teacher/password');
     await t.waitForSelector('.apw-tbl tr[data-assessment="q1"]', { timeout: 20000 });
-    assert.match(await t.textContent('.portal-tabs'), /🔑 Assessment passwords/);
+    // passwords live INSIDE 📝 Assessments now: the old address opens its 🔑 Passwords sub-tab; no separate tab
+    assert.ok(!/Assessment passwords/.test(await t.textContent('.portal-tabs')), 'no separate tab');
+    assert.match(await t.textContent('.portal-tabs .tab.active'), /Assessments/);
+    assert.match(await t.textContent('.sub-tabs .chip.active'), /🔑 Passwords/);
+    assert.match(await t.textContent('.apw-strip'), /🔑 Assessment passwords: 0 of 3 set[\s\S]*⚠ 2 published assessments have no password/);
     assert.match(await t.textContent('.apw-tbl tr[data-assessment="q1"]'), /Quiz 1 — Necrosis[\s\S]*⚠ none yet — students cannot start it/);
     assert.ok(!/Class quiz password/.test(await t.textContent('#view-teacher')), 'the class (default) password is retired');
     t.once('dialog', function (d) { d.accept(); });
@@ -3526,6 +3530,24 @@ test('Assessment passwords (2.19/2.20): Assessments open without a password; eac
     assert.match(await t.textContent('.apw-card'), /⚠ 1 assessment has no password yet/);
     await t.click('.apw-card [data-a=all]');
     await t.waitForFunction(function () { return !document.querySelector('.apw-card .apw-none') && !document.querySelector('.apw-card [data-a=all]'); });
+    // the Assessment Library shows each assessment's password in its own row (🔑 to change it); the strip says all are set
+    await t.click('.sub-tabs .chip:has-text("Assessment Library")');
+    await t.waitForSelector('.data-table th:text-is("Password")');
+    const libRow = '.data-table tr:has(a:has-text("Quiz 1 — Necrosis"))';
+    assert.match(await t.textContent(libRow + ' .apw-cell'), /Necro-26/);
+    assert.match(await t.textContent('.apw-strip'), /3 of 3 set/);
+    t.once('dialog', function (d) { d.accept(); });
+    await t.click(libRow + ' [data-a=pw]');
+    await t.waitForSelector('.modal input');
+    assert.strictEqual(await t.inputValue('.modal input'), 'Necro-26', 'opens with the current password');
+    await t.fill('.modal input', 'Necro-27'); await t.press('.modal input', 'Enter');
+    await t.waitForFunction(function () { var c = Array.prototype.filter.call(document.querySelectorAll('.data-table tr'), function (r) { return /Quiz 1 — Necrosis/.test(r.textContent); })[0]; return c && /Necro-27/.test(c.textContent); });
+    if (process.env.SHOTS) await t.screenshot({ path: path.join(process.env.SHOTS, 'assessments-library-passwords.png'), fullPage: true });
+    await t.click(libRow + ' [data-a=pw]'); await t.waitForSelector('.modal input');
+    await t.fill('.modal input', 'Necro-26'); await t.press('.modal input', 'Enter');
+    await t.waitForFunction(function () { return !document.querySelector('.modal-back'); });
+    await t.click('.apw-strip [data-a=pw-manage]');
+    await t.waitForSelector('.apw-tbl tr[data-assessment="q1"]');
     if (process.env.SHOTS) await (await t.$('.apw-card')).screenshot({ path: path.join(process.env.SHOTS, 'teacher-assessment-passwords.png') });
     // ---- the student: no password to open; THIS quiz's password to start ----
     const s = await page(), none = [];
