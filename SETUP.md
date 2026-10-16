@@ -363,7 +363,10 @@ are kept in the new sheet **TeachingSessions** (created automatically the first 
   still have none). **Portal.gs 2.20:** the class quiz password is retired — an assessment WITHOUT its own password cannot
   be started (students see "🔒 Not open yet"). Students see correct answers in a review only if the assessment's
   "show answers" setting is on.
-  The **Assessments** tab always opens on the **list** of assessments. An assessment a student started and left is
+  The **Assessments** tab always opens on a **compact list** — one slim row per assessment, in three foldable groups:
+  **▶ To do** (can be started or resumed), **✓ Completed** (reviewable) and **🔒 Not available now** (closed, not open yet
+  or without a password; folded by default). The **newest** assessment is at the top of each group.
+  The list always opens first. An assessment a student started and left is
   marked **In progress** with a **▶ Resume** button (no password needed to resume; answers given so far are kept).
 - **🔒 Lock Learning Module:** Teacher Dashboard → **Teaching Modules** → the small *Learning Module lock* card (click it to open) → the group + module →
   **🔒 Lock Learning Module**. Its students can then open only **Assessments** in that module (within a minute); every other

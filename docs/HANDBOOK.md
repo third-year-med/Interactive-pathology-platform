@@ -186,6 +186,13 @@ chapter position (HANDBOOK §5 step 5) — that position is its place on every g
   `assess_resp_<attemptId>` and the list shows "In progress · ▶ Resume" (`start()` resumes server-side without a password
   and restores the parked answers). A teacher preview is kept. The runner header shows "Student ID …" instead of the
   synthetic `@student.local` address. Patch: `quiz-list-first.py`.
+- **Compact My Assessments (2026-10-16, module patch only, user's request):** `renderDashboard` builds one slim
+  `.assess-row` per item inside `<details class="assess-group" data-group="todo|done|other">` (todo = can start/resume;
+  done = has submissions but cannot start; other = the rest, folded; fold state kept in `Views.quiz.grp`). Newest first
+  by `assessWhen`: `assignment.assignedAt` if sent, else the creation time inside the assignment id (`AE_id` =
+  `prefix_<Date.now() base 36>…`), or `availableFrom` if later; otherwise server order, later = newer. Row: title
+  (description as tooltip), one meta line, last result, attempt review chips (`.assess-hist`), status badge + action in
+  `.assess-side`; the "Open" window badge is dropped (other windows appear in the meta line). Patch: `assess-compact.py`.
 - **Passwords inside 📝 Assessments (2026-10-16, module patch only):** the separate Administration tab is gone
   (`#/teacher/password` → Assessments with `AssessUI.sub = 'passwords'`). `AssessUI.loadPrivate` also loads `aePwList`
   (`AssessUI.pw`, null in local mode / older server) → `renderPwStrip` above the sub-tabs, a 4th sub-tab 🔑 Passwords

@@ -3575,6 +3575,13 @@ test('Assessment passwords (2.19/2.20): Assessments open without a password; eac
     assert.strictEqual(await s.$('#quiz-pw'), null, 'no password page');
     assert.match(await s.textContent('#view-quiz'), /Each assessment asks for its own password[\s\S]*Quiz 1 — Necrosis[\s\S]*Quiz 2 — Apoptosis|Each assessment asks for its own password[\s\S]*Quiz 2 — Apoptosis[\s\S]*Quiz 1 — Necrosis/);
     const card = function (title) { return '#view-quiz .assess-card:has(h3:text-is("' + title + '"))'; };
+    card.in = function (title) { return card(title).replace('#view-quiz ', ''); };
+    // compact list: one slim row each, grouped (▶ To do open), newest assignment first
+    assert.ok(await s.$('#view-quiz details[data-group=todo][open] ' + card.in('Quiz 1 — Necrosis')) && await s.$('#view-quiz details[data-group=todo] ' + card.in('Quiz 2 — Apoptosis')));
+    const rowH = await s.$eval(card('Quiz 2 — Apoptosis'), function (e) { return e.getBoundingClientRect().height; });
+    assert.ok(rowH < 90, 'a compact row (' + rowH + 'px)');
+    assert.deepStrictEqual(await s.$$eval('#view-quiz details[data-group=todo] .assess-card h3', function (x) { return x.map(function (h) { return h.textContent; }); }).then(function (t) { return t.filter(function (x) { return /^Quiz/.test(x); }); }), ['Quiz 2 — Apoptosis', 'Quiz 1 — Necrosis']);
+    if (process.env.SHOTS) await s.screenshot({ path: path.join(process.env.SHOTS, 'student-assessments-compact.png'), fullPage: true });
     await s.click(card('Quiz 1 — Necrosis') + ' button.btn-primary');
     await s.click('.modal button:has-text("Start")');                     // the instructions / time-limit confirmation
     await s.waitForSelector('.modal input[type=password]');
@@ -3591,7 +3598,7 @@ test('Assessment passwords (2.19/2.20): Assessments open without a password; eac
     // ---- back to My Assessments: the completed attempt is reviewed WITHOUT a password ----
     await s.click('#view-quiz button:has-text("My Assessments")');
     await s.waitForSelector(card('Quiz 1 — Necrosis') + ' .assess-hist button');
-    assert.match(await s.textContent(card('Quiz 1 — Necrosis') + ' .assess-hist'), /Attempt 1 · 100% — review answers/);
+    assert.match(await s.textContent(card('Quiz 1 — Necrosis') + ' .assess-hist'), /Attempt 1 · 100% — review/);
     await s.click(card('Quiz 1 — Necrosis') + ' .assess-hist button');
     await s.waitForFunction(function () { return /Your answer:[\s\S]*Correct answer:/.test(document.querySelector('#view-quiz').textContent); });
     assert.strictEqual(await s.$('.modal input[type=password]'), null, 'no password for a review');
@@ -3631,7 +3638,8 @@ test('Assessment passwords (2.19/2.20): Assessments open without a password; eac
     await s.evaluate(function () { location.hash = '#/home'; }); await s.evaluate(function () { location.hash = '#/quiz'; });   // leave the runner: back on the list
     await s.click('#view-quiz button:has-text("Refresh")');
     await s.waitForFunction(function () { var c = Array.prototype.filter.call(document.querySelectorAll('#view-quiz .assess-card'), function (x) { return /Quiz 1 — Necrosis/.test(x.textContent); })[0]; return c && /Not open yet/.test(c.textContent); });
-    assert.strictEqual(await s.$(card('Quiz 1 — Necrosis') + ' .row.mt1 button.btn-primary'), null, 'no Start button');
+    assert.strictEqual(await s.$(card('Quiz 1 — Necrosis') + ' .assess-side button.btn-primary'), null, 'no Start button');
+    assert.ok(await s.$('#view-quiz details[data-group=done] ' + card.in('Quiz 1 — Necrosis')), 'completed and no longer startable → ✓ Completed');
     assert.ok(await s.$(card('Quiz 1 — Necrosis') + ' .assess-hist button'), 'the review stays available');
     if (process.env.SHOTS) { await s.setViewportSize({ width: 390, height: 844 }); await s.screenshot({ path: path.join(process.env.SHOTS, 'student-assessments-phone.png'), fullPage: true }); await (await t.$('.apw-card')).screenshot({ path: path.join(process.env.SHOTS, 'teacher-assessment-passwords.png') }); }
     assert.strictEqual(errors.filter(function (e) { return !/ERR_TUNNEL|net::/.test(e); }).length, 0, errors.join('\n'));
