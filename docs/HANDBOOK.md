@@ -186,6 +186,9 @@ chapter position (HANDBOOK §5 step 5) — that position is its place on every g
   `assess_resp_<attemptId>` and the list shows "In progress · ▶ Resume" (`start()` resumes server-side without a password
   and restores the parked answers). A teacher preview is kept. The runner header shows "Student ID …" instead of the
   synthetic `@student.local` address. Patch: `quiz-list-first.py`.
+- **Student header (2026-10-16, module patch only, user's request):** `renderHeaderStatus` — `stuOnly` (NEO_BOOT role
+  student with a student, not a teacher): no `uxTeacherLink`, no clickable Class server chip (only a non-clickable
+  Offline / Syncing chip when relevant). Patch: `stu-header.py`.
 - **Attendance code only (2026-10-16, module patch only, user's request):** `Views.attendance.renderCodeEntry` and
   `renderCheckin` use `Views.quiz.acct()`; for an account student the name / ID / email fields are not shown (filled
   from the account; Code.gs overrides them from the stoken anyway) and `quiz_identity_v1` is not overwritten.

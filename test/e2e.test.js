@@ -3407,7 +3407,7 @@ test('module Assessments (2.18, older server): if the server still wants the cla
   } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
 });
 
-test('Attendance (signed-in student): the page asks ONLY for the code — name, ID and email come from the account; the record carries them', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+test('Attendance (signed-in student): the page asks ONLY for the code — name, ID and email come from the account; the record carries them; no Teacher / Class server buttons in the header', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
   groupFixture();
   const ST = 'cellinjury-tr-a', mod = syntheticModule(CI_PAGE), keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
   try {
@@ -3419,6 +3419,10 @@ test('Attendance (signed-in student): the page asks ONLY for the code — name, 
     assert.ok(ses.ok, JSON.stringify(ses));
     const s = await page(), none = [];
     await openSyntheticModule(s, mod, none, { stubAssess: false });
+    // the header of a signed-in student: no Teacher sign-in link and no "Class server" chip (both open teacher pages); the student menu stays
+    assert.strictEqual(await s.$('#hdr-right .ux-teacher-link'), null, 'no Teacher link');
+    assert.ok(!/Class server|Teacher/.test(await s.textContent('#hdr-right')), await s.textContent('#hdr-right'));
+    assert.match(await s.textContent('#hdr-right'), /🎓 Student/);
     await s.evaluate(function () { location.hash = '#/attendance'; });
     await s.waitForSelector('#view-attendance input[aria-label="Attendance code"]', { timeout: 15000 });
     const card = await s.textContent('#view-attendance .card');

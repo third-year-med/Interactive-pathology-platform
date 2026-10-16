@@ -363,6 +363,9 @@ are kept in the new sheet **TeachingSessions** (created automatically the first 
   still have none). **Portal.gs 2.20:** the class quiz password is retired — an assessment WITHOUT its own password cannot
   be started (students see "🔒 Not open yet"). Students see correct answers in a review only if the assessment's
   "show answers" setting is on.
+  **Module header for students:** a signed-in student no longer sees the **Teacher** sign-in link or the **Class server**
+  chip (both opened teacher pages). A small **Offline** / **Syncing** chip appears only when their connection drops.
+  Teachers open the Teacher Portal as before (from the Teacher Dashboard, or by adding `#/teacher` to the module address).
   **Attendance inside a module** (📋 Attendance tab, QR link): a signed-in student types **only the attendance code** —
   name and Student ID come from the account (shown as a small "👤 name · Student ID" line); the QR link needs just
   **✓ Check in**. Without a sign-in (local copies) the name / ID / email fields still appear.
