@@ -3417,7 +3417,15 @@ test('Learning lock (2.18): Teacher Dashboard 🔒 Lock → the student sees onl
     const cardBox = await (await t.$('#t-lock .ll-card')).boundingBox(); assert.ok(cardBox.height < 70 && cardBox.width <= 470, JSON.stringify(cardBox));
     if (process.env.SHOTS) await (await t.$('.dash-view[data-view=modules]')).screenshot({ path: path.join(process.env.SHOTS, 'lock-card-closed.png'), clip: undefined });
     await t.click('#t-lock .ll-card');
+    // one collapsible list per group: closed while there are several; the header counts the modules
+    const grp = '#t-lock .ll-group:has(.ll-row[data-storage="cellinjury-tr-a"])';
+    await t.waitForSelector(grp + ' .ll-gh', { state: 'visible' });
+    assert.ok(await t.$$eval('#t-lock .ll-group', function (x) { return x.length; }) > 1);
+    assert.ok(!(await t.isVisible(row)), 'group closed');
+    assert.match(await t.textContent(grp + ' .ll-gh'), /Test Razi · Group A[\s\S]*\d+ modules?/);
+    await t.click(grp + ' .ll-gh');
     await t.waitForSelector(row, { state: 'visible' });
+    assert.strictEqual(await t.getAttribute(grp + ' .ll-gh', 'aria-expanded'), 'true');
     assert.strictEqual(await t.getAttribute('#t-lock .ll-card', 'aria-expanded'), 'true');
     assert.match(await t.textContent(row), /Learning Module: UNLOCKED[\s\S]*🔒 Lock Learning Module/);
     // the student is in the module, Learning open
@@ -3429,6 +3437,12 @@ test('Learning lock (2.18): Teacher Dashboard 🔒 Lock → the student sees onl
     assert.match(await t.textContent(row), /🔓 Unlock Learning Module[\s\S]*/); assert.match(await t.textContent(row), /Locked by/);
     assert.match(await t.textContent('#t-lock .ll-sum'), /^1 LOCKED · Cell Injury & Cell Death · Group A$/);
     assert.ok(await t.$eval('#t-lock .ll-card', function (c) { return c.classList.contains('on'); }));
+    assert.match(await t.textContent(grp + ' .ll-gh'), /🔒 1 LOCKED/);
+    // closing the group keeps the lock visible on its header
+    await t.click(grp + ' .ll-gh'); assert.ok(!(await t.isVisible(row)));
+    assert.match(await t.textContent(grp + ' .ll-gh'), /🔒 1 LOCKED/);
+    if (process.env.SHOTS) await (await t.$('#t-lock')).screenshot({ path: path.join(process.env.SHOTS, 'lock-groups-closed.png') });
+    await t.click(grp + ' .ll-gh'); await t.waitForSelector(row, { state: 'visible' });
     // the server: learning data refused to the student (assessments untouched)
     const stok = main.call({ module: 'cellinjury-tr-a', action: 'studentLogin', username: 'ahmed', password: PW }).token;
     assert.strictEqual(main.call({ module: 'cellinjury-tr-a', action: 'getAllContent', stoken: stok }).code, 'learnlock');

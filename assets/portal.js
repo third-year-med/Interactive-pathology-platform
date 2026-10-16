@@ -1326,10 +1326,12 @@
       var n = 0, names = [], total = 0;
       if (!R.groups.length) body.appendChild(h('<p class="muted small">No group with teaching modules yet.</p>'));
       R.groups.forEach(function (g) {
-        var box = h('<div class="ll-group"><h4>' + esc(g.label) + '</h4><div class="ll-rows"></div></div>');
+        // each group is a one-line header (module count, locks in red); a click shows its modules — remembered for the tab
+        var box = h('<div class="ll-group" data-group="' + esc(g.groupId) + '"><button type="button" class="ll-gh" aria-expanded="false"><span class="ll-gl">' + esc(g.label) + '</span><span class="ll-gc"></span><span class="ll-chev" aria-hidden="true">›</span></button><div class="ll-rows" hidden></div></div>');
+        var gLocked = 0;
         g.modules.forEach(function (m) {
           var autoNow = m.auto && (m.running.length > 0 || m.attempts > 0), locked = m.locked || autoNow;
-          total++; if (locked) { n++; names.push(m.title + ' · ' + g.label.replace(/^.*?·\s*/, '').replace(/\s*\([^)]*\)\s*$/, '')); }
+          total++; if (locked) { n++; gLocked++; names.push(m.title + ' · ' + g.label.replace(/^.*?·\s*/, '').replace(/\s*\([^)]*\)\s*$/, '')); }
           var t = function (x) { return tzShow(x, tz(), true); };
           var detail = m.locked ? 'Locked by ' + (m.lockedBy || 'a teacher') + (m.lockedAt ? ' at ' + t(m.lockedAt) : '') + ' — stays locked until you unlock it.'
             : m.running.length ? 'Automatic: ' + m.running.map(function (w) { return '“' + w.title + '” until ' + t(w.to) + ' (' + (w.all ? 'all students' : w.students + ' student' + (w.students === 1 ? '' : 's')) + ')'; }).join('; ') + '. To open it now, untick “automatic”.'
@@ -1354,6 +1356,16 @@
           };
           $('.ll-rows', box).appendChild(row);
         });
+        var gh = $('.ll-gh', box), rows = $('.ll-rows', box);
+        $('.ll-gc', box).innerHTML = g.modules.length + ' module' + (g.modules.length === 1 ? '' : 's') + (gLocked ? ' · <b class="ll-gl-on">🔒 ' + gLocked + ' LOCKED</b>' : '');
+        box.classList.toggle('on', gLocked > 0);
+        var openG = function (on) {
+          rows.hidden = !on; gh.setAttribute('aria-expanded', on ? 'true' : 'false'); box.classList.toggle('open', on);
+          try { var o = JSON.parse(sessionStorage.getItem('pp_ll_groups') || '{}'); if (on) o[g.groupId] = 1; else delete o[g.groupId]; sessionStorage.setItem('pp_ll_groups', JSON.stringify(o)); } catch (e) { }
+        };
+        gh.onclick = function () { openG(rows.hidden); };
+        var was = {}; try { was = JSON.parse(sessionStorage.getItem('pp_ll_groups') || '{}'); } catch (e) { }
+        if (R.groups.length === 1 || was[g.groupId]) openG(true);
         body.appendChild(box);
       });
       badge(n); summary(n, names, total);

@@ -389,7 +389,6 @@ code.pw{font-size:14px;font-weight:700;letter-spacing:.03em}
 /* Learning Module lock (2.18) */
 .ll-box{margin-top:6px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 15px}
 .ll-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.ll-head h3{margin:0}
-.ll-group h4{margin:12px 0 6px;font-size:14px;color:var(--navy-2)}
 .ll-rows{display:flex;flex-direction:column;gap:8px}
 .ll-row{display:grid;grid-template-columns:minmax(150px,1fr) minmax(0,1.6fr) auto;gap:6px 14px;align-items:center;padding:9px 11px;border:1px solid var(--line);border-radius:11px;background:#fbfcfd}
 .ll-row.on{border-color:#f0b9b4;background:var(--bad-soft)}
@@ -412,7 +411,16 @@ code.pw{font-size:14px;font-weight:700;letter-spacing:.03em}
 .ll-card.on .ll-sum{color:var(--bad)}
 .ll-chev{font-size:22px;line-height:1;color:var(--muted);transition:transform .15s}
 .ll-sec.open .ll-card{width:100%;border-bottom-left-radius:0;border-bottom-right-radius:0}
-.ll-sec.open .ll-chev{transform:rotate(90deg)}
+.ll-sec.open>.ll-card .ll-chev{transform:rotate(90deg)}
 .ll-sec.open .ll-box{margin-top:0;border-top:0;border-top-left-radius:0;border-top-right-radius:0}
 .ll-sec.open .ll-box .ll-head h3{display:none}
 .ll-sec.open .ll-box .ll-head{justify-content:flex-end}
+/* Learning Module lock: one collapsible list per group */
+.ll-group{margin-top:8px;border:1px solid var(--line);border-radius:11px;background:#fff}
+.ll-group.on{border-color:#f0b9b4}
+.ll-gh{display:flex;align-items:center;gap:10px;width:100%;text-align:left;font:inherit;cursor:pointer;background:none;border:0;padding:9px 12px;border-radius:11px}
+.ll-gh:hover{background:#f6f9fb}.ll-gh:focus-visible{outline:3px solid #f0b429;outline-offset:1px}
+.ll-gl{font-weight:700;font-size:14px;color:var(--navy-2);flex:1;min-width:0}
+.ll-gc{font-size:12.5px;color:var(--muted);white-space:nowrap}.ll-gl-on{color:var(--bad)}
+.ll-group.open .ll-chev{transform:rotate(90deg)}
+.ll-group .ll-rows{padding:0 10px 10px}
