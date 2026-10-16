@@ -363,6 +363,9 @@ are kept in the new sheet **TeachingSessions** (created automatically the first 
   still have none). **Portal.gs 2.20:** the class quiz password is retired — an assessment WITHOUT its own password cannot
   be started (students see "🔒 Not open yet"). Students see correct answers in a review only if the assessment's
   "show answers" setting is on.
+  **Attendance inside a module** (📋 Attendance tab, QR link): a signed-in student types **only the attendance code** —
+  name and Student ID come from the account (shown as a small "👤 name · Student ID" line); the QR link needs just
+  **✓ Check in**. Without a sign-in (local copies) the name / ID / email fields still appear.
   The **Assessments** tab always opens on a **compact list** — one slim row per assessment, in three foldable groups:
   **▶ To do** (can be started or resumed), **✓ Completed** (reviewable) and **🔒 Not available now** (closed, not open yet
   or without a password; folded by default). The **newest** assessment is at the top of each group.

@@ -3407,6 +3407,37 @@ test('module Assessments (2.18, older server): if the server still wants the cla
   } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
 });
 
+test('Attendance (signed-in student): the page asks ONLY for the code — name, ID and email come from the account; the record carries them', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+  groupFixture();
+  const ST = 'cellinjury-tr-a', mod = syntheticModule(CI_PAGE), keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  try {
+    main.call({ module: ST, action: 'setup', password: 'teacher-' + ST + '-1' });
+    const tok = main.call({ module: ST, action: 'login', password: 'teacher-' + ST + '-1' }).token;
+    main.call({ module: 'portal', action: 'setup', password: TPW });   // the module's own Attendance tab is shown (as in the user's set-up)
+    assert.ok(main.call({ module: 'portal', action: 'tsSettings', token: main.call({ module: 'portal', action: 'login', password: TPW }).token, hideModuleLive: false }).ok);
+    const ses = main.call({ module: ST, action: 'startAttendanceSession', token: tok, sessionTitle: 'L3: Code only', course: 'Cell Injury', academicYear: '2026-2027', teacher: 'Dr. Test' });
+    assert.ok(ses.ok, JSON.stringify(ses));
+    const s = await page(), none = [];
+    await openSyntheticModule(s, mod, none, { stubAssess: false });
+    await s.evaluate(function () { location.hash = '#/attendance'; });
+    await s.waitForSelector('#view-attendance input[aria-label="Attendance code"]', { timeout: 15000 });
+    const card = await s.textContent('#view-attendance .card');
+    assert.ok(!/Your full name|Student ID \(optional\)|Email \(optional\)/.test(card), card);
+    assert.strictEqual(await s.$$eval('#view-attendance .card input', function (x) { return x.length; }), 1, 'one field: the code');
+    assert.match(card, /👤 Student Ahmed · Student ID ahmed/);
+    assert.ok(!/@student\.local/.test(card));
+    if (process.env.SHOTS) await (await s.$('#view-attendance .card')).screenshot({ path: path.join(process.env.SHOTS, 'student-attendance-code.png') });
+    await s.fill('#view-attendance input[aria-label="Attendance code"]', ses.code.toLowerCase());
+    await s.press('#view-attendance input[aria-label="Attendance code"]', 'Enter');
+    await s.waitForFunction(function () { return /Attendance recorded/.test(document.querySelector('#view-attendance').textContent); }, null, { timeout: 15000 });
+    const rec = main.ctx.rpRows_('AttendanceRecords').filter(function (q) { return q.sessionId === ses.sessionId; });
+    assert.strictEqual(rec.length, 1);
+    assert.deepStrictEqual([rec[0].studentName, rec[0].studentId], ['Student Ahmed', 'ahmed']);
+    assert.strictEqual(errors.filter(function (e) { return !/ERR_TUNNEL|net::/.test(e); }).length, 0, errors.join('\n'));
+    await s.context().close();
+  } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
+});
+
 test('Learning lock (2.18): Teacher Dashboard 🔒 Lock → the student sees only Assessments, every other address is blocked, the server refuses learning data; 🔓 Unlock opens it again', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
   groupFixture();
   const mod = syntheticModule(CI_PAGE), keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
