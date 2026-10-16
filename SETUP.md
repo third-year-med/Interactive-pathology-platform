@@ -356,8 +356,9 @@ are kept in the new sheet **TeachingSessions** (created automatically the first 
 - **Assessment passwords (Portal.gs 2.19):** students open **Assessments** and review their completed assessments
   **without** a password. Each assessment has **its own password**, asked only when a student **starts** it, and it unlocks
   only that assessment. Set them in the module: Teacher Portal → **🔑 Assessment passwords** (one row per assessment:
-  **＋ Set / ✏ Change**, **🎲 New random**, **↺ Use class password**). An assessment without its own password uses the class
-  quiz password (shown below the list). Students see correct answers in a review only if the assessment's
+  **＋ Set / ✏ Change**, **🎲 New random**, **✕ Remove password**; **🎲 Give each of them a random password** for all that
+  still have none). **Portal.gs 2.20:** the class quiz password is retired — an assessment WITHOUT its own password cannot
+  be started (students see "🔒 Not open yet"). Students see correct answers in a review only if the assessment's
   "show answers" setting is on.
 - **🔒 Lock Learning Module:** Teacher Dashboard → **Teaching Modules** → the small *Learning Module lock* card (click it to open) → the group + module →
   **🔒 Lock Learning Module**. Its students can then open only **Assessments** in that module (within a minute); every other

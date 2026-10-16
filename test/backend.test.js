@@ -2281,8 +2281,9 @@ test('assessment passwords: no password to open the list or review; THAT assessm
   assert.ok(st1.attempt.questions.length === 1 && st1.attempt.questions[0].answer === undefined, 'paper without answers');
   // resuming the attempt in progress needs no password
   const st2 = A(stu, 'startAttempt', { assignmentId: 'asg1' }); assert.ok(st2.ok); assert.strictEqual(st2.resumed, true);
-  // the password of Quiz 1 does not unlock Quiz 2: Quiz 2 has none of its own → Code.gs checks the class quiz password (unchanged)
-  assert.strictEqual(X.assessPwHook_(CI, 'startAttempt', { stoken: stu, assignmentId: 'asg2', password: 'Necro-26' }), null);
+  // the password of Quiz 1 does not unlock Quiz 2; Quiz 2 has no password yet → it cannot be started (the class quiz password is retired)
+  const np = A(stu, 'startAttempt', { assignmentId: 'asg2', password: 'Necro-26' }); assert.deepStrictEqual([np.ok, np.code], [false, 'nopw']); assert.match(np.error, /Quiz 2 — Apoptosis.*not open yet/);
+  assert.deepStrictEqual(l.items.map(function (i) { return [i.assessment.id, i.passwordSet]; }).sort(), [['q1', true], ['q2', false]], 'the list says which have a password');
   // another student cannot submit this attempt; the owner submits without a password
   assert.strictEqual(A(other, 'submitAttempt', { attemptId: st1.attempt.id, responses: { x1: true } }).code, 'notfound');
   const sub = A(stu, 'submitAttempt', { attemptId: st1.attempt.id, responses: { x1: true } }); assert.ok(sub.ok, JSON.stringify(sub));
@@ -2293,8 +2294,9 @@ test('assessment passwords: no password to open the list or review; THAT assessm
   const l2 = A(stu, 'getMyAssessments'), it1 = l2.items.filter(function (i) { return i.assignment.id === 'asg1'; })[0];
   const done = it1.attempts.filter(function (t) { return t.status === 'submitted'; })[0];
   assert.strictEqual(done.percent, 100); assert.ok(done.review && done.review.questions.length === 1 && done.review.answers.length === 1);
-  // teacher resets Quiz 1 to the class password; a fresh wrong-password burst is limited
+  // teacher removes Quiz 1's password → it can no longer be started; a fresh wrong-password burst is limited
   assert.deepStrictEqual(T('aePwSet', { assessmentId: 'q1', clear: true }).passwords, {});
+  assert.strictEqual(A(other, 'startAttempt', { assignmentId: 'asg1', password: 'Necro-26' }).code, 'nopw');
   T('aePwSet', { assessmentId: 'q2', password: 'Apop-26' });
   for (let i = 0; i < 10; i++) A(other, 'startAttempt', { assignmentId: 'asg2', password: 'nope' + i });
   assert.strictEqual(A(other, 'startAttempt', { assignmentId: 'asg2', password: 'Apop-26' }).code, 'locked');

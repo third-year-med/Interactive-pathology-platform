@@ -191,7 +191,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.19';
+var PORTAL_VERSION = '2.20';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -2922,8 +2922,9 @@ function llMessage_(L) {
  *     getMyAssessments  no password — current, upcoming AND completed assessments (scores / review as the
  *                       assessment's own settings allow)
  *     startAttempt      the password of THAT assessment (not case-sensitive); resuming an attempt already in
- *                       progress needs none; 10 wrong passwords → 10 minutes' wait. An assessment WITHOUT its own
- *                       password falls through to Code.gs, which checks the class quiz password exactly as before.
+ *                       progress needs none; 10 wrong passwords → 10 minutes' wait. 2.20: the class quiz password is
+ *                       retired — an assessment WITHOUT its own password cannot be started ('nopw'); the list says
+ *                       which assessments have one (passwordSet, never the password).
  *     submitAttempt     no password (the engine checks that the attempt belongs to this student)
  *   Teachers, local mode and every other action are unchanged; nothing in attempts, grades or the question bank changes.
  * ====================================================================== */
@@ -2959,7 +2960,15 @@ function assessPwHook_(storage, act, p) {
   if (st.mustChange) return { ok: false, code: 'mustchange', error: 'Please set a new password before continuing.' };   // as Code.gs gateRequest_
   if (typeof exTeachingLock_ === 'function') { var xl = exTeachingLock_(storage, st.username); if (xl) return xl; }
   var email = studentEmail_(st);
-  if (act === 'getMyAssessments') { var r = assessSvc_(storage).getMyAssessments(email); if (r && r.ok) r.perAssessmentPasswords = true; return r; }
+  if (act === 'getMyAssessments') {
+    var r = assessSvc_(storage).getMyAssessments(email);
+    if (r && r.ok) {
+      r.perAssessmentPasswords = true;
+      var pm = apwMap_(storage);   // 2.20: whether each assessment HAS a password (never the password itself)
+      (r.items || []).forEach(function (it) { it.passwordSet = !!(it.assessment && pm[it.assessment.id] && pm[it.assessment.id].pw); });
+    }
+    return r;
+  }
   if (act === 'submitAttempt') {
     var lk = LockService.getScriptLock(); lk.waitLock(30000);
     try { return assessSvc_(storage).submitAttempt(String(p.attemptId || ''), email, p.responses || {}); } finally { lk.releaseLock(); }
@@ -2971,7 +2980,8 @@ function assessPwHook_(storage, act, p) {
   var resume = store.list('attempt').some(function (t) { return t.assignmentId === a.id && llNorm_(t.email) === e && t.status === 'in_progress' && !(t.deadlineAt && now > Number(t.deadlineAt) + 15 * 60000); });
   var own = apwMap_(storage)[a.assessmentId];
   if (!resume) {
-    if (!own || !own.pw) return null;   // no password of its own → Code.gs checks the class quiz password as before
+    // 2.20: the class quiz password is retired — an assessment without its own password cannot be started
+    if (!own || !own.pw) return { ok: false, code: 'nopw', error: '“' + String(a.assessmentTitle || 'This assessment') + '” is not open yet — your teacher has not given it a password.' };
     var c = CacheService.getScriptCache(), fk = 'apwfail:' + storage + ':' + st.username, fails = Number(c.get(fk) || 0);
     if (fails >= APW_FAIL_MAX) return { ok: false, code: 'locked', error: 'Too many wrong passwords. Please wait 10 minutes, or ask your teacher.' };
     if (apwNorm_(p.password) !== apwNorm_(own.pw)) {

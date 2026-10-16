@@ -177,6 +177,10 @@ chapter position (HANDBOOK §5 step 5) — that position is its place on every g
   badpw → the 2.18 password page), Start → promptDialog for that assessment, completed attempts → "📄 Attempt n — review
   answers" (`openReview` → renderResult; answers/correct answers as the assessment's "show answers" setting allows).
   Also fixed: promptDialog's Enter no longer re-clicks the button that opened it (it reopened the dialog).
+- **2.20 (user's request): the class quiz password is retired.** startAttempt without the assessment's own password →
+  `nopw` (no Code.gs fallback); getMyAssessments items carry `passwordSet` (boolean only) → the card shows "🔒 Not open
+  yet" instead of Start; Teacher Portal shows no class-password card with a class server (local mode keeps it), rows
+  without a password say "⚠ none yet", "✕ Remove password", and "🎲 Give each of them a random password".
 - Honest limit: the packaged course is still decrypted in the student's browser (the Assessments page needs the app);
   a student with developer tools could dig it out. For high-stakes exams use Official Exams (separate app, no course
   content) with the teaching lock.

@@ -3489,7 +3489,7 @@ test('Learning lock (2.18): Teacher Dashboard 🔒 Lock → the student sees onl
 });
 
 
-test('Assessment passwords (2.19): Assessments open without a password; each quiz asks for ITS password to start; completed attempts reviewed without one; teacher sets / changes / resets per assessment', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+test('Assessment passwords (2.19/2.20): Assessments open without a password; each quiz asks for ITS password to start; completed attempts reviewed without one; teacher sets / changes / removes per assessment; no class password', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
   groupFixture();
   const ST = 'cellinjury-tr-a', mod = syntheticModule(CI_PAGE), keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
   try {
@@ -3511,7 +3511,8 @@ test('Assessment passwords (2.19): Assessments open without a password; each qui
     await t.goto('https://third-year-med.github.io/cell-injury-teaching-platform/?g=tr-a#/teacher/password');
     await t.waitForSelector('.apw-tbl tr[data-assessment="q1"]', { timeout: 20000 });
     assert.match(await t.textContent('.portal-tabs'), /🔑 Assessment passwords/);
-    assert.match(await t.textContent('.apw-tbl tr[data-assessment="q1"]'), /Quiz 1 — Necrosis[\s\S]*class quiz password/);
+    assert.match(await t.textContent('.apw-tbl tr[data-assessment="q1"]'), /Quiz 1 — Necrosis[\s\S]*⚠ none yet — students cannot start it/);
+    assert.ok(!/Class quiz password/.test(await t.textContent('#view-teacher')), 'the class (default) password is retired');
     t.once('dialog', function (d) { d.accept(); });
     await t.click('.apw-tbl tr[data-assessment="q1"] [data-a=set]');
     await t.waitForSelector('.modal input');
@@ -3521,8 +3522,10 @@ test('Assessment passwords (2.19): Assessments open without a password; each qui
     await t.click('.apw-tbl tr[data-assessment="q2"] [data-a=random]');
     await t.waitForFunction(function () { var c = document.querySelector('.apw-tbl tr[data-assessment="q2"] .apw-pw'); return c && /^[A-Z2-9]{6}$/.test(c.textContent); });
     const q2pw = await t.textContent('.apw-tbl tr[data-assessment="q2"] .apw-pw');
-    assert.match(await t.textContent('.apw-card'), /Class quiz password|class quiz password/);
-    assert.match(await t.textContent('#view-teacher'), /Class quiz password \(default\)/);
+    // the remaining assessment without a password (the migrated Formal Quiz 1) gets one with one click
+    assert.match(await t.textContent('.apw-card'), /⚠ 1 assessment has no password yet/);
+    await t.click('.apw-card [data-a=all]');
+    await t.waitForFunction(function () { return !document.querySelector('.apw-card .apw-none') && !document.querySelector('.apw-card [data-a=all]'); });
     if (process.env.SHOTS) await (await t.$('.apw-card')).screenshot({ path: path.join(process.env.SHOTS, 'teacher-assessment-passwords.png') });
     // ---- the student: no password to open; THIS quiz's password to start ----
     const s = await page(), none = [];
@@ -3558,9 +3561,15 @@ test('Assessment passwords (2.19): Assessments open without a password; each qui
     assert.deepStrictEqual([att.email, att.name, att.status, att.percent], ['ahmed@student.local', 'Student Ahmed', 'submitted', 100]);
     // the teacher resets Quiz 1 to the class password
     await t.click('.apw-tbl tr[data-assessment="q1"] [data-a=clear]');
-    await t.waitForFunction(function () { return /class quiz password/.test(document.querySelector('.apw-tbl tr[data-assessment="q1"]').textContent); });
-    assert.deepStrictEqual(Object.keys(main.call({ module: ST, action: 'aePwList', token: tok }).passwords), ['q2']);
-    if (process.env.SHOTS) { await s.setViewportSize({ width: 390, height: 844 }); await s.click('#view-quiz button:has-text("My Assessments")'); await s.waitForSelector('#view-quiz .assess-card'); await s.screenshot({ path: path.join(process.env.SHOTS, 'student-assessments-phone.png'), fullPage: true }); }
+    await t.waitForFunction(function () { return /none yet/.test(document.querySelector('.apw-tbl tr[data-assessment="q1"]').textContent); });
+    assert.ok(Object.keys(main.call({ module: ST, action: 'aePwList', token: tok }).passwords).indexOf('q1') < 0);
+    // the student: Quiz 1 is "not open yet" (no Start), the completed attempt stays reviewable
+    await s.click('#view-quiz button:has-text("My Assessments")');
+    await s.click('#view-quiz button:has-text("Refresh")');
+    await s.waitForFunction(function () { var c = Array.prototype.filter.call(document.querySelectorAll('#view-quiz .assess-card'), function (x) { return /Quiz 1 — Necrosis/.test(x.textContent); })[0]; return c && /Not open yet/.test(c.textContent); });
+    assert.strictEqual(await s.$(card('Quiz 1 — Necrosis') + ' .row.mt1 button.btn-primary'), null, 'no Start button');
+    assert.ok(await s.$(card('Quiz 1 — Necrosis') + ' .assess-hist button'), 'the review stays available');
+    if (process.env.SHOTS) { await s.setViewportSize({ width: 390, height: 844 }); await s.screenshot({ path: path.join(process.env.SHOTS, 'student-assessments-phone.png'), fullPage: true }); await (await t.$('.apw-card')).screenshot({ path: path.join(process.env.SHOTS, 'teacher-assessment-passwords.png') }); }
     assert.strictEqual(errors.filter(function (e) { return !/ERR_TUNNEL|net::/.test(e); }).length, 0, errors.join('\n'));
     await s.context().close(); await t.context().close();
   } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
