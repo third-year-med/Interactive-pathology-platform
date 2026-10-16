@@ -2242,3 +2242,63 @@ test('learning lock: automatic during a scheduled assessment (only its students,
   assert.ok(S.ts('llSet', { deliveryId: S.ci.deliveryId, locked: true }).ok);
   assert.strictEqual(status(tb1).reason, 'manual');
 });
+
+/* ---------------- Assessment passwords (2.19) ---------------- */
+function assessFixture(S, storage) {
+  const tok = S.call({ module: storage, action: 'login', password: 'teacher-' + storage }).token;
+  const up = function (collection, id, data) { const r = S.call({ module: storage, action: 'upsert', token: tok, collection: collection, id: id, data: data }); assert.ok(r.ok, JSON.stringify(r)); };
+  const q = { id: 'x1', type: 'tf', stem: 'Necrosis is always irreversible.', answer: true, explanation: 'By definition.' };
+  up('assessments', 'q1', { id: 'q1', title: 'Quiz 1 — Necrosis', status: 'published', publishedVersion: 1 });
+  up('assessmentversions', 'q1@1', { assessmentId: 'q1', version: 1, title: 'Quiz 1 — Necrosis', mode: 'fixed', questionIds: ['x1'], settings: { showScore: true, showAnswers: true }, questions: { x1: q } });
+  up('assessments', 'q2', { id: 'q2', title: 'Quiz 2 — Apoptosis', status: 'published', publishedVersion: 1 });
+  up('assessmentversions', 'q2@1', { assessmentId: 'q2', version: 1, title: 'Quiz 2 — Apoptosis', mode: 'fixed', questionIds: ['x1'], settings: { showScore: true, showAnswers: false }, questions: { x1: q } });
+  const store = S.b.ctx.assessStore_(storage);
+  store.put('assignment', 'asg1', { id: 'asg1', assessmentId: 'q1', assessmentTitle: 'Quiz 1 — Necrosis', targetType: 'all', emails: [], status: 'active', availableFrom: null, dueAt: null });
+  store.put('assignment', 'asg2', { id: 'asg2', assessmentId: 'q2', assessmentTitle: 'Quiz 2 — Apoptosis', targetType: 'all', emails: [], status: 'active', availableFrom: null, dueAt: null });
+  return tok;
+}
+test('assessment passwords: no password to open the list or review; THAT assessment\'s password to start it; teacher sets / changes / resets each one', function () {
+  const S = tsSetup(), CI = 'cellinjury-razi-a-26', X = S.b.ctx;
+  const ttok = assessFixture(S, CI), stu = login(S, CI, 'b1', 'basma-pass-1').token, other = login(S, CI, 'ahmed', PW).token;
+  const T = function (action, o) { return S.call(Object.assign({ module: CI, action: action, token: ttok }, o || {})); };
+  const A = function (tok, action, o) { return S.call(Object.assign({ module: CI, action: action, stoken: tok }, o || {})); };
+  // teacher: each assessment its own password (random or typed), clearly per assessment; students cannot read them
+  assert.deepStrictEqual(T('aePwList').passwords, {});
+  const r1 = T('aePwSet', { assessmentId: 'q1', random: true }); assert.ok(r1.ok, JSON.stringify(r1)); assert.match(r1.password, /^[A-Z2-9]{6}$/);
+  assert.strictEqual(T('aePwSet', { assessmentId: 'q1', password: 'ab' }).ok, false, 'too short');
+  const r2 = T('aePwSet', { assessmentId: 'q1', password: 'Necro-26' }); assert.strictEqual(r2.passwords.q1.password, 'Necro-26');
+  assert.deepStrictEqual(Object.keys(T('aePwList').passwords), ['q1']);
+  assert.strictEqual(A(stu, 'aePwList').ok, false); assert.strictEqual(S.call({ module: CI, action: 'aePwList' }).ok, false);
+  assert.strictEqual(S.call({ module: 'inflhealing-razi-a-26', action: 'aePwList', token: ttok }).ok, false, 'another module\'s teacher token');
+  // student: the list without any password
+  const l = A(stu, 'getMyAssessments'); assert.ok(l.ok, JSON.stringify(l)); assert.strictEqual(l.perAssessmentPasswords, true);
+  assert.deepStrictEqual(l.items.map(function (i) { return i.assessment.title; }).sort(), ['Quiz 1 — Necrosis', 'Quiz 2 — Apoptosis']);
+  assert.ok(!/Necro-26/.test(JSON.stringify(l)), 'the password never reaches a student');
+  // start Quiz 1: wrong password refused, its own password accepted (not case-sensitive)
+  assert.strictEqual(A(stu, 'startAttempt', { assignmentId: 'asg1', password: 'WRONG' }).code, 'badpw');
+  assert.strictEqual(A(stu, 'startAttempt', { assignmentId: 'asg1' }).code, 'badpw');
+  const st1 = A(stu, 'startAttempt', { assignmentId: 'asg1', password: 'necro-26' }); assert.ok(st1.ok, JSON.stringify(st1)); assert.strictEqual(st1.resumed, false);
+  assert.ok(st1.attempt.questions.length === 1 && st1.attempt.questions[0].answer === undefined, 'paper without answers');
+  // resuming the attempt in progress needs no password
+  const st2 = A(stu, 'startAttempt', { assignmentId: 'asg1' }); assert.ok(st2.ok); assert.strictEqual(st2.resumed, true);
+  // the password of Quiz 1 does not unlock Quiz 2: Quiz 2 has none of its own → Code.gs checks the class quiz password (unchanged)
+  assert.strictEqual(X.assessPwHook_(CI, 'startAttempt', { stoken: stu, assignmentId: 'asg2', password: 'Necro-26' }), null);
+  // another student cannot submit this attempt; the owner submits without a password
+  assert.strictEqual(A(other, 'submitAttempt', { attemptId: st1.attempt.id, responses: { x1: true } }).code, 'notfound');
+  const sub = A(stu, 'submitAttempt', { attemptId: st1.attempt.id, responses: { x1: true } }); assert.ok(sub.ok, JSON.stringify(sub));
+  assert.deepStrictEqual([sub.attempt.score, sub.attempt.total, sub.attempt.percent], [1, 1, 100]);
+  // the stored attempt keeps the account identity (grading + reports unchanged)
+  const rec = X.assessStore_(CI).get('attempt', st1.attempt.id); assert.deepStrictEqual([rec.email, rec.name, rec.status], ['basma@uni.ly', 'Basma One', 'submitted']);
+  // completed: listed with its score and — because this assessment shows answers — the full review; no password
+  const l2 = A(stu, 'getMyAssessments'), it1 = l2.items.filter(function (i) { return i.assignment.id === 'asg1'; })[0];
+  const done = it1.attempts.filter(function (t) { return t.status === 'submitted'; })[0];
+  assert.strictEqual(done.percent, 100); assert.ok(done.review && done.review.questions.length === 1 && done.review.answers.length === 1);
+  // teacher resets Quiz 1 to the class password; a fresh wrong-password burst is limited
+  assert.deepStrictEqual(T('aePwSet', { assessmentId: 'q1', clear: true }).passwords, {});
+  T('aePwSet', { assessmentId: 'q2', password: 'Apop-26' });
+  for (let i = 0; i < 10; i++) A(other, 'startAttempt', { assignmentId: 'asg2', password: 'nope' + i });
+  assert.strictEqual(A(other, 'startAttempt', { assignmentId: 'asg2', password: 'Apop-26' }).code, 'locked');
+  // a student who must still choose a new password is stopped, as Code.gs does
+  const sRow = X.findStudent_(CI, 'b1'); X.updateRow_('Students', sRow._row, Object.assign({}, sRow, { mustChange: true }));
+  assert.strictEqual(A(login(S, CI, 'b1', 'basma-pass-1').token, 'getMyAssessments').code, 'mustchange');
+});

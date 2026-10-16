@@ -3353,11 +3353,16 @@ function syntheticModule(file) {
   const html = fs.readFileSync(file, 'utf8').replace(/(<script id="neo-enc"[^>]*>)([\s\S]*?)(<\/script>)/, function (m, a, b, z) { return a + JSON.stringify({ iv: iv.toString('base64'), ct: ct.toString('base64') }) + z; });
   return { html: html, key: key.toString('base64') };
 }
-async function openSyntheticModule(p, mod, assessCalls) {
+async function openSyntheticModule(p, mod, assessCalls, opts) {
+  opts = opts || {};
   await p.route('https://third-year-med.github.io/cell-injury-teaching-platform/**', function (route) { return route.fulfill({ status: 200, contentType: 'text/html', body: mod.html }); });
   await p.route('https://script.google.com/**', async function (route) {   // registered last → asked first
     const q = JSON.parse(route.request().postData() || '{}');
-    if (q.action === 'getMyAssessments') { assessCalls.push(q); return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ ok: true, items: [] }) }); }
+    if (q.action === 'getMyAssessments' && opts.stubAssess !== false) {   // an OLDER class server: the class password for the list
+      assessCalls.push(q);
+      const body = q.password ? { ok: true, items: [] } : { ok: false, code: 'badpw', error: 'Incorrect quiz password.' };
+      return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify(body) });
+    }
     return route.fallback();
   });
   await p.goto('https://third-year-med.github.io/cell-injury-teaching-platform/?g=tr-a');
@@ -3366,7 +3371,7 @@ async function openSyntheticModule(p, mod, assessCalls) {
   await p.waitForSelector('.nav-btn[data-view="quiz"]', { timeout: 20000 });
 }
 
-test('module Assessments (2.18): a signed-in student enters only the assessment password; identity comes from the account', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+test('module Assessments (2.18, older server): if the server still wants the class password, a signed-in student enters only that password; identity from the account', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
   groupFixture();
   const mod = syntheticModule(CI_PAGE), keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
   try {
@@ -3385,8 +3390,9 @@ test('module Assessments (2.18): a signed-in student enters only the assessment 
     await p.waitForFunction(function () { return /password/.test(document.querySelector('#view-quiz [role=status]').textContent); });   // empty password is refused
     await p.fill('#quiz-pw', 'QUIZ-1'); await p.press('#quiz-pw', 'Enter');
     await p.waitForFunction(function () { return /Student ID ahmed/.test(document.querySelector('#view-quiz').textContent) && !document.querySelector('#quiz-pw'); });
-    assert.strictEqual(calls.length, 1);
-    assert.deepStrictEqual([calls[0].email, calls[0].password, !!calls[0].stoken], ['ahmed@student.local', 'QUIZ-1', true], 'the account identity + the signed-in session');
+    const withPw = calls.filter(function (c) { return c.password; });
+    assert.strictEqual(withPw.length, 1);
+    assert.deepStrictEqual([withPw[0].email, withPw[0].password, !!withPw[0].stoken], ['ahmed@student.local', 'QUIZ-1', true], 'the account identity + the signed-in session');
     const dashTxt = await p.textContent('#view-quiz');
     assert.match(dashTxt, /Student Ahmed · Student ID ahmed/); assert.ok(!/Not you\? Switch/.test(dashTxt));
     if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'module-assess-dashboard.png') });
@@ -3478,6 +3484,84 @@ test('Learning lock (2.18): Teacher Dashboard 🔒 Lock → the student sees onl
     if (process.env.SHOTS) { await t.setViewportSize({ width: 390, height: 844 }); await t.screenshot({ path: path.join(process.env.SHOTS, 'dashboard-lock-phone.png'), fullPage: true }); }
     await t.setViewportSize({ width: 390, height: 844 });
     assert.ok(await t.evaluate(function () { return document.documentElement.scrollWidth - window.innerWidth; }) <= 1, 'dashboard fits a phone');
+    await s.context().close(); await t.context().close();
+  } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
+});
+
+
+test('Assessment passwords (2.19): Assessments open without a password; each quiz asks for ITS password to start; completed attempts reviewed without one; teacher sets / changes / resets per assessment', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+  groupFixture();
+  const ST = 'cellinjury-tr-a', mod = syntheticModule(CI_PAGE), keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  try {
+    // two published assessments for the group (one question each), assigned to everyone
+    main.call({ module: ST, action: 'setup', password: 'teacher-' + ST + '-1' });
+    const tok = main.call({ module: ST, action: 'login', password: 'teacher-' + ST + '-1' }).token;
+    const up = function (c, id, data) { const r = main.call({ module: ST, action: 'upsert', token: tok, collection: c, id: id, data: data }); assert.ok(r.ok, JSON.stringify(r)); };
+    const q = { id: 'x1', type: 'tf', stem: 'Necrosis is always irreversible.', answer: true, explanation: 'Necrosis is the end point of irreversible injury.' };
+    [['q1', 'Quiz 1 — Necrosis', true], ['q2', 'Quiz 2 — Apoptosis', false]].forEach(function (x) {
+      up('assessments', x[0], { id: x[0], title: x[1], status: 'published', publishedVersion: 1 });
+      up('assessmentversions', x[0] + '@1', { assessmentId: x[0], version: 1, title: x[1], mode: 'fixed', questionIds: ['x1'], settings: { showScore: true, showAnswers: x[2] }, questions: { x1: q } });
+      main.ctx.assessStore_(ST).put('assignment', 'asg-' + x[0], { id: 'asg-' + x[0], assessmentId: x[0], assessmentTitle: x[1], targetType: 'all', emails: [], status: 'active', availableFrom: null, dueAt: null });
+    });
+    // ---- the teacher: Teacher Portal → 🔑 Assessment passwords (one row per assessment) ----
+    const t = await page();
+    await t.route('https://third-year-med.github.io/cell-injury-teaching-platform/**', function (route) { return route.fulfill({ status: 200, contentType: 'text/html', body: mod.html }); });
+    const cfgUrl = /window\.NEO_CONFIG\s*=\s*(\{[\s\S]*?\});/.exec(mod.html); const backendUrl = JSON.parse(cfgUrl[1]).backendUrl;
+    await t.addInitScript(function (o) { try { localStorage.setItem('ci_tr-a_backend_token_v1', JSON.stringify({ token: o.tok, expiresAt: Date.now() + 3600e3, url: o.url })); } catch (e) { } }, { tok: tok, url: backendUrl });
+    await t.goto('https://third-year-med.github.io/cell-injury-teaching-platform/?g=tr-a#/teacher/password');
+    await t.waitForSelector('.apw-tbl tr[data-assessment="q1"]', { timeout: 20000 });
+    assert.match(await t.textContent('.portal-tabs'), /🔑 Assessment passwords/);
+    assert.match(await t.textContent('.apw-tbl tr[data-assessment="q1"]'), /Quiz 1 — Necrosis[\s\S]*class quiz password/);
+    t.once('dialog', function (d) { d.accept(); });
+    await t.click('.apw-tbl tr[data-assessment="q1"] [data-a=set]');
+    await t.waitForSelector('.modal input');
+    await t.fill('.modal input', 'Necro-26'); await t.press('.modal input', 'Enter');
+    await t.waitForFunction(function () { return !document.querySelector('.modal-back'); });   // Enter closes it for good (does not reopen it)
+    await t.waitForFunction(function () { return /Necro-26/.test(document.querySelector('.apw-tbl tr[data-assessment="q1"]').textContent); });
+    await t.click('.apw-tbl tr[data-assessment="q2"] [data-a=random]');
+    await t.waitForFunction(function () { var c = document.querySelector('.apw-tbl tr[data-assessment="q2"] .apw-pw'); return c && /^[A-Z2-9]{6}$/.test(c.textContent); });
+    const q2pw = await t.textContent('.apw-tbl tr[data-assessment="q2"] .apw-pw');
+    assert.match(await t.textContent('.apw-card'), /Class quiz password|class quiz password/);
+    assert.match(await t.textContent('#view-teacher'), /Class quiz password \(default\)/);
+    if (process.env.SHOTS) await (await t.$('.apw-card')).screenshot({ path: path.join(process.env.SHOTS, 'teacher-assessment-passwords.png') });
+    // ---- the student: no password to open; THIS quiz's password to start ----
+    const s = await page(), none = [];
+    await openSyntheticModule(s, mod, none, { stubAssess: false });
+    await s.evaluate(function () { location.hash = '#/quiz'; });
+    await s.waitForSelector('#view-quiz .assess-card', { timeout: 15000 });
+    assert.strictEqual(await s.$('#quiz-pw'), null, 'no password page');
+    assert.match(await s.textContent('#view-quiz'), /Each assessment asks for its own password[\s\S]*Quiz 1 — Necrosis[\s\S]*Quiz 2 — Apoptosis|Each assessment asks for its own password[\s\S]*Quiz 2 — Apoptosis[\s\S]*Quiz 1 — Necrosis/);
+    const card = function (title) { return '#view-quiz .assess-card:has(h3:text-is("' + title + '"))'; };
+    await s.click(card('Quiz 1 — Necrosis') + ' button.btn-primary');
+    await s.click('.modal button:has-text("Start")');                     // the instructions / time-limit confirmation
+    await s.waitForSelector('.modal input[type=password]');
+    assert.match(await s.textContent('.modal'), /Quiz 1 — Necrosis[\s\S]*Each assessment has its own password/);
+    await s.fill('.modal input[type=password]', q2pw); await s.press('.modal input[type=password]', 'Enter');   // Quiz 2's password does not open Quiz 1
+    await s.waitForFunction(function () { var m = document.querySelector('.modal'); return m && /not the password of “Quiz 1 — Necrosis”/.test(m.textContent); });
+    await s.fill('.modal input[type=password]', 'necro-26'); await s.press('.modal input[type=password]', 'Enter');
+    await s.waitForSelector('.quiz-run', { timeout: 15000 });
+    await s.click('.quiz-run label.opt:has-text("True")');
+    await s.click('.quiz-run button.btn-navy:has-text("Review & submit")');
+    await s.click('.modal button:text-is("Submit")');
+    await s.waitForFunction(function () { return /Submitted/.test(document.querySelector('#view-quiz').textContent) && /Review/.test(document.querySelector('#view-quiz').textContent); }, null, { timeout: 15000 });
+    assert.match(await s.textContent('#view-quiz'), /100%[\s\S]*Correct answer/);
+    // ---- back to My Assessments: the completed attempt is reviewed WITHOUT a password ----
+    await s.click('#view-quiz button:has-text("My Assessments")');
+    await s.waitForSelector(card('Quiz 1 — Necrosis') + ' .assess-hist button');
+    assert.match(await s.textContent(card('Quiz 1 — Necrosis') + ' .assess-hist'), /Attempt 1 · 100% — review answers/);
+    await s.click(card('Quiz 1 — Necrosis') + ' .assess-hist button');
+    await s.waitForFunction(function () { return /Your answer:[\s\S]*Correct answer:/.test(document.querySelector('#view-quiz').textContent); });
+    assert.strictEqual(await s.$('.modal input[type=password]'), null, 'no password for a review');
+    if (process.env.SHOTS) await s.screenshot({ path: path.join(process.env.SHOTS, 'student-review.png'), fullPage: true });
+    // the attempt is stored under the account (grading + teacher reports unchanged)
+    const att = main.ctx.assessStore_(ST).list('attempt').filter(function (x) { return x.assessmentId === 'q1'; })[0];
+    assert.deepStrictEqual([att.email, att.name, att.status, att.percent], ['ahmed@student.local', 'Student Ahmed', 'submitted', 100]);
+    // the teacher resets Quiz 1 to the class password
+    await t.click('.apw-tbl tr[data-assessment="q1"] [data-a=clear]');
+    await t.waitForFunction(function () { return /class quiz password/.test(document.querySelector('.apw-tbl tr[data-assessment="q1"]').textContent); });
+    assert.deepStrictEqual(Object.keys(main.call({ module: ST, action: 'aePwList', token: tok }).passwords), ['q2']);
+    if (process.env.SHOTS) { await s.setViewportSize({ width: 390, height: 844 }); await s.click('#view-quiz button:has-text("My Assessments")'); await s.waitForSelector('#view-quiz .assess-card'); await s.screenshot({ path: path.join(process.env.SHOTS, 'student-assessments-phone.png'), fullPage: true }); }
+    assert.strictEqual(errors.filter(function (e) { return !/ERR_TUNNEL|net::/.test(e); }).length, 0, errors.join('\n'));
     await s.context().close(); await t.context().close();
   } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
 });

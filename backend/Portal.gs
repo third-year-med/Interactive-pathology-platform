@@ -65,6 +65,9 @@
  *                     deletes its attendance session and every check-in with it)
  *   tsMark {tsId, studentId, mark: present|late|excused|clear|remove, recordId?}   the teacher's corrections
  *   tsSettings        Admin: platform time zone and attendance warning threshold
+ *   (module storages) aePwList / aePwSet {assessmentId, password | random | clear}  2.19: one password per assessment
+ *                     (module teacher token); signed-in students: getMyAssessments / submitAttempt need no password,
+ *                     startAttempt needs THAT assessment's password (see "Assessment passwords" below)
  *   llList / llSet {deliveryId, locked?, auto?}  2.18: Learning-module lock per group + module (see "Learning lock" below)
  *   attOverall {groupId}  2.15: Overall Pathology Attendance — every student of the group over EVERY teaching module
  *                     (sessions taken inside the modules and Teaching Sessions alike, each counted once), same % and warning
@@ -188,7 +191,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.18';
+var PORTAL_VERSION = '2.19';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -218,6 +221,7 @@ function portalHook_(module, p) {
     if (EXAM_BANK_ACTIONS[act]) return examBankHook_(String(module), p);   // 2.6: copy questions between exam banks and teaching banks
     var gl = examGroupLockHook_(String(module), act, p); if (gl) return gl;   // 2.6: a combined exam of the group closes all its modules for candidates
     var ll = learnLockHook_(String(module), act, p); if (ll) return ll;   // 2.18: Learning module locked during assessments (students)
+    var ap = assessPwHook_(String(module), act, p); if (ap) return ap;   // 2.19: one password per assessment (asked only to start it)
     // 2.5 speed: the frequent "anything new?" check is answered from memory when nothing changed for this storage
     if (act === 'getAllContent') { var fast = cvFastUnchanged_(String(module), p); if (fast) return fast; }
     else if (!CV_NO_CONTENT_WRITE[act]) cvMarkWrite_(String(module));
@@ -2908,6 +2912,78 @@ function llMessage_(L) {
     : 'The Learning module is locked while “' + L.title + '” is running. Only Assessments are open.';
 }
 /** portalHook_ for teaching modules: status for the module page; learning data refused to locked students. */
+/* ======================================================================
+ * Assessment passwords (2.19) — one password per assessment, asked only when a student STARTS it.
+ *   Teacher (module Teacher Portal → 🔑 Assessment passwords, module teacher token): aePwList, aePwSet
+ *   {assessmentId, password | random:true | clear:true}. Stored per storage (group + module) in Settings
+ *   apw:<storage> = { <assessmentId>: { pw, at, by } } — readable by the module's teachers, never sent to students.
+ *   Signed-in students (stoken) are answered here with the SAME shared assessment engine Code.gs uses
+ *   (assessSvc_ → AE_createService), identity always from the account:
+ *     getMyAssessments  no password — current, upcoming AND completed assessments (scores / review as the
+ *                       assessment's own settings allow)
+ *     startAttempt      the password of THAT assessment (not case-sensitive); resuming an attempt already in
+ *                       progress needs none; 10 wrong passwords → 10 minutes' wait. An assessment WITHOUT its own
+ *                       password falls through to Code.gs, which checks the class quiz password exactly as before.
+ *     submitAttempt     no password (the engine checks that the attempt belongs to this student)
+ *   Teachers, local mode and every other action are unchanged; nothing in attempts, grades or the question bank changes.
+ * ====================================================================== */
+var APW_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+var APW_FAIL_MAX = 10, APW_FAIL_S = 600;
+function apwMap_(storage) { return tsJson_(getSetting_('apw:' + storage), {}) || {}; }
+function apwNorm_(s) { return String(s || '').trim().toUpperCase(); }
+function apwRandom_() { var s = ''; for (var i = 0; i < 6; i++) s += APW_ALPHABET.charAt(Math.floor(Math.random() * APW_ALPHABET.length)); return s; }
+function apwPublic_(m) { var o = {}; Object.keys(m).forEach(function (k) { if (m[k] && m[k].pw) o[k] = { password: m[k].pw, setAt: Number(m[k].at) || 0, setBy: String(m[k].by || '') }; }); return o; }
+function assessPwHook_(storage, act, p) {
+  if (act === 'aePwList' || act === 'aePwSet') {
+    return authed_(storage, p, function () {
+      if (act === 'aePwList') return { ok: true, passwords: apwPublic_(apwMap_(storage)) };
+      var id = String(p.assessmentId || '').trim().slice(0, 120); if (!id) return { ok: false, error: 'Choose an assessment.' };
+      var lock = LockService.getScriptLock(); lock.waitLock(20000);
+      try {
+        var m = apwMap_(storage), pw = '';
+        if (p.clear === true || p.clear === 'true') delete m[id];
+        else {
+          pw = p.random === true || p.random === 'true' ? apwRandom_() : String(p.password || '').trim();
+          if (pw.length < 4 || pw.length > 40) return { ok: false, error: 'The password must have 4 to 40 characters.' };
+          m[id] = { pw: pw, at: Date.now(), by: String(p.by || '').slice(0, 60) };
+        }
+        setSetting_('apw:' + storage, JSON.stringify(m));
+        console.log('assessment password · ' + storage + ' · ' + id + ' · ' + (pw ? 'set' : 'reset to the class password'));
+        return { ok: true, password: pw, passwords: apwPublic_(m) };
+      } finally { lock.releaseLock(); }
+    });
+  }
+  if (act !== 'getMyAssessments' && act !== 'startAttempt' && act !== 'submitAttempt') return null;
+  if (!p.stoken || p.token || typeof assessSvc_ !== 'function' || typeof assessStore_ !== 'function') return null;
+  var st = studentFromSession_(storage, String(p.stoken)); if (!st) return null;   // Code.gs answers "session ended" itself
+  if (st.mustChange) return { ok: false, code: 'mustchange', error: 'Please set a new password before continuing.' };   // as Code.gs gateRequest_
+  if (typeof exTeachingLock_ === 'function') { var xl = exTeachingLock_(storage, st.username); if (xl) return xl; }
+  var email = studentEmail_(st);
+  if (act === 'getMyAssessments') { var r = assessSvc_(storage).getMyAssessments(email); if (r && r.ok) r.perAssessmentPasswords = true; return r; }
+  if (act === 'submitAttempt') {
+    var lk = LockService.getScriptLock(); lk.waitLock(30000);
+    try { return assessSvc_(storage).submitAttempt(String(p.attemptId || ''), email, p.responses || {}); } finally { lk.releaseLock(); }
+  }
+  // startAttempt
+  var store = assessStore_(storage), a = store.get('assignment', String(p.assignmentId || ''));
+  if (!a) return null;   // the engine answers "not assigned"
+  var e = llNorm_(email), now = Date.now();
+  var resume = store.list('attempt').some(function (t) { return t.assignmentId === a.id && llNorm_(t.email) === e && t.status === 'in_progress' && !(t.deadlineAt && now > Number(t.deadlineAt) + 15 * 60000); });
+  var own = apwMap_(storage)[a.assessmentId];
+  if (!resume) {
+    if (!own || !own.pw) return null;   // no password of its own → Code.gs checks the class quiz password as before
+    var c = CacheService.getScriptCache(), fk = 'apwfail:' + storage + ':' + st.username, fails = Number(c.get(fk) || 0);
+    if (fails >= APW_FAIL_MAX) return { ok: false, code: 'locked', error: 'Too many wrong passwords. Please wait 10 minutes, or ask your teacher.' };
+    if (apwNorm_(p.password) !== apwNorm_(own.pw)) {
+      c.put(fk, String(fails + 1), APW_FAIL_S);
+      return { ok: false, code: 'badpw', error: 'That is not the password of “' + String(a.assessmentTitle || 'this assessment') + '”. Each assessment has its own password — ask your teacher.' };
+    }
+    c.remove(fk);
+  }
+  var lock2 = LockService.getScriptLock(); lock2.waitLock(30000);
+  try { var out = assessSvc_(storage).startAttempt(a.id, email, st.name); llForget_(storage); return out; } finally { lock2.releaseLock(); }
+}
+
 function learnLockHook_(storage, act, p) {
   if (LL_FORGET[act]) llForget_(storage);   // an attempt started/submitted, an assignment changed → fresh at once
   if (act === 'learnLockStatus') {

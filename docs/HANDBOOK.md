@@ -165,6 +165,18 @@ chapter position (HANDBOOK §5 step 5) — that position is its place on every g
   panel (`#ll-panel`), the open state is remembered for the tab (sessionStorage `pp_ll_open`). Inside, one collapsible list per group
   (`.ll-group` / `.ll-gh`: label, module count, red "🔒 N LOCKED"); closed unless it is the only group or was opened in
   this tab (sessionStorage `pp_ll_groups`).
+**Assessment passwords (Portal.gs 2.19, module patch 2026-10-16):** one password per assessment, asked only to START it.
+- Teacher: module Teacher Portal → 🔑 Assessment passwords (`Views.teacher.renderAssessPw`: one row per assessment —
+  ＋ Set / ✏ Change, 🎲 New random, ↺ Use class password) above the class quiz password (now "default"). Portal actions
+  `aePwList` / `aePwSet` (module teacher token, `authed_`), Settings `apw:<storage>` = {assessmentId: {pw, at}}.
+- Student (signed in): `assessPwHook_` answers getMyAssessments (no password) / submitAttempt (no password) /
+  startAttempt (that assessment's own password, case-insensitive; resume needs none; 10 wrong → 10 min) with the shared
+  engine `assessSvc_` (identity from the account; mustChange and the exam teaching lock checked as Code.gs does). An
+  assessment WITHOUT its own password falls through to Code.gs (class quiz password, unchanged).
+- Module page: Assessments opens straight to the dashboard (`perAssessmentPasswords` from the server; an older server's
+  badpw → the 2.18 password page), Start → promptDialog for that assessment, completed attempts → "📄 Attempt n — review
+  answers" (`openReview` → renderResult; answers/correct answers as the assessment's "show answers" setting allows).
+  Also fixed: promptDialog's Enter no longer re-clicks the button that opened it (it reopened the dialog).
 - Honest limit: the packaged course is still decrypted in the student's browser (the Assessments page needs the app);
   a student with developer tools could dig it out. For high-stakes exams use Official Exams (separate app, no course
   content) with the teaching lock.
