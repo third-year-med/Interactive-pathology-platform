@@ -186,6 +186,8 @@ chapter position (HANDBOOK §5 step 5) — that position is its place on every g
   (`AssessUI.pw`, null in local mode / older server) → `renderPwStrip` above the sub-tabs, a 4th sub-tab 🔑 Passwords
   (`Views.teacher.renderAssessPw`; local mode: `tabPassword` with the class password), and a Password column with 🔑
   (`AssessUI.editPw`) in the library.
+- **Covered passwords (2026-10-16):** `apwSecret(id, pw)` shows ••••••; 👁 Show reveals ONE (`APW_SHOWN.id`, every
+  `.apw-secret` repaints; auto-cover after 2 min); toasts and the change dialog never contain a password (projector-safe).
 - Honest limit: the packaged course is still decrypted in the student's browser (the Assessments page needs the app);
   a student with developer tools could dig it out. For high-stakes exams use Official Exams (separate app, no course
   content) with the teaching lock.

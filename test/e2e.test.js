@@ -3522,10 +3522,22 @@ test('Assessment passwords (2.19/2.20): Assessments open without a password; eac
     await t.waitForSelector('.modal input');
     await t.fill('.modal input', 'Necro-26'); await t.press('.modal input', 'Enter');
     await t.waitForFunction(function () { return !document.querySelector('.modal-back'); });   // Enter closes it for good (does not reopen it)
-    await t.waitForFunction(function () { return /Necro-26/.test(document.querySelector('.apw-tbl tr[data-assessment="q1"]').textContent); });
+    // covered on the teacher's screen (projector-safe); 👁 Show reveals it
+    await t.waitForFunction(function () { var c = document.querySelector('.apw-tbl tr[data-assessment="q1"] .apw-pw'); return c && c.textContent === '••••••'; });
+    assert.ok(!/Necro-26/.test(await t.textContent('#view-teacher')), 'no password visible anywhere (also not in a message)');
+    assert.ok(!/Necro-26/.test(await t.evaluate(function () { return document.body.innerText; })), 'nor in a toast');
+    await t.click('.apw-tbl tr[data-assessment="q1"] [data-a=reveal]');
+    assert.strictEqual(await t.textContent('.apw-tbl tr[data-assessment="q1"] .apw-pw'), 'Necro-26');
     await t.click('.apw-tbl tr[data-assessment="q2"] [data-a=random]');
-    await t.waitForFunction(function () { var c = document.querySelector('.apw-tbl tr[data-assessment="q2"] .apw-pw'); return c && /^[A-Z2-9]{6}$/.test(c.textContent); });
+    await t.waitForSelector('.apw-tbl tr[data-assessment="q2"] [data-a=reveal]');
+    // only ONE password is shown at a time: showing Quiz 2's covers Quiz 1's again
+    await t.click('.apw-tbl tr[data-assessment="q2"] [data-a=reveal]');
     const q2pw = await t.textContent('.apw-tbl tr[data-assessment="q2"] .apw-pw');
+    assert.match(q2pw, /^[A-Z2-9]{6}$/);
+    assert.strictEqual(await t.textContent('.apw-tbl tr[data-assessment="q1"] .apw-pw'), '••••••');
+    assert.strictEqual(await t.$$eval('.apw-pw:not(.apw-covered)', function (x) { return x.length; }), 1);
+    await t.click('.apw-tbl tr[data-assessment="q2"] [data-a=reveal]');   // 🙈 Hide
+    assert.strictEqual(await t.$$eval('.apw-pw:not(.apw-covered)', function (x) { return x.length; }), 0);
     // the remaining assessment without a password (the migrated Formal Quiz 1) gets one with one click
     assert.match(await t.textContent('.apw-card'), /⚠ 1 assessment has no password yet/);
     await t.click('.apw-card [data-a=all]');
@@ -3534,14 +3546,20 @@ test('Assessment passwords (2.19/2.20): Assessments open without a password; eac
     await t.click('.sub-tabs .chip:has-text("Assessment Library")');
     await t.waitForSelector('.data-table th:text-is("Password")');
     const libRow = '.data-table tr:has(a:has-text("Quiz 1 — Necrosis"))';
-    assert.match(await t.textContent(libRow + ' .apw-cell'), /Necro-26/);
+    assert.match(await t.textContent(libRow + ' .apw-cell'), /••••••[\s\S]*👁 Show/);
+    await t.click(libRow + ' [data-a=reveal]');
+    assert.match(await t.textContent(libRow + ' .apw-cell'), /Necro-26[\s\S]*🙈 Hide/);
+    await t.click(libRow + ' [data-a=reveal]');
     assert.match(await t.textContent('.apw-strip'), /3 of 3 set/);
     t.once('dialog', function (d) { d.accept(); });
     await t.click(libRow + ' [data-a=pw]');
     await t.waitForSelector('.modal input');
-    assert.strictEqual(await t.inputValue('.modal input'), 'Necro-26', 'opens with the current password');
+    assert.strictEqual(await t.inputValue('.modal input'), '', 'opens empty (the current password is not shown)');
     await t.fill('.modal input', 'Necro-27'); await t.press('.modal input', 'Enter');
-    await t.waitForFunction(function () { var c = Array.prototype.filter.call(document.querySelectorAll('.data-table tr'), function (r) { return /Quiz 1 — Necrosis/.test(r.textContent); })[0]; return c && /Necro-27/.test(c.textContent); });
+    await t.waitForFunction(function () { return !document.querySelector('.modal-back'); });
+    assert.strictEqual(main.call({ module: ST, action: 'aePwList', token: tok }).passwords.q1.password, 'Necro-27');
+    await t.waitForSelector(libRow + ' [data-a=reveal]'); await t.click(libRow + ' [data-a=reveal]');
+    assert.match(await t.textContent(libRow + ' .apw-cell'), /Necro-27/);
     if (process.env.SHOTS) await t.screenshot({ path: path.join(process.env.SHOTS, 'assessments-library-passwords.png'), fullPage: true });
     await t.click(libRow + ' [data-a=pw]'); await t.waitForSelector('.modal input');
     await t.fill('.modal input', 'Necro-26'); await t.press('.modal input', 'Enter');
