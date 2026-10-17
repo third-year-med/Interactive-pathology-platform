@@ -194,6 +194,9 @@ chapter position (HANDBOOK §5 step 5) — that position is its place on every g
   questions are marked formal-eligible (`persistQuizExtra`). Re-run = only missing ones (option: refresh + republish).
   Test harness Code.core.gs got a marked TEST STAND-IN for the assessment teacher actions (listAssignments,
   createAssignments, …) that the user's real Code.gs already has. Patch `topic-quizzes.py`.
+  Order for students (user's request): `topic-order.py` — in each group of My Assessments, titles "Topic N quiz" sort by N
+  (1 first) after the other assessments, which stay newest first.
+  **How the user ran it (2026-10-17):** pressed ⚡ Topic quizzes in Cell Injury → 17 topic quizzes created and copied.
 - **Copy to groups (Portal.gs 2.21, 2026-10-17, user's request):** `aeCopyHook_` (module teacher token of the source
   storage): `aeCopyTargets {assessmentId}` → other deliveries of the same module the caller teaches (`examCaller_` →
   Admin all / personal teacher `teacherDeliveries_`), each with `has` and `attempts`; `aeCopyTo {assessmentId, targets,

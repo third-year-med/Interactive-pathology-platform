@@ -3593,6 +3593,15 @@ test('⚡ Topic quizzes: one quiz per topic (pool of its practice questions, 5 r
     assert.strictEqual(a[0].questionIds.length, 7);
     assert.notStrictEqual(main.ctx.apwMap_(ST)[a[0].id].pw, main.ctx.apwMap_(ST)[a[1].id].pw, 'a password per quiz');
     assert.strictEqual(autos(MS).length, 2, 'copied to Misrata A');
+    // the student's list: topic quizzes in topic order (Topic 1 first), after any other assessment
+    const sp = await page();
+    await openSyntheticModule(sp, mod, [], { stubAssess: false });
+    await sp.evaluate(function () { location.hash = '#/quiz'; });
+    await sp.waitForSelector('#view-quiz details[data-group=todo] .assess-card', { timeout: 15000 });
+    const order = (await sp.$$eval('#view-quiz details[data-group=todo] .assess-card h3', function (x) { return x.map(function (h) { return h.textContent; }); }));
+    assert.deepStrictEqual(order.filter(function (t) { return /^Topic \d+ quiz/.test(t); }), ['Topic 1 quiz — Cell adaptations', 'Topic 3 quiz — Cell death']);
+    assert.ok(/^Topic 3 quiz/.test(order[order.length - 1]), 'the last topic is last: ' + order.join(' | '));
+    await sp.context().close();
     // a Misrata student starts Topic 1: exactly 5 questions out of the 7, timed 5 minutes
     main.addStudents(MS, [{ username: 'tqstu', name: 'Topic Student', password: PW, mustChange: false }]);
     const ss = main.call({ module: MS, action: 'studentLogin', username: 'tqstu', password: PW }).token;

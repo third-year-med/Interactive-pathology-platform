@@ -388,7 +388,8 @@ are kept in the new sheet **TeachingSessions** (created automatically the first 
   everyone (a student starts it only with the password you give). Tick *Also copy them to all my other groups* (on by
   default) and every group gets the same quizzes with its own random passwords. Topics with fewer than 5 questions are
   skipped and listed. Pressing it again later creates only the missing ones (tick *Refresh the existing topic quizzes*
-  to put newly added questions into them). Do this once in each module, including new modules.
+  to put newly added questions into them). Do this once in each module, including new modules. Students see the topic
+  quizzes in topic order — Topic 1 at the top, the last topic last — below any other assessment (those stay newest first).
 - **🔒 Lock Learning Module:** Teacher Dashboard → **Teaching Modules** → the small *Learning Module lock* card (click it to open) → the group + module →
   **🔒 Lock Learning Module**. Its students can then open only **Assessments** in that module (within a minute); every other
   page and address is closed and the server stops sending them learning material. **🔓 Unlock Learning Module** opens it
