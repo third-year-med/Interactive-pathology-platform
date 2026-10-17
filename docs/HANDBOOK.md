@@ -221,7 +221,8 @@ chapter position (HANDBOOK §5 step 5) — that position is its place on every g
   flags) and waits for approval → builds the import file (1600 px JPEG, keys `<prefix>-NN`, credit line) → the user
   imports it in Edit master draft and publishes. Never commit the pictures, the review page or the import file (textbook
   figures; the course is encrypted, these are not). First batch: Inflammation & Healing, 28 Robbins Ch. 2 figures
-  (2026-10-17).
+  (keys `ih-robbins2-01…28`) — imported in Edit master draft and published by the user on 2026-10-17, so every group
+  has them. A later batch for this module must use new keys (e.g. `ih-<source>-NN`), never reuse these.
 - **Password copy (2026-10-16, module patch only):** `apwSecret` adds 📋 Copy (`data-a=copy`, clipboard API with an
   execCommand fallback; the password stays covered and is never in the toast); the Hide button is plain "Hide" (no 🙈).
   Patch: `pw-copy.py`.
