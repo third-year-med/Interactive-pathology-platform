@@ -208,6 +208,20 @@ chapter position (HANDBOOK §5 step 5) — that position is its place on every g
 - **Quick access panel (2026-10-17, module patch only, user's request):** the Learn home's "All topics · Glossary ·
   Presentation mode" links are a yellow `.ux-quick` panel with three `.ux-qa` tiles (icon, title, hint; one column on
   phones). Same links; the learning lock still hides `.ux-quick`. Patch: `quick-panel.py`.
+- **🖼 Import pictures (2026-10-17, module patch only, user's request):** Teacher Portal → 💾 Backup → 🖼 Import pictures
+  reads a picture-import file `{format: 'neo-picture-import', version: 1, module: <moduleKey>, items: [{key, section, caption,
+  credit, filename, image: data-URL}]}`. Each picture goes the "+ Picture" way: `Backend.uploadImage` (Drive picture folder)
+  → appended to `custommedia/<section>` with `importKey` (nothing replaced; a key already in that section = skipped, so a
+  second run adds nothing) → `pmAugment` gives it its own Images slide after the section's slide. Inside ✏️ Edit master draft
+  it goes to `<module>@draft` (all groups after ⬆ Publish draft); elsewhere a green/blue note says where it goes. Progress and
+  result live in `PIC_IMPORT` (the Teacher Portal redraws during the import). Patch `picture-import.py`.
+  **How a picture batch is done:** the user puts JPGs + a captions PDF in a Drive folder → the session downloads them
+  (Drive connector; files land in tool-results as base64 JSON), studies each picture against the course outline (decrypted
+  in memory with the content key), shows a review page (thumbnails, Learning section, Images slide, caption, alternative,
+  flags) and waits for approval → builds the import file (1600 px JPEG, keys `<prefix>-NN`, credit line) → the user
+  imports it in Edit master draft and publishes. Never commit the pictures, the review page or the import file (textbook
+  figures; the course is encrypted, these are not). First batch: Inflammation & Healing, 28 Robbins Ch. 2 figures
+  (2026-10-17).
 - **Password copy (2026-10-16, module patch only):** `apwSecret` adds 📋 Copy (`data-a=copy`, clipboard API with an
   execCommand fallback; the password stays covered and is never in the toast); the Hide button is plain "Hide" (no 🙈).
   Patch: `pw-copy.py`.
@@ -296,7 +310,8 @@ only to START; reviews free; class quiz password retired); teacher password mana
 (covered ••••••, 👁 Show one at a time, 📋 Copy); student My Assessments opens on a compact grouped list (To do /
 Completed / Not available, newest first; ▶ Resume for an attempt in progress); Attendance = code only for signed-in
 students; no Teacher / Class server buttons for students; per-tab sync cursor (multi-tab safe); yellow Quick access
-panel on the Learn home; learning-lock guard in the platform block. Backend: **Portal.gs 2.21**.
+panel on the Learn home; learning-lock guard in the platform block; 🖼 Import pictures (Teacher Portal → 💾 Backup).
+Backend: **Portal.gs 2.21**.
 
 ## 5. Adding the next module — checklist (follow in this order; learned the hard way on 2026-10-10)
 
@@ -355,6 +370,9 @@ The user is a pathologist, not a developer. They follow steps literally and send
 
 - `cd test && node --test backend.test.js` — Portal.gs + the Code.gs core excerpt (`test/apps-script/Code.core.gs`,
   verbatim copies of the needed Code.gs functions) in the Node harness (`test/apps-script/harness.js`).
+- In a cloud session Playwright is installed globally: run the e2e tests as
+  `NODE_PATH=/opt/node-tools/node_modules node --test e2e.test.js` — without it every e2e test is SKIPPED
+  ("Playwright/Chromium not available") and the run still says "fail 0".
 - `node --test e2e.test.js` — Playwright (Chromium at `/opt/pw-browsers/chromium`) on the front page and on the **real
   module pages** from the sibling repos. With `CI_CONTENT_KEY` / `IH_CONTENT_KEY` set (env only) the real courses are
   unlocked; without keys those tests skip. `SHOTS=<dir>` writes screenshots — look at them.
@@ -432,8 +450,9 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   the Teacher Management list, exams in their own section, Teaching Sessions panel with full history); group Live
   Classroom off (`GROUP_CLASSROOM=false`); Learning Module lock (manual + automatic, server-enforced, compact card with
   per-group lists); per-assessment passwords (`apw:<storage>`, `aePwList` / `aePwSet`).
-- **Modules** (intropath, cellinjury, inflhealing) carry every patch in `modules/patches/` (all ✅). Tests: 90 backend,
-  33 e2e pass (44 skip without content keys), module smoke ✅.
+- **Modules** (intropath, cellinjury, inflhealing) carry every patch in `modules/patches/` (all ✅, incl. 🖼 Import pictures
+  2026-10-17). Tests: 91 backend; e2e 57 pass with IH_CONTENT_KEY only (23 skip: 22 need CI_CONTENT_KEY, 1 group
+  classroom off); module smoke ✅.
 - **Where new-module chats start (2026-10-17):** Claude Code → ＋ next to **Cloud** → repository
   `Interactive-pathology-platform`; the user first creates the empty module repo on GitHub, the chat attaches it
   (add_repo, push access). Everything is built in Claude Code (builder skill available there) — no Claude Home step.

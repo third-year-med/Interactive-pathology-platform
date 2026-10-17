@@ -2848,6 +2848,87 @@ test('Slide editor pictures: no "Teacher" label; Insert (one slide each) → cap
   await p.context().close();
 });
 
+/* 🖼 Import pictures (module patch picture-import.py, 2026-10-17): in ✏️ Edit master draft a picture-import file adds each
+   picture with caption + credit to its Learning section (uploaded like "+ Picture", appended — nothing replaced), each one on
+   its own Images slide; a second import adds nothing; groups get the pictures only after publishing. */
+test('🖼 Import pictures: master draft → file → pictures in their sections (uploaded once each, nothing replaced) and on their own Images slides → importing again adds nothing → after publishing a group receives them', { skip: SKIP || ((!fs.existsSync(REAL[1][2]) || !REAL[1][3]) && 'module page or key not available') }, async function () {
+  const M = REAL[1];
+  groupFixture();
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const tok = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: [{ module: M[0], group: 'tr-a' }] }).modules;
+  // the master already has a teacher picture in s1003: it must stay
+  main.call({ module: M[0], action: 'upsert', token: main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: [M[0]] }).modules[M[0]].token,
+    collection: 'custommedia', id: 's1003', data: { items: [{ id: 'm_old', type: 'image', url: 'https://drive.google.com/thumbnail?id=OLDPIC12345&sz=w2000', caption: 'Existing picture' }] } });
+  assert.ok(main.call({ module: 'portal', action: 'contentMigrate', token: t, moduleId: M[0], decisions: {} }).ok);
+  assert.ok(main.call({ module: 'portal', action: 'contentSetMode', token: t, moduleId: M[0], mode: 'on' }).ok);
+  const groupMedia = function (sid) { const r = main.call({ module: M[0] + '-tr-a', action: 'getAllContent', token: tok[M[0] + '-tr-a'].token, since: 0 }); const it = r.items.filter(function (i) { return i.collection === 'custommedia' && i.id === sid && !i.deleted; })[0]; return it ? it.data.items.map(function (m) { return m.caption; }) : []; };
+  const img = 'data:image/png;base64,' + PNG1, credit = 'Kumar V. Robbins & Kumar Basic Pathology. © 2023 Elsevier Inc.';
+  const file = { name: 'pictures.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ format: 'neo-picture-import', version: 1, module: M[0], items: [
+    { key: 'tst-01', section: 's1003', caption: 'Monocyte and activated macrophage. Two views.', credit: credit, filename: 'p1.png', image: img },
+    { key: 'tst-02', section: 's1003', caption: 'Classical and alternative macrophage activation.', credit: credit, filename: 'p2.png', image: img },
+    { key: 'tst-03', section: 's0105', caption: 'Sequence of events in an inflammatory reaction.', credit: credit, filename: 'p3.png', image: img },
+    { key: 'tst-04', section: 'zz999', caption: 'Nowhere picture.', credit: credit, filename: 'p4.png', image: img }] })) };
+  try {
+    const calls = [];
+    const p = await realPage(M, calls);
+    await p.goto(HOME + '#/teacher');
+    await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+    await dash(p, 'directory');
+    await p.click('#t-dir .dir-tab[data-t=content]');
+    const card = '#t-dir .content-mod[data-module="' + M[0] + '"]';
+    await p.waitForSelector(card + ' [data-a=edit]');
+    await p.click(card + ' [data-a=edit]');
+    await p.waitForURL(new RegExp(M[1] + '/$'));
+    await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+    await p.waitForSelector('#pf-draft', { timeout: 10000 });
+    await p.evaluate(function () { location.hash = '#/teacher/backup'; });
+    await p.waitForSelector('.pic-import input[type=file]');
+    assert.match(await p.textContent('.pic-import'), /editing the MASTER DRAFT/);
+    await p.setInputFiles('.pic-import input[type=file]', file);
+    await p.waitForFunction(function () { return /3 of 4 pictures will be added · 1 cannot be added/.test(document.querySelector('.pic-import').textContent); });
+    const listTxt = await p.textContent('.pic-import .pic-import-list');
+    assert.match(listTxt, /Monocyte and activated macrophage → Topic 10 · Macrophages — the Dominant Cell/);
+    assert.match(listTxt, /Nowhere picture — not possible: section zz999 is not in this course/);
+    if (process.env.SHOTS) await (await p.$('.pic-import')).screenshot({ path: path.join(process.env.SHOTS, 'picture-import-plan.png') });
+    await p.click('.pic-import button:has-text("Add the pictures")');
+    await p.click('.modal button:has-text("Add pictures")');
+    await p.waitForFunction(function () { return /✓ Added 3 pictures/.test(document.querySelector('.pic-import').textContent); }, null, { timeout: 30000 });
+    assert.match(await p.textContent('.pic-import .pic-import-run'), /^✓ Added 3 pictures\. Now publish the draft: Platform Home → Content → ⬆ Publish draft\.$/);
+    if (process.env.SHOTS) await (await p.$('.pic-import')).screenshot({ path: path.join(process.env.SHOTS, 'picture-import-done.png') });
+    assert.strictEqual(calls.filter(function (c) { return c.action === 'uploadImage'; }).length, 3, 'each picture uploaded once');
+    const media = await p.evaluate(function () { return ['s1003', 's0105'].map(function (s) { return (State.customMedia[s] || []).map(function (m) { return [m.caption, m.credit || '', m.importKey || '', /^https:\/\/drive\.google\.com\//.test(m.url)]; }); }); });
+    assert.deepStrictEqual(media[0].map(function (m) { return m[0]; }), ['Existing picture', 'Monocyte and activated macrophage. Two views.', 'Classical and alternative macrophage activation.'], 'appended in file order; the existing picture is kept');
+    assert.deepStrictEqual(media[0].slice(1).map(function (m) { return [m[1], m[2], m[3]]; }), [[credit, 'tst-01', true], [credit, 'tst-02', true]], 'credit, import key, Drive address');
+    assert.deepStrictEqual(media[1].map(function (m) { return m[2]; }), ['tst-03']);
+    // Presentation: every imported picture on its own Images slide after its section's slide
+    const gal = await p.evaluate(function () { const l = Views.present.list(); return l.filter(function (x) { return x.type === 'gallery' && (x.sectionId === 's1003' || x.sectionId === 's0105'); }).map(function (x) { return [x.sectionId, (x.items || []).filter(function (r) { return r.t === 'media'; }).length, l.findIndex(function (y) { return y === x; }) > l.findIndex(function (y) { return y.id === 'c_' + x.sectionId; })]; }); });
+    assert.deepStrictEqual(gal.filter(function (g) { return g[1] > 0; }).map(function (g) { return g.join(); }).sort(), ['s0105,1,true', 's1003,1,true', 's1003,1,true', 's1003,1,true'].sort());
+    // Learn: the section shows the picture with its caption
+    await p.evaluate(function () { location.hash = '#/explain/t10/s1003'; });
+    await p.waitForFunction(function () { return /Classical and alternative macrophage activation/.test(document.querySelector('#view-explain').textContent); }, null, { timeout: 15000 });
+    // the same file again: nothing to add
+    await p.evaluate(function () { location.hash = '#/teacher/backup'; });
+    await p.waitForSelector('.pic-import input[type=file]');
+    await p.setInputFiles('.pic-import input[type=file]', file);
+    await p.waitForFunction(function () { return /Nothing to add/.test(document.querySelector('.pic-import').textContent); });
+    assert.match(await p.textContent('.pic-import'), /Nothing to add — 3 pictures are already in the course · 1 cannot be added\./);
+    assert.match(await p.textContent('.pic-import .pic-import-list'), /Monocyte and activated macrophage → Topic 10 · Macrophages — the Dominant Cell — already there/);
+    assert.ok(await p.$eval('.pic-import button.btn-primary', function (b) { return b.disabled; }), 'nothing to add → button off');
+    // a file for another module is refused
+    await p.setInputFiles('.pic-import input[type=file]', { name: 'x.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ format: 'neo-picture-import', module: 'cellinjury', items: [] })) });
+    await p.waitForFunction(function () { return /for another module \(cellinjury\)/.test(document.querySelector('.pic-import').textContent); });
+    // groups: only after publishing
+    assert.deepStrictEqual(groupMedia('s1003'), ['Existing picture'], 'not before publishing');
+    assert.ok(main.call({ module: 'portal', action: 'contentPublish', token: t, moduleId: M[0] }).ok);
+    assert.deepStrictEqual(groupMedia('s1003'), ['Existing picture', 'Monocyte and activated macrophage. Two views.', 'Classical and alternative macrophage activation.'], 'every group after publishing');
+    assert.deepStrictEqual(groupMedia('s0105'), ['Sequence of events in an inflammatory reaction.']);
+    await p.context().close();
+  } finally {
+    main.call({ module: 'portal', action: 'contentSetMode', token: t, moduleId: M[0], mode: 'off' });
+  }
+});
+
 /* Learning Mode: "Print Entire Chapter" prints every topic and section exactly once (collapsed ones too) in a clean document;
    the per-topic Print keeps printing one topic; a blocked pop-up falls back to a hidden frame. */
 test('Learning Mode: 🖨️ Print Entire Chapter — every topic and section exactly once, chapter title, contents, page numbers, no interface; per-topic Print unchanged; works when pop-ups are blocked', { skip: SKIP || ((!fs.existsSync(REAL[0][2]) || !REAL[0][3]) && 'module page or key not available') }, async function () {

@@ -31,6 +31,7 @@ patched with `apply.sh`, is byte-identical to the current one.
 | 13 | `copy-groups.py` | Assessment Library: 📤 Copy to groups — one assessment into other groups of the module (published, assigned to everyone, same / random / no password; groups with attempts kept) | 2.21 |
 | 14 | `topic-quizzes.py` | Assessment Library: ⚡ Topic quizzes — one quiz per topic from its practice questions (5 random per student, 5 min, 1 attempt, answers shown, random password), assigned to everyone, copied to the teacher's other groups; topics with < 5 questions skipped | 2.21 |
 | 15 | `topic-order.py` | Student My Assessments: topic quizzes listed in topic order (Topic 1 first … last topic last), after the other assessments (newest first) | — |
+| 16 | `picture-import.py` | Teacher Portal → 💾 Backup → 🖼 Import pictures: a picture-import file (`neo-picture-import`) adds each picture with caption + credit to its Learning section like “+ Picture” (Drive upload, appended — nothing replaced; own Images slide in Presentation mode); already-imported pictures (same key) are skipped; in ✏️ Edit master draft they go to the master draft | — |
 | — | `navblock.py` | Writes `modules/platform-nav.js` into the page's `<script id="platform-nav">` (learning-lock guard, back link, …) | 2.18 for the lock |
 
 Test after applying: `node test/module-smoke/smoke.js` (boots every module with a synthetic course: student sign-in,
