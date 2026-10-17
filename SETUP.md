@@ -461,3 +461,24 @@ teachers who opened the module from the Teacher Dashboard see **← Back to Teac
 2. Platform Home → Teacher Sign-In → Teacher Management → **＋ Add a module**, fill in the fields, status **Coming soon** or **Completed – not yet
    released**, Save.
 3. When teaching starts: create the student accounts in that module, then set its status to **Available**.
+
+## Troubleshooting: teacher sign-in works in one browser but not in another
+
+**Symptom:** you press **Open module →** on the Teacher Dashboard and the module shows the **student sign-in**, but in another
+browser it opens in teacher mode.
+
+**Cause:** that browser kept old saved data for the module (an old teacher pass or an old server address from an earlier
+deployment). Since 2026-10-17 the dashboard always asks for a fresh teacher pass and drops an old saved server address
+whenever it opens a module, so this should no longer happen.
+
+**What to do:**
+1. On the platform front page press **Ctrl+Shift+R** once (loads the newest version of the page), sign in, **Open module →**.
+2. Still the student sign-in? Clear the site data of the platform in THAT browser — first open any module as teacher and
+   make sure the header shows **Class server** (not *Syncing* / *Offline*), so no unsent work is lost:
+   - **Chrome / Edge:** on `third-year-med.github.io/Interactive-pathology-platform/` click the icon left of the address →
+     **Site settings** → **Delete data** (Edge: *Cookies and site data* → *Manage and delete*); or **F12** → **Application** →
+     **Storage** → **Clear site data**.
+   - **Firefox:** padlock in the address bar → **Clear cookies and site data…** → **Remove**.
+   Then **Ctrl+Shift+R**, sign in to the Teacher Dashboard again and **Open module →**.
+3. Clearing removes only this browser's saved sign-ins and its local copy of the modules (re-downloaded automatically);
+   assessments, students, results and content stay on the class server.
