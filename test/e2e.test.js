@@ -3353,10 +3353,10 @@ test('student homepage: modules in curricular order (front-page list), Official 
    throwaway key — so these tests run without the real content keys. Code.gs's student assessment routes are not in the
    test copy of Code.gs, so getMyAssessments is answered by a stub that records what the page sent. */
 const CI_PAGE = [process.env.CI_MODULE_HTML, '/home/user/repos/cell-injury-teaching-platform/index.html', '/home/user/cell-injury-teaching-platform/index.html'].filter(function (f) { return f && fs.existsSync(f); })[0];
-function syntheticModule(file) {
+function syntheticModule(file, extra) {
   const crypto = require('crypto');
-  const data = { course: { title: 'Cell Injury (test course)', chapter: 'Chapter T', author: 'Test Author', subtitle: 'Test', storagePrefix: 'ci_', moduleKey: 'cellinjury', fileStem: 'test', defaultQuizPassword: 'QUIZ-1', localTeacherPassword: 'x' },
-    topics: [], questions: [], glossary: [], images: {}, imageProviders: {}, diagrams: {}, figures: {}, comparisons: [], sequences: [], cases: [], caseLevels: [], quizIds: [] };
+  const data = Object.assign({ course: { title: 'Cell Injury (test course)', chapter: 'Chapter T', author: 'Test Author', subtitle: 'Test', storagePrefix: 'ci_', moduleKey: 'cellinjury', fileStem: 'test', defaultQuizPassword: 'QUIZ-1', localTeacherPassword: 'x' },
+    topics: [], questions: [], glossary: [], images: {}, imageProviders: {}, diagrams: {}, figures: {}, comparisons: [], sequences: [], cases: [], caseLevels: [], quizIds: [] }, extra || {});
   const key = crypto.randomBytes(32), iv = crypto.randomBytes(12), c = crypto.createCipheriv('aes-256-gcm', key, iv);
   const ct = Buffer.concat([c.update(JSON.stringify(data), 'utf8'), c.final(), c.getAuthTag()]);
   const html = fs.readFileSync(file, 'utf8').replace(/(<script id="neo-enc"[^>]*>)([\s\S]*?)(<\/script>)/, function (m, a, b, z) { return a + JSON.stringify({ iv: iv.toString('base64'), ct: ct.toString('base64') }) + z; });
@@ -3548,6 +3548,86 @@ test('📤 Copy to groups (2.21): the teacher copies an assessment from Al-Razi 
       main.ctx.setSetting_('apw:' + st, JSON.stringify(Object.fromEntries(Object.entries(main.ctx.apwMap_(st)).filter(function (e) { return e[0] !== 'cg1'; }))));
       main.ctx.assessStore_(st).list('assignment').forEach(function (a) { if (a.assessmentId === 'cg1') main.ctx.assessStore_(st).del('assignment', a.id); });
     });
+  }
+});
+
+test('⚡ Topic quizzes: one quiz per topic (pool of its practice questions, 5 random per student, 5 min, 1 attempt, answers shown, random password), assigned, copied to the other groups; small topics skipped; a second run keeps them', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+  groupFixture();
+  const qs = [], tf = function (topic, i) { return { id: topic + '-q' + i, type: 'tf', topic: topic, stem: 'Statement ' + i + ' of ' + topic + '.', answer: i % 2 === 0, explanation: 'Because.' }; };
+  for (let i = 1; i <= 7; i++) qs.push(tf('tA', i));
+  for (let i = 1; i <= 3; i++) qs.push(tf('tB', i));
+  for (let i = 1; i <= 5; i++) qs.push(tf('tC', i));
+  qs.push({ id: 'tA-short', type: 'short', topic: 'tA', stem: 'Explain.', model: 'x' });   // short answer: never in a quiz
+  const topics = [{ id: 'tA', title: 'Cell adaptations', sections: [] }, { id: 'tB', title: 'Tiny topic', sections: [] }, { id: 'tC', title: 'Cell death', sections: [] }];
+  const ST = 'cellinjury-tr-a', MS = 'cellinjury-tm-a', mod = syntheticModule(CI_PAGE, { topics: topics, questions: qs }), keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  const autos = function (st) { return main.ctx.rpRows_('Content').filter(function (r) { return r.module === st && r.collection === 'assessments' && !main.ctx.isTrue_(r.deleted); }).map(function (r) { return main.ctx.unpackJson_(r); }).filter(function (a) { return a && a.autoTopic; }); };
+  try {
+    main.call({ module: ST, action: 'setup', password: 'teacher-' + ST + '-1' });
+    const tok = main.call({ module: ST, action: 'login', password: 'teacher-' + ST + '-1' }).token;
+    const t = await page();
+    await t.route('https://third-year-med.github.io/cell-injury-teaching-platform/**', function (route) { return route.fulfill({ status: 200, contentType: 'text/html', body: mod.html }); });
+    const backendUrl = JSON.parse(/window\.NEO_CONFIG\s*=\s*(\{[\s\S]*?\});/.exec(mod.html)[1]).backendUrl;
+    await t.addInitScript(function (o) { try { localStorage.setItem('ci_tr-a_backend_token_v1', JSON.stringify({ token: o.tok, expiresAt: Date.now() + 3600e3, url: o.url })); } catch (e) { } }, { tok: tok, url: backendUrl });
+    await t.goto('https://third-year-med.github.io/cell-injury-teaching-platform/?g=tr-a#/teacher/assessments');
+    await t.waitForSelector('[data-a=topic-quizzes]', { timeout: 20000 });
+    await t.click('[data-a=topic-quizzes]');
+    await t.waitForSelector('.modal .tq');
+    const plan = await t.textContent('.modal');
+    assert.match(plan, /5 random questions[\s\S]*5 minutes[\s\S]*1 attempt[\s\S]*1Cell adaptations7✓ new quiz[\s\S]*2Tiny topic3⏭ skipped — fewer than 5 questions[\s\S]*3Cell death5✓ new quiz/);
+    if (process.env.SHOTS) await (await t.$('.modal')).screenshot({ path: path.join(process.env.SHOTS, 'topic-quizzes.png') });
+    await t.click('.modal .modal-foot .btn-primary');
+    await t.waitForFunction(function () { var m = document.querySelector('.modal'); return m && /Topic quizzes — done/.test(m.textContent); }, null, { timeout: 60000 });
+    const rep = await t.textContent('.modal');
+    assert.match(rep, /✓ Created 2: Topic 1, Topic 3[\s\S]*Skipped \(fewer than 5 questions\): Topic 2 — Tiny topic \(3\)[\s\S]*Test Misrata · Group A \(2026-27\) — 2 copied/);
+    if (process.env.SHOTS) await (await t.$('.modal')).screenshot({ path: path.join(process.env.SHOTS, 'topic-quizzes-done.png') });
+    // on the server: two pool quizzes with the requested settings, assigned to everyone, each with its own random password
+    const a = autos(ST).sort(function (x, y) { return x.title.localeCompare(y.title); });
+    assert.deepStrictEqual(a.map(function (x) { return x.title; }), ['Topic 1 quiz — Cell adaptations', 'Topic 3 quiz — Cell death']);
+    a.forEach(function (x) {
+      assert.deepStrictEqual([x.status, x.mode, x.poolCount, x.settings.timeLimitMin, x.settings.attemptsAllowed, x.settings.showScore, x.settings.showAnswers, x.settings.shuffleQuestions], ['published', 'pool', 5, 5, 1, true, true, true], x.title);
+      assert.ok(x.questionIds.indexOf('tA-short') < 0, 'no short-answer question');
+      assert.ok(main.ctx.assessStore_(ST).list('assignment').some(function (g) { return g.assessmentId === x.id && g.targetType === 'all' && g.status === 'active'; }), 'assigned');
+      assert.match(main.ctx.apwMap_(ST)[x.id].pw, /^[A-Z2-9]{6}$/);
+      assert.match(main.ctx.apwMap_(MS)[x.id].pw, /^[A-Z2-9]{6}$/);
+    });
+    assert.strictEqual(a[0].questionIds.length, 7);
+    assert.notStrictEqual(main.ctx.apwMap_(ST)[a[0].id].pw, main.ctx.apwMap_(ST)[a[1].id].pw, 'a password per quiz');
+    assert.strictEqual(autos(MS).length, 2, 'copied to Misrata A');
+    // a Misrata student starts Topic 1: exactly 5 questions out of the 7, timed 5 minutes
+    main.addStudents(MS, [{ username: 'tqstu', name: 'Topic Student', password: PW, mustChange: false }]);
+    const ss = main.call({ module: MS, action: 'studentLogin', username: 'tqstu', password: PW }).token;
+    const it = main.call({ module: MS, action: 'getMyAssessments', stoken: ss }).items.filter(function (i) { return i.assessment.id === a[0].id; })[0];
+    const st = main.call({ module: MS, action: 'startAttempt', stoken: ss, assignmentId: it.assignment.id, password: main.ctx.apwMap_(MS)[a[0].id].pw });
+    assert.ok(st.ok, JSON.stringify(st));
+    assert.strictEqual(st.attempt.questions.length, 5);
+    assert.ok(st.attempt.questions.every(function (q) { return /^tA-q\d$/.test(q.id); }));
+    assert.ok(st.attempt.deadlineAt && st.attempt.deadlineAt - Date.now() <= 5 * 60000 + 5000, 'timed: 5 minutes');
+    // a second run: both exist (kept), nothing duplicated
+    await t.click('.modal .modal-foot .btn-primary');
+    await t.click('[data-a=topic-quizzes]'); await t.waitForSelector('.modal .tq');
+    assert.match(await t.textContent('.modal'), /1Cell adaptations7• exists[\s\S]*3Cell death5• exists/);
+    await t.click('.modal .modal-foot .btn-primary');
+    await t.waitForFunction(function () { var m = document.querySelector('.modal'); return m && /Topic quizzes — done/.test(m.textContent); }, null, { timeout: 60000 });
+    assert.match(await t.textContent('.modal'), /Already there, kept: Topic 1, Topic 3[\s\S]*1 copied, 1 kept \(students started\)/);
+    assert.strictEqual(autos(ST).length, 2); assert.strictEqual(autos(MS).length, 2);
+    assert.strictEqual(main.ctx.assessStore_(ST).list('assignment').filter(function (g) { return a.some(function (x) { return x.id === g.assessmentId; }); }).length, 2, 'no second assignment');
+    assert.strictEqual(errors.filter(function (e) { return !/ERR_TUNNEL|net::/.test(e); }).length, 0, errors.join('\n'));
+    await t.context().close();
+  } finally {
+    main.ctx.CONTENT_KEYS.cellinjury = keep;
+    main.ctx.rpRows_('Content').forEach(function (r) {   // leave the shared test storages as found
+      if (r.collection !== 'assessments' && r.collection !== 'assessmentversions') return;
+      const d = main.ctx.unpackJson_(r) || {}, id = String(r.id).split('@')[0];
+      const isAuto = d.autoTopic || autos(r.module).some(function (x) { return x.id === id; });
+      if (isAuto && !main.ctx.isTrue_(r.deleted)) {
+        main.ctx.assessStore_(r.module).list('assignment').forEach(function (g) { if (g.assessmentId === id) main.ctx.assessStore_(r.module).del('assignment', g.id); });
+        main.ctx.assessStore_(r.module).list('attempt').forEach(function (g) { if (g.assessmentId === id) main.ctx.assessStore_(r.module).del('attempt', g.id); });   // a timed attempt would switch on the automatic learning lock
+        main.ctx.llForget_(r.module);
+        const m = main.ctx.apwMap_(r.module); if (m[id]) { delete m[id]; main.ctx.setSetting_('apw:' + r.module, JSON.stringify(m)); }
+      }
+    });
+    main.ctx.rpRows_('Content').forEach(function (r) { if ((r.collection === 'assessmentversions' || r.collection === 'assessments') && !main.ctx.isTrue_(r.deleted)) { const id = String(r.id).split('@')[0]; const row = main.ctx.findContentRow_(r.module, 'assessments', id), d = row && main.ctx.unpackJson_(row); if (d && d.autoTopic) main.ctx.actionDelete_(r.module, { collection: r.collection, id: r.id }); } });
+    main.ctx.rpRows_('Content').forEach(function (r) { if (r.collection === 'quizextra' && r.module === ST) main.ctx.actionDelete_(ST, { collection: 'quizextra', id: r.id }); });
   }
 });
 

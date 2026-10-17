@@ -113,6 +113,13 @@ function route_(p) {
     case 'uploadImage': return authed_(module, p, function () { return actionUploadImage_(p); });
     case 'delete': return authed_(module, p, function () { return actionDelete_(module, p); });
     case 'getAllContent': return actionGetAllContent_(module, p);
+    /* TEST STAND-IN for the user's Code.gs assessment teacher actions (the real file routes the same names to the shared
+       engine; Code.exam.gs holds the verbatim assessStore_/assessSvc_). Added 2026-10-17 for the ⚡ Topic quizzes e2e test. */
+    case 'listAssignments': return authed_(module, p, function () { return assessSvc_(module).listAssignments(); });
+    case 'createAssignments': return authed_(module, p, function () { return assessSvc_(module).createAssignments(p.assignments || []); });
+    case 'cancelAssignment': return authed_(module, p, function () { return assessSvc_(module).cancelAssignment(p.id); });
+    case 'listAssessGroups': return authed_(module, p, function () { return assessSvc_(module).listGroups(); });
+    case 'listAttempts': return authed_(module, p, function () { return assessSvc_(module).listAttempts(p); });
     case 'startAttendanceSession': return authed_(module, p, function () { return actionStartAttendance_(module, p); });
     case 'closeAttendanceSession': return authed_(module, p, function () { return actionCloseAttendance_(module, p); });
     case 'getAttendanceTeacherState': return authed_(module, p, function () { return actionGetAttendanceTeacherState_(module, p); });

@@ -29,6 +29,7 @@ patched with `apply.sh`, is byte-identical to the current one.
 | 11 | `pw-copy.py` | 📋 Copy next to each assessment password (stays covered); plain "Hide" (no 🙈) | — |
 | 12 | `quick-panel.py` | Learn home: yellow "⭐ Quick access" panel (All topics · Glossary · Presentation mode) | — |
 | 13 | `copy-groups.py` | Assessment Library: 📤 Copy to groups — one assessment into other groups of the module (published, assigned to everyone, same / random / no password; groups with attempts kept) | 2.21 |
+| 14 | `topic-quizzes.py` | Assessment Library: ⚡ Topic quizzes — one quiz per topic from its practice questions (5 random per student, 5 min, 1 attempt, answers shown, random password), assigned to everyone, copied to the teacher's other groups; topics with < 5 questions skipped | 2.21 |
 | — | `navblock.py` | Writes `modules/platform-nav.js` into the page's `<script id="platform-nav">` (learning-lock guard, back link, …) | 2.18 for the lock |
 
 Test after applying: `node test/module-smoke/smoke.js` (boots every module with a synthetic course: student sign-in,

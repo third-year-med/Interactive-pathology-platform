@@ -380,6 +380,15 @@ are kept in the new sheet **TeachingSessions** (created automatically the first 
   random one per group, or none) → **📤 Copy**. A report shows each group. Each group keeps its own results; copying
   again updates a group only where no student has started it (those groups are shown as "kept"). Admin: every group
   with the module; a personal teacher: only the groups assigned to them.
+- **⚡ Topic quizzes (one click per module, 2026-10-17):** Teacher Portal → 📝 Assessments → Assessment Library →
+  **⚡ Topic quizzes** → a table shows every topic, how many practice questions it has and what will happen → **⚡ Create**.
+  Each topic gets a quiz "Topic N quiz — <title>": a pool of all that topic's practice questions (no short-answer
+  questions, none hidden from Revision); **each student gets 5 random questions** in random order, **5 minutes**,
+  **1 attempt**, score and correct answers after submitting, **its own random password**; published and assigned to
+  everyone (a student starts it only with the password you give). Tick *Also copy them to all my other groups* (on by
+  default) and every group gets the same quizzes with its own random passwords. Topics with fewer than 5 questions are
+  skipped and listed. Pressing it again later creates only the missing ones (tick *Refresh the existing topic quizzes*
+  to put newly added questions into them). Do this once in each module, including new modules.
 - **🔒 Lock Learning Module:** Teacher Dashboard → **Teaching Modules** → the small *Learning Module lock* card (click it to open) → the group + module →
   **🔒 Lock Learning Module**. Its students can then open only **Assessments** in that module (within a minute); every other
   page and address is closed and the server stops sending them learning material. **🔓 Unlock Learning Module** opens it

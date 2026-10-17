@@ -186,6 +186,14 @@ chapter position (HANDBOOK §5 step 5) — that position is its place on every g
   `assess_resp_<attemptId>` and the list shows "In progress · ▶ Resume" (`start()` resumes server-side without a password
   and restores the parked answers). A teacher preview is kept. The runner header shows "Student ID …" instead of the
   synthetic `@student.local` address. Patch: `quiz-list-first.py`.
+- **⚡ Topic quizzes (2026-10-17, module patch only, user's request; uses 2.21 aeCopyTo):** `AssessUI.topicQuizPlan()` —
+  per `getTopics()` topic: pool = QUESTIONS of that topic, not `short`, not in `revExcludeIds`; existing = assessment with
+  `autoTopic === topic.id`. Settings (user's choice): pool mode, `poolCount` 5, `timeLimitMin` 5, `attemptsAllowed` 1,
+  shuffle, showScore + showAnswers; random password (`aePwSet random`); "everyone" assignment; then `aeCopyTo` to all the
+  caller's other groups (publish, assign, password random). < 5 questions → skipped and reported. Imported pool
+  questions are marked formal-eligible (`persistQuizExtra`). Re-run = only missing ones (option: refresh + republish).
+  Test harness Code.core.gs got a marked TEST STAND-IN for the assessment teacher actions (listAssignments,
+  createAssignments, …) that the user's real Code.gs already has. Patch `topic-quizzes.py`.
 - **Copy to groups (Portal.gs 2.21, 2026-10-17, user's request):** `aeCopyHook_` (module teacher token of the source
   storage): `aeCopyTargets {assessmentId}` → other deliveries of the same module the caller teaches (`examCaller_` →
   Admin all / personal teacher `teacherDeliveries_`), each with `has` and `attempts`; `aeCopyTo {assessmentId, targets,
