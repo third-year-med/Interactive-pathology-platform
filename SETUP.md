@@ -392,7 +392,8 @@ are kept in the new sheet **TeachingSessions** (created automatically the first 
   quizzes in topic order — Topic 1 at the top, the last topic last — below any other assessment (those stay newest first).
 - **Attendance tab for teachers (2026-10-17):** in teacher mode the module's **📋 Attendance** tab shows the short
   Teacher Portal version: **▶ Start attendance for a new teaching session** (year, course, chapter, teacher, title) →
-  the live panel with the QR code, link and attendance code → **⏹ Close attendance** → the session report. Earlier
+  the live panel with only the **attendance code**, projector-sized (no QR code, no link) — **⛶ Full screen** shows the
+  code alone on a dark screen (Esc or a click closes) — → **⏹ Close attendance** → the session report. Earlier
   sessions, full reports and settings: **⚙ History, reports & settings** (Teacher Portal → Attendance). Students still see
   only the code box.
 - **Assessment tab for teachers (2026-10-17):** in teacher mode the module's **📝 Assessment** tab lists every published

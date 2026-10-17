@@ -3838,6 +3838,21 @@ test('Attendance tab for a teacher: the short Teacher Portal version — start a
     const sess = main.ctx.rpRows_('AttendanceSessions').filter(function (r) { return r.module === ST && r.sessionTitle === 'Short-view lecture'; })[0];
     assert.ok(sess && sess.status === 'active', 'started on the server');
     await t.waitForFunction(function (c) { return document.querySelector('#view-attendance').textContent.indexOf(c) >= 0; }, sess.code, { timeout: 15000 });
+    // only the code: no QR code, no link; projector-sized; ⛶ Full screen shows the code alone
+    assert.strictEqual(await t.$('#view-attendance .qr-box'), null, 'no QR');
+    assert.strictEqual(await t.$('#view-attendance input[aria-label="Attendance check-in link"]'), null, 'no link');
+    assert.ok(!/Copy check-in link|Show QR|Hide QR/.test(await t.textContent('#view-attendance')));
+    assert.strictEqual(await t.textContent('#view-attendance .att-code-big'), sess.code);
+    assert.strictEqual((await t.textContent('#view-attendance')).match(/Present: \d+ student/g).length, 1, 'the present count only once');
+    const fs = await t.$eval('#view-attendance .att-code-big', function (e) { return parseFloat(getComputedStyle(e).fontSize); });
+    assert.ok(fs >= 64, 'projector size: ' + fs + 'px');
+    if (process.env.SHOTS) await t.screenshot({ path: path.join(process.env.SHOTS, 'attendance-code-big.png'), fullPage: true });
+    await t.click('#view-attendance [data-a=att-full]');
+    await t.waitForSelector('.att-fs .att-fs-code');
+    assert.strictEqual((await t.textContent('.att-fs')).replace('✕', '').trim(), sess.code, 'full screen: the code only');
+    if (process.env.SHOTS) await t.screenshot({ path: path.join(process.env.SHOTS, 'attendance-code-fullscreen.png') });
+    await t.keyboard.press('Escape');
+    await t.waitForFunction(function () { return !document.querySelector('.att-fs'); });
     await t.click('#view-attendance button:has-text("Close attendance")');
     await t.click('.modal button:has-text("Close attendance")');
     await t.waitForFunction(function () { return /Start attendance for a new teaching session/.test(document.querySelector('#view-attendance').textContent) && /Short-view lecture/.test(document.querySelector('#view-attendance').textContent); }, null, { timeout: 15000 });

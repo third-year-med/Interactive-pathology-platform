@@ -35,6 +35,7 @@ patched with `apply.sh`, is byte-identical to the current one.
 | 17 | `slide-bold.py` | Presentation → ✎ Edit / + Add slide: **B** button and Ctrl+B bold / un-bold the selected words in bullet points and subtitle (stored as `**word**`), live preview; subtitles show bold | — |
 | 18 | `teacher-board.py` | Assessment tab for a teacher: published assessments with covered passwords (👁 Show / 📋 Copy / 🔑), attempts, 📊 results — in the students' order; the Assessment Library uses the same order (others newest first, then Topic 1 … N) | 2.19+ |
 | 19 | `att-teacher-short.py` | 📋 Attendance tab for a teacher: the short Teacher Portal version — ▶ Start attendance, the live session panel (QR, link, code, close), the report of the session just closed; ⚙ History, reports & settings opens Teacher Portal → Attendance | — |
+| 20 | `att-code-big.py` | Attendance live panel: no QR code, no link — only the attendance code, projector-sized, ⛶ Full screen (code alone on a dark screen), 🔄 Regenerate, ⏹ Close | — |
 | — | `navblock.py` | Writes `modules/platform-nav.js` into the page's `<script id="platform-nav">` (learning-lock guard, back link, …) | 2.18 for the lock |
 
 Test after applying: `node test/module-smoke/smoke.js` (boots every module with a synthetic course: student sign-in,

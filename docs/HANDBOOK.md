@@ -186,6 +186,10 @@ chapter position (HANDBOOK §5 step 5) — that position is its place on every g
   `assess_resp_<attemptId>` and the list shows "In progress · ▶ Resume" (`start()` resumes server-side without a password
   and restores the parked answers). A teacher preview is kept. The runner header shows "Student ID …" instead of the
   synthetic `@student.local` address. Patch: `quiz-list-first.py`.
+- **Attendance = code only (2026-10-17, module patch only, user's request):** `renderTeacherSession` (Attendance tab AND
+  Teacher Portal) shows no QR code / link any more: session title, the code (`.att-code-big`,
+  clamp(3rem,12vw,11rem), one line), ⛶ Full screen (`codeFullScreen`: dark overlay with the code only, follows a
+  regenerated code, closes on Esc / click / when the session ends), 🔄 Regenerate, ⏹ Close. Patch `att-code-big.py`.
 - **Teacher Attendance tab (2026-10-17, module patch only, user's request):** `Views.attendance.render` → for a teacher
   with a class server `renderTeacherShort` (was the student code box): `startCard()`, `renderTeacherSession()` while
   `AttT.active()` (polling as in renderTeacherInto), `reportCard` after closing; button → `#/teacher/attendance`.
