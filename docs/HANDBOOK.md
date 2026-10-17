@@ -269,6 +269,16 @@ sessions). Optional Code.gs `authed_` cache (documented in SETUP.md) and the `po
 - Practical tab = structured practicals (drafts in `priv:pracdrafts`, published copies in `practicalpub`, resources and
   the image Active switch go live on their own) + the Image Bank (`practical` collection).
 
+### 4.1 Platform-standard module features (2026-10-15…17) — every module must have them
+
+Kept as idempotent patches in **`modules/patches/`** (table + order in its README; `apply.sh --check <page>` reports
+✅/❌, `apply.sh <page>` applies). In short: account-based Assessments (no name/email; per-assessment passwords asked
+only to START; reviews free; class quiz password retired); teacher password management inside 📝 Assessments
+(covered ••••••, 👁 Show one at a time, 📋 Copy); student My Assessments opens on a compact grouped list (To do /
+Completed / Not available, newest first; ▶ Resume for an attempt in progress); Attendance = code only for signed-in
+students; no Teacher / Class server buttons for students; per-tab sync cursor (multi-tab safe); yellow Quick access
+panel on the Learn home; learning-lock guard in the platform block. Backend: **Portal.gs 2.20**.
+
 ## 5. Adding the next module — checklist (follow in this order; learned the hard way on 2026-10-10)
 
 **Golden rule: never give the user a complete new Code.gs.** Code.gs is the user's file and carries lines added
@@ -282,6 +292,8 @@ Give **only the lines to add, and where**.
    `<script id="platform-nav">` block (copy of `modules/platform-nav.js`), otherwise there is no "← Back to Platform
    Home". With the key: `CONTENT_KEY=… node tools/module-release.js refresh <repo>` refreshes the block; a page without
    any block gets it inserted before `<script id="neo-data"` (done this way for introduction-to-pathology, 9af50d5).
+   **Then the platform-standard features (§4.1):** start from the app code of a current model module, and run
+   `bash modules/patches/apply.sh --check <repo>/index.html` — it must say ✅ (otherwise `apply.sh <page>`).
 2. **Module repo**: create it, push `index.html`, enable GitHub Pages (`main` / root). Only `index.html` (encrypted);
    never Code.gs, keys or unencrypted course files.
 3. **Code.gs — exactly four additions** (the user makes them; give them like this, with the real module key):
@@ -330,6 +342,10 @@ The user is a pathologist, not a developer. They follow steps literally and send
 - Smoke test against the user's **full Code.gs** + Portal.gs (scratchpad only, never committed) for every backend change.
 - Reproduce a reported bug on the real page first (harness backend + Playwright), find the cause, then fix the smallest
   thing; keep the reproduction as a permanent test.
+
+Module pages without the content keys: `node test/module-smoke/smoke.js` boots every sibling module repo with a
+synthetic course (throwaway key) — student sign-in, Assessments without a password page, learning lock → #/quiz — and
+the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the same purpose.
 
 ## 8. Lessons learned (bugs we hit and what fixed them)
 
@@ -381,7 +397,19 @@ The user is a pathologist, not a developer. They follow steps literally and send
 - Preserve existing features and data; no redesigns or rewrites unless asked; smallest reliable fix.
 - After each step give: what changed, how it was tested, and the exact deployment steps.
 
-## 10. Current state (2026-10-07)
+## 10. Current state (updated 2026-10-17)
+
+- **Backend: Portal.gs 2.20** (user deployed ≥ 2.19; 2.20 retires the class quiz password). Since 2.15: Overall
+  Pathology Attendance (75 % rule, Excel / CSV / print, student card); student homepage redesign (curricular order from
+  the Teacher Management list, exams in their own section, Teaching Sessions panel with full history); group Live
+  Classroom off (`GROUP_CLASSROOM=false`); Learning Module lock (manual + automatic, server-enforced, compact card with
+  per-group lists); per-assessment passwords (`apw:<storage>`, `aePwList` / `aePwSet`).
+- **Modules** (intropath, cellinjury, inflhealing) carry every patch in `modules/patches/` (all ✅). Tests: 90 backend,
+  33 e2e pass (44 skip without content keys), module smoke ✅.
+- **Standing instruction (user, 2026-10-16):** finished + tested → merge into `main` and push directly (no asking);
+  still report what went live and give Portal.gs deploy steps when the backend changed.
+- Older history below.
+
 
 - **Portal.gs 2.12 (2026-10-11): `tsPresentCodes`** — the presentation code badge failed when the Admin opened a module
   WITHOUT a group (main storage `cellinjury`) while the lecture's attendance lives in the group storage (`cellinjury-<link>`).

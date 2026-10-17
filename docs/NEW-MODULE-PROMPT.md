@@ -34,6 +34,9 @@ STRICT RULES
   calls window.PlatformHY.print(facts, { unitOf }). Never write a separate High-Yield print layout.
 - Keep the model modules' attendance code unchanged: the session report lists every registered student of the
   group as Present / Absent with totals and percentages (HANDBOOK, "Module attendance report").
+- The module must have every platform-standard feature (HANDBOOK §4.1): start from the app code of a current
+  model module and run `bash modules/patches/apply.sh --check <repo>/index.html` — it must say ✅ before the
+  first push (otherwise apply the patches with `apply.sh <page>` and test with `node test/module-smoke/smoke.js`).
 - Use stable IDs for topics, sections, questions, cases and images (HANDBOOK §3).
 - Never commit or show in any file: content keys, Code.gs, GitHub tokens, unencrypted course
   HTML or seed files. Give me the new content key ONCE in the chat so I can store it in my

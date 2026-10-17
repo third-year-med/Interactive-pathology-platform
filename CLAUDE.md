@@ -23,6 +23,8 @@ Essentials:
 - `?g=` selects a group but never grants access. Module IDs never contain "-". Storage of a delivery = `<module>-<linkCode>`.
 - With versioned content ON, edits inside a module go to that storage's local layer; only "Edit master draft" +
   "Publish draft" change the master.
+- **Module features shared by all modules** live as idempotent patches in `modules/patches/` (README = list + order).
+  A feature for all modules = a new patch there; a new module must pass `bash modules/patches/apply.sh --check`.
 - Test before every push: `cd test && node --test backend.test.js && node --test e2e.test.js` (real module pages from the
   sibling repos; set the content keys as env variables to unlock them). Reproduce bugs on the real page first.
 - Keep the user's plan order, explain in plain language with exact buttons, preserve existing features and data.
