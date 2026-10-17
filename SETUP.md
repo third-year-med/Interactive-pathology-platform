@@ -390,6 +390,9 @@ are kept in the new sheet **TeachingSessions** (created automatically the first 
   skipped and listed. Pressing it again later creates only the missing ones (tick *Refresh the existing topic quizzes*
   to put newly added questions into them). Do this once in each module, including new modules. Students see the topic
   quizzes in topic order — Topic 1 at the top, the last topic last — below any other assessment (those stay newest first).
+- **Bold text on slides (2026-10-17):** Presentation mode → ✎ Edit slide (or + Add slide) → in *Bullet points* or
+  *Subtitle* select the words → **B** (or Ctrl+B) makes them bold; select them again → **B** removes the bold. With no
+  selection, B works on the word at the cursor. A *Preview* under the box shows the result; **Save slide**.
 - **🔒 Lock Learning Module:** Teacher Dashboard → **Teaching Modules** → the small *Learning Module lock* card (click it to open) → the group + module →
   **🔒 Lock Learning Module**. Its students can then open only **Assessments** in that module (within a minute); every other
   page and address is closed and the server stops sending them learning material. **🔓 Unlock Learning Module** opens it

@@ -186,6 +186,10 @@ chapter position (HANDBOOK §5 step 5) — that position is its place on every g
   `assess_resp_<attemptId>` and the list shows "In progress · ▶ Resume" (`start()` resumes server-side without a password
   and restores the parked answers). A teacher preview is kept. The runner header shows "Student ID …" instead of the
   synthetic `@student.local` address. Patch: `quiz-list-first.py`.
+- **Slide bold tool (2026-10-17, module patch only, user's request):** `Views.present.openSlideForm` → `boldTool(textarea,
+  lines)` wraps bullets / subtitle: B button + Ctrl+B toggle `**…**` around the selection (each selected line on its own;
+  no selection → the word at the cursor; already wrapped → unwrapped), live `.sb-prev` via `mdInline`; slide subtitles
+  now render `mdInline(esc(...))` like bullets. Patch `slide-bold.py`.
 - **⚡ Topic quizzes (2026-10-17, module patch only, user's request; uses 2.21 aeCopyTo):** `AssessUI.topicQuizPlan()` —
   per `getTopics()` topic: pool = QUESTIONS of that topic, not `short`, not in `revExcludeIds`; existing = assessment with
   `autoTopic === topic.id`. Settings (user's choice): pool mode, `poolCount` 5, `timeLimitMin` 5, `attemptsAllowed` 1,

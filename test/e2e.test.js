@@ -3721,6 +3721,47 @@ test('⚡ Topic quizzes: one quiz per topic (pool of its practice questions, 5 r
   }
 });
 
+test('Presentation slide editor: B (and Ctrl+B) bolds / un-bolds the selected words in bullets and subtitle, with a live preview; the slide shows bold', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+  groupFixture();
+  const ST = 'cellinjury-tr-a', mod = syntheticModule(CI_PAGE), keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  try {
+    main.call({ module: ST, action: 'setup', password: 'teacher-' + ST + '-1' });
+    const tok = main.call({ module: ST, action: 'login', password: 'teacher-' + ST + '-1' }).token;
+    const t = await page();
+    await t.route('https://third-year-med.github.io/cell-injury-teaching-platform/**', function (route) { return route.fulfill({ status: 200, contentType: 'text/html', body: mod.html }); });
+    const backendUrl = JSON.parse(/window\.NEO_CONFIG\s*=\s*(\{[\s\S]*?\});/.exec(mod.html)[1]).backendUrl;
+    await t.addInitScript(function (o) { try { localStorage.setItem('ci_tr-a_backend_token_v1', JSON.stringify({ token: o.tok, expiresAt: Date.now() + 3600e3, url: o.url })); } catch (e) { } }, { tok: tok, url: backendUrl });
+    await t.goto('https://third-year-med.github.io/cell-injury-teaching-platform/?g=tr-a#/present');
+    await t.waitForFunction(function () { return typeof Views !== 'undefined' && Views.present && typeof Views.present.openSlideForm === 'function' && typeof Backend !== 'undefined' && Backend.syncedThisSession; }, null, { timeout: 20000 });
+    await t.evaluate(function () { Views.present.openSlideForm(); });
+    await t.waitForSelector('.modal .sb-b');
+    const ta = '.modal .sb-wrap textarea';
+    await t.fill(ta, 'Necrosis is irreversible\nApoptosis needs energy');
+    // select "irreversible" → B
+    await t.evaluate(function (sel) { var e = document.querySelector(sel), i = e.value.indexOf('irreversible'); e.focus(); e.setSelectionRange(i, i + 'irreversible'.length); }, ta);
+    await t.click('.modal .sb-b');
+    assert.strictEqual(await t.inputValue(ta), 'Necrosis is **irreversible**\nApoptosis needs energy');
+    assert.strictEqual(await t.$eval('.modal .sb-prev strong', function (b) { return b.textContent; }), 'irreversible', 'live preview shows bold');
+    // the selection stays on the word: B again → unbold
+    await t.click('.modal .sb-b');
+    assert.strictEqual(await t.inputValue(ta), 'Necrosis is irreversible\nApoptosis needs energy');
+    // Ctrl+B on the word at the cursor (no selection); both lines selected → each line bold, then unbold
+    await t.evaluate(function (sel) { var e = document.querySelector(sel), i = e.value.indexOf('energy') + 2; e.focus(); e.setSelectionRange(i, i); }, ta);
+    await t.keyboard.press('Control+b');
+    assert.strictEqual(await t.inputValue(ta), 'Necrosis is irreversible\nApoptosis needs **energy**');
+    await t.evaluate(function (sel) { var e = document.querySelector(sel); e.focus(); e.setSelectionRange(0, e.value.length); }, ta);
+    await t.click('.modal .sb-b');
+    assert.strictEqual(await t.inputValue(ta), '**Necrosis is irreversible**\n**Apoptosis needs energy**');
+    await t.click('.modal .sb-b');
+    assert.strictEqual(await t.inputValue(ta), 'Necrosis is irreversible\nApoptosis needs energy');
+    await t.evaluate(function (sel) { var e = document.querySelector(sel), i = e.value.indexOf('Apoptosis'); e.focus(); e.setSelectionRange(i, i + 9); }, ta);
+    await t.click('.modal .sb-b');
+    if (process.env.SHOTS) await (await t.$('.modal')).screenshot({ path: path.join(process.env.SHOTS, 'slide-bold.png') });
+    assert.strictEqual(errors.filter(function (e) { return !/ERR_TUNNEL|net::/.test(e); }).length, 0, errors.join('\n'));
+    await t.context().close();
+  } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
+});
+
 test('Learning lock (2.18): Teacher Dashboard 🔒 Lock → the student sees only Assessments, every other address is blocked, the server refuses learning data; 🔓 Unlock opens it again', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
   groupFixture();
   const mod = syntheticModule(CI_PAGE), keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
