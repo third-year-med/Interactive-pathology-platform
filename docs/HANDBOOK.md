@@ -186,6 +186,11 @@ chapter position (HANDBOOK §5 step 5) — that position is its place on every g
   `assess_resp_<attemptId>` and the list shows "In progress · ▶ Resume" (`start()` resumes server-side without a password
   and restores the parked answers). A teacher preview is kept. The runner header shows "Student ID …" instead of the
   synthetic `@student.local` address. Patch: `quiz-list-first.py`.
+- **Teacher Assessment tab (2026-10-17, module patch only, user's request):** `Views.quiz.render` → `renderTeacherBoard`
+  when `Auth.isTeacher() && AssessAPI.isServer() && !acct()` (was the student sign-in gate): published/closed assessments,
+  `apwSecret` (Show/Copy), 🔑 `AssessUI.editPw`, 📊 → Teacher Portal results; data from `AssessUI.loadPrivate`.
+  Shared order helper `assessTopicSort(list, timeOf)` (others newest first, then "Topic N quiz" by N) — also the
+  Assessment Library. Patch `teacher-board.py`.
 - **Slide bold tool (2026-10-17, module patch only, user's request):** `Views.present.openSlideForm` → `boldTool(textarea,
   lines)` wraps bullets / subtitle: B button + Ctrl+B toggle `**…**` around the selection (each selected line on its own;
   no selection → the word at the cursor; already wrapped → unwrapped), live `.sb-prev` via `mdInline`; slide subtitles
@@ -395,6 +400,11 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
 
 ## 8. Lessons learned (bugs we hit and what fixed them)
 
+- **Two chats edited `modules/patches/apply.sh` at the same time (2026-10-17):** the picture chat added `picture-import`
+  while this chat added `slide-bold`; the slide-bold entry was lost from ORDER (the checker cannot notice a patch missing
+  from the list). → Before committing a new patch: `git pull`, append to ORDER, and verify that an OLD module page
+  (`git show HEAD~N:index.html`) patched with `apply.sh` is byte-identical to the current page. Each patch's CSS uses its
+  own anchor (never insert right after another patch's anchor line — that made copy-groups look "missing").
 - **Teacher sign-in fails in ONE browser only (module shows the student sign-in), 2026-10-17:** a module prefers a server
   address saved in that browser (`<prefix>backend_url_v1`, from Backend & sharing → Connect) over its configuration; an
   old deployment address there made it reject the fresh pass. → portal.js `resetModuleUrl(pfx, backend)` drops a saved

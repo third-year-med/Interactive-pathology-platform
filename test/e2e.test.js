@@ -3762,6 +3762,59 @@ test('Presentation slide editor: B (and Ctrl+B) bolds / un-bolds the selected wo
   } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
 });
 
+test('Assessment tab for a teacher: the published quizzes with covered passwords (Show / Copy / 🔑), in the students\' order (others first, then Topic 1 … N); the library uses the same order', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+  groupFixture();
+  const ST = 'cellinjury-tr-a', mod = syntheticModule(CI_PAGE), keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  const ids = ['tb2', 'tb1', 'tbm', 'tbd'];
+  try {
+    main.call({ module: ST, action: 'setup', password: 'teacher-' + ST + '-1' });
+    const tok = main.call({ module: ST, action: 'login', password: 'teacher-' + ST + '-1' }).token;
+    const up = function (c, id, data) { assert.ok(main.call({ module: ST, action: 'upsert', token: tok, collection: c, id: id, data: data }).ok); };
+    const now = Date.now();
+    up('assessments', 'tb2', { id: 'tb2', title: 'Topic 2 quiz — Necrosis', status: 'published', publishedVersion: 1, publishedAt: now - 1000, updatedAt: now - 1000, mode: 'pool', poolCount: 5, questionIds: ['a', 'b', 'c', 'd', 'e', 'f'], settings: { timeLimitMin: 5, attemptsAllowed: 1 } });
+    up('assessments', 'tb1', { id: 'tb1', title: 'Topic 1 quiz — Adaptations', status: 'published', publishedVersion: 1, publishedAt: now - 3000, updatedAt: now - 3000, mode: 'pool', poolCount: 5, questionIds: ['a', 'b', 'c', 'd', 'e'], settings: { timeLimitMin: 5, attemptsAllowed: 1 } });
+    up('assessments', 'tbm', { id: 'tbm', title: 'Midterm practice', status: 'published', publishedVersion: 1, publishedAt: now - 5000, updatedAt: now - 5000, mode: 'fixed', questionIds: ['a', 'b'], settings: {} });
+    up('assessments', 'tbd', { id: 'tbd', title: 'A draft', status: 'draft', publishedVersion: 0, updatedAt: now, questionIds: [], settings: {} });
+    assert.ok(main.call({ module: ST, action: 'aePwSet', token: tok, assessmentId: 'tb1', password: 'ADAPT1' }).ok);
+    assert.ok(main.call({ module: ST, action: 'aePwSet', token: tok, assessmentId: 'tb2', password: 'NECRO2' }).ok);
+    const t = await page();
+    await t.route('https://third-year-med.github.io/cell-injury-teaching-platform/**', function (route) { return route.fulfill({ status: 200, contentType: 'text/html', body: mod.html }); });
+    const backendUrl = JSON.parse(/window\.NEO_CONFIG\s*=\s*(\{[\s\S]*?\});/.exec(mod.html)[1]).backendUrl;
+    await t.addInitScript(function (o) { try { localStorage.setItem('ci_tr-a_backend_token_v1', JSON.stringify({ token: o.tok, expiresAt: Date.now() + 3600e3, url: o.url })); } catch (e) { } }, { tok: tok, url: backendUrl });
+    await t.goto('https://third-year-med.github.io/cell-injury-teaching-platform/?g=tr-a#/quiz');
+    await t.waitForSelector('#view-quiz .tb-row', { timeout: 20000 });
+    assert.strictEqual(await t.$('#view-quiz #quiz-pw, #view-quiz input[type=email]'), null, 'no student sign-in box for the teacher');
+    const titles = await t.$$eval('#view-quiz .tb-row h3', function (x) { return x.map(function (h) { return h.textContent; }); });
+    assert.deepStrictEqual(titles.filter(function (x) { return ids.length && /Midterm practice|Topic [12] quiz|A draft/.test(x); }), ['Midterm practice', 'Topic 1 quiz — Adaptations', 'Topic 2 quiz — Necrosis'], 'drafts not shown; topic order');
+    const row = function (id) { return '#view-quiz .tb-row[data-assessment="' + id + '"]'; };
+    assert.match(await t.textContent(row('tb1')), /5 of 5 questions \(random\) · 5 min · 1 attempt[\s\S]*••••••[\s\S]*Show[\s\S]*Copy/);
+    assert.match(await t.textContent(row('tbm')), /⚠ no password/);
+    assert.match(await t.textContent('#view-quiz'), /⚠ \d+ published assessments? ha(s|ve) no password/);
+    assert.ok(!/ADAPT1|NECRO2/.test(await t.textContent('#view-quiz')), 'covered');
+    await t.click(row('tb1') + ' [data-a=reveal]');
+    assert.strictEqual(await t.textContent(row('tb1') + ' .apw-pw'), 'ADAPT1');
+    await t.click(row('tb2') + ' [data-a=reveal]');
+    assert.strictEqual(await t.textContent(row('tb1') + ' .apw-pw'), '••••••', 'one at a time');
+    await t.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: 'https://third-year-med.github.io' });
+    await t.click(row('tb1') + ' [data-a=copy]');
+    await t.waitForSelector(row('tb1') + ' [data-a=copy]:has-text("✓ Copied")');
+    assert.strictEqual(await t.evaluate(function () { return navigator.clipboard.readText(); }), 'ADAPT1');
+    if (process.env.SHOTS) await t.screenshot({ path: path.join(process.env.SHOTS, 'teacher-assessment-tab.png'), fullPage: true });
+    // the Teacher Portal library: the same order (drafts are listed there too)
+    await t.click('#view-quiz button:has-text("Teacher Portal")');
+    await t.waitForSelector('.data-table tr:has(a:has-text("Topic 1 quiz"))', { timeout: 15000 });
+    const lib = await t.$$eval('.data-table tbody tr a b', function (x) { return x.map(function (b) { return b.textContent; }); });
+    const pos = function (s) { return lib.indexOf(s); };
+    assert.ok(pos('Midterm practice') < pos('Topic 1 quiz — Adaptations') && pos('Topic 1 quiz — Adaptations') < pos('Topic 2 quiz — Necrosis'), lib.join(' | '));
+    assert.strictEqual(errors.filter(function (e) { return !/ERR_TUNNEL|net::/.test(e); }).length, 0, errors.join('\n'));
+    await t.context().close();
+  } finally {
+    main.ctx.CONTENT_KEYS.cellinjury = keep;
+    ids.forEach(function (id) { main.ctx.actionDelete_(ST, { collection: 'assessments', id: id }); });
+    const m = main.ctx.apwMap_(ST); delete m.tb1; delete m.tb2; main.ctx.setSetting_('apw:' + ST, JSON.stringify(m));
+  }
+});
+
 test('Learning lock (2.18): Teacher Dashboard 🔒 Lock → the student sees only Assessments, every other address is blocked, the server refuses learning data; 🔓 Unlock opens it again', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
   groupFixture();
   const mod = syntheticModule(CI_PAGE), keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
