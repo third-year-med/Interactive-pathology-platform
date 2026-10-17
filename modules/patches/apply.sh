@@ -7,7 +7,7 @@
 # copy the app code of a current model module (introduction-to-pathology) instead of patching by hand.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; NAV="$HERE/../platform-nav.js"
-ORDER=(assess-gate quiz-pw retire-class-pw assess-tab-pw pw-mask quiz-list-first assess-compact att-code-only stu-header sync-cursor pw-copy quick-panel copy-groups topic-quizzes topic-order picture-import slide-bold teacher-board)
+ORDER=(assess-gate quiz-pw retire-class-pw assess-tab-pw pw-mask quiz-list-first assess-compact att-code-only stu-header sync-cursor pw-copy quick-panel copy-groups topic-quizzes topic-order picture-import slide-bold teacher-board att-teacher-short)
 check=0; if [ "${1:-}" = "--check" ]; then check=1; shift; fi
 [ $# -ge 1 ] || { echo "usage: $0 [--check] index.html [...]"; exit 2; }
 for page in "$@"; do

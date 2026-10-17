@@ -390,6 +390,11 @@ are kept in the new sheet **TeachingSessions** (created automatically the first 
   skipped and listed. Pressing it again later creates only the missing ones (tick *Refresh the existing topic quizzes*
   to put newly added questions into them). Do this once in each module, including new modules. Students see the topic
   quizzes in topic order — Topic 1 at the top, the last topic last — below any other assessment (those stay newest first).
+- **Attendance tab for teachers (2026-10-17):** in teacher mode the module's **📋 Attendance** tab shows the short
+  Teacher Portal version: **▶ Start attendance for a new teaching session** (year, course, chapter, teacher, title) →
+  the live panel with the QR code, link and attendance code → **⏹ Close attendance** → the session report. Earlier
+  sessions, full reports and settings: **⚙ History, reports & settings** (Teacher Portal → Attendance). Students still see
+  only the code box.
 - **Assessment tab for teachers (2026-10-17):** in teacher mode the module's **📝 Assessment** tab lists every published
   assessment with its password covered (••••••) — **👁 Show** (one at a time), **📋 Copy**, **🔑** to set / change it,
   **📊** for its results, and how many students submitted / are in progress. Same order as the students see: other

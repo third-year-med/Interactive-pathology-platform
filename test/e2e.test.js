@@ -3815,6 +3815,38 @@ test('Assessment tab for a teacher: the published quizzes with covered passwords
   }
 });
 
+test('Attendance tab for a teacher: the short Teacher Portal version — start a session, live code / QR / close, report; no student code box', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+  groupFixture();
+  const ST = 'cellinjury-tr-a', mod = syntheticModule(CI_PAGE), keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  try {
+    main.call({ module: 'portal', action: 'setup', password: TPW });
+    assert.ok(main.call({ module: 'portal', action: 'tsSettings', token: main.call({ module: 'portal', action: 'login', password: TPW }).token, hideModuleLive: false }).ok);
+    main.call({ module: ST, action: 'setup', password: 'teacher-' + ST + '-1' });
+    const tok = main.call({ module: ST, action: 'login', password: 'teacher-' + ST + '-1' }).token;
+    const t = await page();
+    await t.route('https://third-year-med.github.io/cell-injury-teaching-platform/**', function (route) { return route.fulfill({ status: 200, contentType: 'text/html', body: mod.html }); });
+    const backendUrl = JSON.parse(/window\.NEO_CONFIG\s*=\s*(\{[\s\S]*?\});/.exec(mod.html)[1]).backendUrl;
+    await t.addInitScript(function (o) { try { localStorage.setItem('ci_tr-a_backend_token_v1', JSON.stringify({ token: o.tok, expiresAt: Date.now() + 3600e3, url: o.url })); } catch (e) { } }, { tok: tok, url: backendUrl });
+    await t.goto('https://third-year-med.github.io/cell-injury-teaching-platform/?g=tr-a#/attendance');
+    await t.waitForSelector('#view-attendance h3:has-text("Start attendance for a new teaching session")', { timeout: 20000 });
+    assert.strictEqual(await t.$('#view-attendance input[aria-label="Attendance code"]'), null, 'no student code box');
+    assert.match(await t.textContent('#view-attendance'), /History, reports & settings/);
+    if (process.env.SHOTS) await t.screenshot({ path: path.join(process.env.SHOTS, 'teacher-attendance-tab.png'), fullPage: true });
+    await t.fill('#view-attendance input[placeholder^="e.g. Session 2"]', 'Short-view lecture');
+    await t.click('#view-attendance button:has-text("Start attendance")');
+    await t.waitForSelector('#view-attendance button:has-text("Close attendance")', { timeout: 15000 });
+    const sess = main.ctx.rpRows_('AttendanceSessions').filter(function (r) { return r.module === ST && r.sessionTitle === 'Short-view lecture'; })[0];
+    assert.ok(sess && sess.status === 'active', 'started on the server');
+    await t.waitForFunction(function (c) { return document.querySelector('#view-attendance').textContent.indexOf(c) >= 0; }, sess.code, { timeout: 15000 });
+    await t.click('#view-attendance button:has-text("Close attendance")');
+    await t.click('.modal button:has-text("Close attendance")');
+    await t.waitForFunction(function () { return /Start attendance for a new teaching session/.test(document.querySelector('#view-attendance').textContent) && /Short-view lecture/.test(document.querySelector('#view-attendance').textContent); }, null, { timeout: 15000 });
+    assert.strictEqual(main.ctx.rpRows_('AttendanceSessions').filter(function (r) { return r.sessionId === sess.sessionId; })[0].status, 'closed');
+    assert.strictEqual(errors.filter(function (e) { return !/ERR_TUNNEL|net::/.test(e); }).length, 0, errors.join('\n'));
+    await t.context().close();
+  } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
+});
+
 test('Learning lock (2.18): Teacher Dashboard 🔒 Lock → the student sees only Assessments, every other address is blocked, the server refuses learning data; 🔓 Unlock opens it again', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
   groupFixture();
   const mod = syntheticModule(CI_PAGE), keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;

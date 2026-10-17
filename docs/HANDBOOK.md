@@ -186,6 +186,10 @@ chapter position (HANDBOOK §5 step 5) — that position is its place on every g
   `assess_resp_<attemptId>` and the list shows "In progress · ▶ Resume" (`start()` resumes server-side without a password
   and restores the parked answers). A teacher preview is kept. The runner header shows "Student ID …" instead of the
   synthetic `@student.local` address. Patch: `quiz-list-first.py`.
+- **Teacher Attendance tab (2026-10-17, module patch only, user's request):** `Views.attendance.render` → for a teacher
+  with a class server `renderTeacherShort` (was the student code box): `startCard()`, `renderTeacherSession()` while
+  `AttT.active()` (polling as in renderTeacherInto), `reportCard` after closing; button → `#/teacher/attendance`.
+  Patch `att-teacher-short.py`.
 - **Teacher Assessment tab (2026-10-17, module patch only, user's request):** `Views.quiz.render` → `renderTeacherBoard`
   when `Auth.isTeacher() && AssessAPI.isServer() && !acct()` (was the student sign-in gate): published/closed assessments,
   `apwSecret` (Show/Copy), 🔑 `AssessUI.editPw`, 📊 → Teacher Portal results; data from `AssessUI.loadPrivate`.
