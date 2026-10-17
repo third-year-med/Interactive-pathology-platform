@@ -349,6 +349,10 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
 
 ## 8. Lessons learned (bugs we hit and what fixed them)
 
+- **Teacher opened a module from the dashboard and got the STUDENT sign-in (Cell Injury · Razi B, 2026-10-17):** the
+  dashboard reused a saved teacher pass the server had already ended; the module refused it, dropped it and showed the
+  student sign-in (a second click worked). → `teacherOpen` (Admin) and the personal-teacher open in portal.js always
+  request a fresh pass (`portalTeacherOpen` / `teacherOpen`); no reuse of `t.mods[...]`.
 - **New assessments missing from the Teacher Portal library (students still had them; "↻ Sync now" brought them
   back), 2026-10-16:** several tabs of one module in one browser (teacher + student test tab) share the saved copy
   and `last_server_time_v1`, but each has its own copy in memory. A tab read the time another tab had moved on, got

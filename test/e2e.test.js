@@ -562,6 +562,12 @@ test('personal teacher: Admin creates Dr. Ahmed with ONE group + module; he sign
   const tok = JSON.parse(await p.evaluate(function () { return localStorage.getItem('ci_tr-a_backend_token_v1'); })).token;
   assert.strictEqual(main.call({ module: 'cellinjury-tr-a', action: 'studentSession', token: tok }).role, 'teacher');
   ['cellinjury', 'cellinjury-tm-a', 'inflhealing-tr-a'].forEach(function (m) { assert.strictEqual(main.call({ module: m, action: 'listStudents', token: tok }).ok, false, m); });
+  // opening again ALWAYS asks for a fresh pass (2026-10-17): a saved pass the server had ended showed the student sign-in
+  await p.goto(url + '#/teacher'); await dash(p, 'modules'); await p.waitForSelector('#t-mine .mod[data-id="cellinjury"] .t-open');
+  await p.click('#t-mine .mod[data-id="cellinjury"] .t-open'); await p.waitForTimeout(400);
+  const tok2 = JSON.parse(await p.evaluate(function () { return localStorage.getItem('ci_tr-a_backend_token_v1'); })).token;
+  assert.notStrictEqual(tok2, tok, 'a new pass, not the saved one');
+  assert.strictEqual(main.call({ module: 'cellinjury-tr-a', action: 'studentSession', token: tok2 }).role, 'teacher');
   // sign out: the teacher session and the module session end
   await p.click('#who button'); await p.waitForSelector('form.signin'); await p.waitForTimeout(300);
   assert.strictEqual(main.call({ module: 'cellinjury-tr-a', action: 'studentSession', token: tok }).ok, false);

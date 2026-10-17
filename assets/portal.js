@@ -470,12 +470,10 @@
     var g = grpOk(group) ? group : '', dest = withHash(withGroup(m.url, g), hash);
     if (!teacherDirect(m)) { location.href = dest; return; }
     var t = tget(); if (!t) { viewTeacher(); return; }
-    var sk = sessKey(m, g), have = (t.mods || {})[sk], cur = lsGet(teacherKey(m, g));
-    if (have && have.draft) have = null;   // a master-draft session is never reused for normal teaching
+    var sk = sessKey(m, g);
     try { sessionStorage.removeItem('pf_draft:' + sk); } catch (e) { }
-    var ready = have && have.token && have.expiresAt > Date.now() + 60000 && cur && cur.token === have.token
-      ? Promise.resolve({ ok: true, modules: (function () { var o = {}; o[sk] = have; return o; })() })
-      : post(CFG.backendUrl, { module: 'portal', action: 'portalTeacherOpen', token: t.token, modules: [g ? { module: m.moduleKey, group: g } : m.moduleKey] });
+    // always a FRESH teacher pass (2026-10-17): a saved one the server had already ended made the module show the student sign-in
+    var ready = post(CFG.backendUrl, { module: 'portal', action: 'portalTeacherOpen', token: t.token, modules: [g ? { module: m.moduleKey, group: g } : m.moduleKey] });
     if (btn) { btn.disabled = true; btn.dataset.l = btn.textContent; btn.textContent = 'Opening…'; }
     ready.then(function (r) {
       if (btn) { btn.disabled = false; btn.textContent = btn.dataset.l; }
@@ -764,10 +762,9 @@
   function openMyDelivery(d, hash, btn) {
     var t = tteach(); if (!t) return route();
     var pfx = d.storagePrefix + (d.group ? d.group + '_' : ''), sk = d.moduleId + (d.group ? '-' + d.group : ''), dest = withHash(withGroup(d.url, d.group), hash);
-    var have = (t.mods || {})[sk], cur = lsGet(pfx + 'backend_token_v1');
     try { sessionStorage.removeItem('pf_draft:' + sk); } catch (e) { }
-    var ready = have && have.token && have.expiresAt > Date.now() + 60000 && cur && cur.token === have.token ? Promise.resolve({ ok: true, token: have.token, expiresAt: have.expiresAt })
-      : post(CFG.backendUrl, { module: 'portal', action: 'teacherOpen', ttoken: t.ttoken, deliveryId: d.deliveryId });
+    // always a FRESH teacher pass (2026-10-17): never reuse a saved one the server may already have ended
+    var ready = post(CFG.backendUrl, { module: 'portal', action: 'teacherOpen', ttoken: t.ttoken, deliveryId: d.deliveryId });
     if (btn) { btn.disabled = true; btn.dataset.l = btn.textContent; btn.textContent = 'Opening…'; }
     ready.then(function (r) {
       if (btn) { btn.disabled = false; btn.textContent = btn.dataset.l; }
