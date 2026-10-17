@@ -223,6 +223,10 @@ chapter position (HANDBOOK §5 step 5) — that position is its place on every g
   figures; the course is encrypted, these are not). First batch: Inflammation & Healing, 28 Robbins Ch. 2 figures
   (keys `ih-robbins2-01…28`) — imported in Edit master draft and published by the user on 2026-10-17, so every group
   has them. A later batch for this module must use new keys (e.g. `ih-<source>-NN`), never reuse these.
+  Second batch: Cell Injury & Cell Death, 30 Robbins Ch. 1 figures (keys `ci-robbins1-01…30`, file
+  `cellinjury-pictures-robbins1.json`), approved by the user and rehearsed on the real page 2026-10-17; the user imports it in
+  Edit master draft and publishes. A later Cell Injury batch must use new keys. Check which page a key opens before
+  trusting the variable's name (that session's `IH_CONTENT_KEY` held the Cell Injury key and opened only Cell Injury).
 - **Password copy (2026-10-16, module patch only):** `apwSecret` adds 📋 Copy (`data-a=copy`, clipboard API with an
   execCommand fallback; the password stays covered and is never in the toast); the Hide button is plain "Hide" (no 🙈).
   Patch: `pw-copy.py`.
