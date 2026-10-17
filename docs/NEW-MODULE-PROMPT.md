@@ -1,5 +1,20 @@
 # Prompt for a new module
 
+## Where to start (the whole module is built in Claude Code — no need for Claude Home)
+
+1. On GitHub, create an EMPTY repository for the module (e.g. `third-year-med/neoplasia`) — a chat cannot always
+   create repositories, but it can attach one that exists.
+2. In the Claude app → **Code** → press **＋ next to "Cloud"** (not "This computer"; the old "Vulvar-pathology" folder
+   was removed on 2026-10-17) → start with the repository **third-year-med/Interactive-pathology-platform**.
+3. Paste the prompt below, fill in the [brackets] and attach the source material (PDFs, notes, images; very large
+   files in smaller batches).
+4. The chat attaches the new repository, builds the module with the pathology-teaching-platform-builder skill, runs
+   `modules/patches/apply.sh --check` and the tests, pushes, and then gives you the steps only you can do: the four
+   Code.gs additions, platformCheck, Deploy, the front-page card and the deliveries.
+5. The new content key is shown ONCE in the chat — save it in your password manager (it is never written to a file).
+
+## The prompt
+
 Copy everything inside the box into a new Claude chat, replace the parts in [brackets] and attach the source material.
 
 ```

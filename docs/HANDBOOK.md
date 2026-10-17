@@ -410,6 +410,10 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   per-group lists); per-assessment passwords (`apw:<storage>`, `aePwList` / `aePwSet`).
 - **Modules** (intropath, cellinjury, inflhealing) carry every patch in `modules/patches/` (all ✅). Tests: 90 backend,
   33 e2e pass (44 skip without content keys), module smoke ✅.
+- **Where new-module chats start (2026-10-17):** Claude Code → ＋ next to **Cloud** → repository
+  `Interactive-pathology-platform`; the user first creates the empty module repo on GitHub, the chat attaches it
+  (add_repo, push access). Everything is built in Claude Code (builder skill available there) — no Claude Home step.
+  See the top of docs/NEW-MODULE-PROMPT.md.
 - **Front page (2026-10-17):** opening a module from the Teacher Dashboard (Admin or personal teacher) always requests a
   FRESH teacher pass — never reuse a saved one (a stale pass showed the module's student sign-in; see §8).
 - **Standing instruction (user, 2026-10-16):** finished + tested → merge into `main` and push directly (no asking);
