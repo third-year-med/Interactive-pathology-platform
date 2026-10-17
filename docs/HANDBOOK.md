@@ -411,7 +411,7 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
 
 ## 10. Current state (updated 2026-10-17)
 
-- **Backend: Portal.gs 2.21** (2.21 = 📤 Copy to groups; 2.20 retires the class quiz password). Since 2.15: Overall
+- **Backend: Portal.gs 2.21 — deployed by the user 2026-10-17, platformCheck ✅** (2.21 = 📤 Copy to groups; 2.20 retires the class quiz password). Since 2.15: Overall
   Pathology Attendance (75 % rule, Excel / CSV / print, student card); student homepage redesign (curricular order from
   the Teacher Management list, exams in their own section, Teaching Sessions panel with full history); group Live
   Classroom off (`GROUP_CLASSROOM=false`); Learning Module lock (manual + automatic, server-enforced, compact card with
