@@ -186,6 +186,14 @@ chapter position (HANDBOOK §5 step 5) — that position is its place on every g
   `assess_resp_<attemptId>` and the list shows "In progress · ▶ Resume" (`start()` resumes server-side without a password
   and restores the parked answers). A teacher preview is kept. The runner header shows "Student ID …" instead of the
   synthetic `@student.local` address. Patch: `quiz-list-first.py`.
+- **Copy to groups (Portal.gs 2.21, 2026-10-17, user's request):** `aeCopyHook_` (module teacher token of the source
+  storage): `aeCopyTargets {assessmentId}` → other deliveries of the same module the caller teaches (`examCaller_` →
+  Admin all / personal teacher `teacherDeliveries_`), each with `has` and `attempts`; `aeCopyTo {assessmentId, targets,
+  publish, assign, password:'same'|'random'|'none'}` → per target: attempts there → kept unchanged; else upsert the
+  assessment (same id; `copiedFrom`, a "Copied" log entry) and — publish + published source — its published version
+  (frozen questions); otherwise a draft (publishedVersion 0); assign = an "everyone" assignment cloned from the source's
+  active everyone assignment (skipped if one is active); password into `apw:<T>`; `cvMarkWrite_(T)`, `llForget_(T)`.
+  Module: AssessUI.copyToGroups (flushPending first). Patch `copy-groups.py`.
 - **Quick access panel (2026-10-17, module patch only, user's request):** the Learn home's "All topics · Glossary ·
   Presentation mode" links are a yellow `.ux-quick` panel with three `.ux-qa` tiles (icon, title, hint; one column on
   phones). Same links; the learning lock still hides `.ux-quick`. Patch: `quick-panel.py`.
@@ -277,7 +285,7 @@ only to START; reviews free; class quiz password retired); teacher password mana
 (covered ••••••, 👁 Show one at a time, 📋 Copy); student My Assessments opens on a compact grouped list (To do /
 Completed / Not available, newest first; ▶ Resume for an attempt in progress); Attendance = code only for signed-in
 students; no Teacher / Class server buttons for students; per-tab sync cursor (multi-tab safe); yellow Quick access
-panel on the Learn home; learning-lock guard in the platform block. Backend: **Portal.gs 2.20**.
+panel on the Learn home; learning-lock guard in the platform block. Backend: **Portal.gs 2.21**.
 
 ## 5. Adding the next module — checklist (follow in this order; learned the hard way on 2026-10-10)
 
@@ -403,7 +411,7 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
 
 ## 10. Current state (updated 2026-10-17)
 
-- **Backend: Portal.gs 2.20** (user deployed ≥ 2.19; 2.20 retires the class quiz password). Since 2.15: Overall
+- **Backend: Portal.gs 2.21** (2.21 = 📤 Copy to groups; 2.20 retires the class quiz password). Since 2.15: Overall
   Pathology Attendance (75 % rule, Excel / CSV / print, student card); student homepage redesign (curricular order from
   the Teacher Management list, exams in their own section, Teaching Sessions panel with full history); group Live
   Classroom off (`GROUP_CLASSROOM=false`); Learning Module lock (manual + automatic, server-enforced, compact card with

@@ -3491,6 +3491,63 @@ test('Two tabs of one module (shared browser copy): an item one tab received is 
   } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
 });
 
+test('📤 Copy to groups (2.21): the teacher copies an assessment from Al-Razi A to Misrata A — published, assigned, same password; the other group\'s student can take it', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+  groupFixture();
+  const ST = 'cellinjury-tr-a', MS = 'cellinjury-tm-a', mod = syntheticModule(CI_PAGE), keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  try {
+    main.call({ module: ST, action: 'setup', password: 'teacher-' + ST + '-1' });
+    const tok = main.call({ module: ST, action: 'login', password: 'teacher-' + ST + '-1' }).token;
+    const up = function (c, id, data) { const r = main.call({ module: ST, action: 'upsert', token: tok, collection: c, id: id, data: data }); assert.ok(r.ok, JSON.stringify(r)); };
+    const q = { id: 'x1', type: 'tf', stem: 'Apoptosis needs energy.', answer: true, explanation: 'ATP-dependent.' };
+    up('assessments', 'cg1', { id: 'cg1', title: 'Group copy quiz', status: 'published', publishedVersion: 1, mode: 'fixed', questionIds: ['x1'] });
+    up('assessmentversions', 'cg1@1', { assessmentId: 'cg1', version: 1, title: 'Group copy quiz', mode: 'fixed', questionIds: ['x1'], settings: { showScore: true }, questions: { x1: q } });
+    main.ctx.assessStore_(ST).put('assignment', 'asg-cg1', { id: 'asg-cg1', assessmentId: 'cg1', assessmentTitle: 'Group copy quiz', targetType: 'all', emails: [], status: 'active', availableFrom: null, dueAt: null });
+    assert.ok(main.call({ module: ST, action: 'aePwSet', token: tok, assessmentId: 'cg1', password: 'Apop-77' }).ok);
+    const t = await page();
+    await t.route('https://third-year-med.github.io/cell-injury-teaching-platform/**', function (route) { return route.fulfill({ status: 200, contentType: 'text/html', body: mod.html }); });
+    const backendUrl = JSON.parse(/window\.NEO_CONFIG\s*=\s*(\{[\s\S]*?\});/.exec(mod.html)[1]).backendUrl;
+    await t.addInitScript(function (o) { try { localStorage.setItem('ci_tr-a_backend_token_v1', JSON.stringify({ token: o.tok, expiresAt: Date.now() + 3600e3, url: o.url })); } catch (e) { } }, { tok: tok, url: backendUrl });
+    await t.goto('https://third-year-med.github.io/cell-injury-teaching-platform/?g=tr-a#/teacher/assessments');
+    const row = '.data-table tr:has(a:has-text("Group copy quiz"))';
+    await t.waitForSelector(row + ' [data-a=copy-groups]', { timeout: 20000 });
+    await t.click(row + ' [data-a=copy-groups]');
+    await t.waitForSelector('.modal .cg-row');
+    const dlg = await t.textContent('.modal');
+    assert.match(dlg, /Copy “Group copy quiz” from Test Razi · Group A[\s\S]*Test Misrata · Group A[\s\S]*new[\s\S]*Publish it in each group[\s\S]*Assign it to everyone[\s\S]*same dates[\s\S]*the same as here/);
+    assert.ok(!/Test Razi · Group A \(2026-27\)new/.test(dlg), 'not offered to copy into itself');
+    if (process.env.SHOTS) await (await t.$('.modal')).screenshot({ path: path.join(process.env.SHOTS, 'copy-to-groups.png') });
+    // only Misrata A (other tests may have added more groups with this module)
+    await t.$$eval('.modal .cg-row', function (rows) { rows.forEach(function (r) { var i = r.querySelector('input'); if (!i.disabled) i.checked = /Test Misrata · Group A/.test(r.textContent); }); });
+    await t.click('.modal .modal-foot .btn-primary');
+    await t.waitForFunction(function () { var m = document.querySelector('.modal'); return m && /Copied to 1 of 1 group/.test(m.textContent); }, null, { timeout: 20000 });
+    assert.match(await t.textContent('.modal'), /✓ Test Misrata · Group A[\s\S]*published · assigned to everyone · same password/);
+    if (process.env.SHOTS) await (await t.$('.modal')).screenshot({ path: path.join(process.env.SHOTS, 'copy-to-groups-done.png') });
+    // the Misrata student sees it and starts it with the same password
+    main.addStudents(MS, [{ username: 'cgstu', name: 'Copy Student', password: PW, mustChange: false }]);   // its own student (other tests change Sara's password)
+    const ss = main.call({ module: MS, action: 'studentLogin', username: 'cgstu', password: PW }).token;
+    const my = main.call({ module: MS, action: 'getMyAssessments', stoken: ss });
+    assert.ok(my.items.some(function (i) { return i.assessment.id === 'cg1' && i.passwordSet; }), JSON.stringify(my).slice(0, 400));
+    const asg = my.items.filter(function (i) { return i.assessment.id === 'cg1'; })[0].assignment.id;
+    assert.ok(main.call({ module: MS, action: 'startAttempt', stoken: ss, assignmentId: asg, password: 'apop-77' }).ok);
+    // copy again: Misrata is now "kept" (a student has started it) and cannot be ticked
+    await t.click('.modal .modal-foot .btn-primary');
+    await t.click(row + ' [data-a=copy-groups]');
+    await t.waitForSelector('.modal .cg-row');
+    const ms = '.modal .cg-row:has-text("Test Misrata · Group A")';
+    assert.match(await t.textContent(ms), /students have started it there — kept as it is/);
+    assert.strictEqual(await t.$eval(ms + ' input', function (i) { return i.disabled; }), true);
+    assert.strictEqual(errors.filter(function (e) { return !/ERR_TUNNEL|net::/.test(e); }).length, 0, errors.join('\n'));
+    await t.context().close();
+  } finally {
+    main.ctx.CONTENT_KEYS.cellinjury = keep;
+    [ST, MS].forEach(function (st) {   // leave the shared test storages as found (other tests count assessments / passwords)
+      ['assessments', 'assessmentversions'].forEach(function (c) { main.ctx.rpRows_('Content').forEach(function (r) { if (r.module === st && /^cg1/.test(String(r.id)) && r.collection === c) main.ctx.actionDelete_(st, { collection: c, id: r.id }); }); });
+      main.ctx.setSetting_('apw:' + st, JSON.stringify(Object.fromEntries(Object.entries(main.ctx.apwMap_(st)).filter(function (e) { return e[0] !== 'cg1'; }))));
+      main.ctx.assessStore_(st).list('assignment').forEach(function (a) { if (a.assessmentId === 'cg1') main.ctx.assessStore_(st).del('assignment', a.id); });
+    });
+  }
+});
+
 test('Learning lock (2.18): Teacher Dashboard 🔒 Lock → the student sees only Assessments, every other address is blocked, the server refuses learning data; 🔓 Unlock opens it again', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
   groupFixture();
   const mod = syntheticModule(CI_PAGE), keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;

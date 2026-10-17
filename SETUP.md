@@ -374,6 +374,12 @@ are kept in the new sheet **TeachingSessions** (created automatically the first 
   or without a password; folded by default). The **newest** assessment is at the top of each group.
   The list always opens first. An assessment a student started and left is
   marked **In progress** with a **▶ Resume** button (no password needed to resume; answers given so far are kept).
+- **📤 Copy to groups (Portal.gs 2.21):** prepare an assessment once, then Teacher Portal → 📝 Assessments → Assessment
+  Library → **📤 Copy to groups** on its row → tick the groups (or Select all) → choose *Publish it in each group*,
+  *Assign it to everyone* (same dates / attempts / time limit as here) and the 🔑 password (the same as here, a new
+  random one per group, or none) → **📤 Copy**. A report shows each group. Each group keeps its own results; copying
+  again updates a group only where no student has started it (those groups are shown as "kept"). Admin: every group
+  with the module; a personal teacher: only the groups assigned to them.
 - **🔒 Lock Learning Module:** Teacher Dashboard → **Teaching Modules** → the small *Learning Module lock* card (click it to open) → the group + module →
   **🔒 Lock Learning Module**. Its students can then open only **Assessments** in that module (within a minute); every other
   page and address is closed and the server stops sending them learning material. **🔓 Unlock Learning Module** opens it

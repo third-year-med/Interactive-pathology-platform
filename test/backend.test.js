@@ -2304,3 +2304,49 @@ test('assessment passwords: no password to open the list or review; THAT assessm
   const sRow = X.findStudent_(CI, 'b1'); X.updateRow_('Students', sRow._row, Object.assign({}, sRow, { mustChange: true }));
   assert.strictEqual(A(login(S, CI, 'b1', 'basma-pass-1').token, 'getMyAssessments').code, 'mustchange');
 });
+
+test('copy an assessment to other groups (2.21): only groups of the same module the caller teaches; published + assigned + password; a group with attempts is kept; drafts; never duplicates', function () {
+  const S = tsSetup(), CI = 'cellinjury-razi-a-26', MS = 'cellinjury-misrata-a-26', X = S.b.ctx;
+  const ttok = assessFixture(S, CI);
+  const T = function (action, o) { return S.call(Object.assign({ module: CI, action: action, token: ttok }, o || {})); };
+  const row = function (st, c, id) { const r = X.findContentRow_(st, c, id); return r && !X.isTrue_(r.deleted) ? X.unpackJson_(r) : null; };
+  assert.ok(T('aePwSet', { assessmentId: 'q1', password: 'Necro-26' }).ok);
+  // targets: the other groups that have Cell Injury (not this one, not other modules)
+  const tg = T('aeCopyTargets', { assessmentId: 'q1' }); assert.ok(tg.ok, JSON.stringify(tg));
+  assert.deepStrictEqual(tg.targets.map(function (t) { return t.storage; }), [MS]);
+  assert.deepStrictEqual([tg.published, tg.hasAssignment, tg.hasPassword, tg.targets[0].has, tg.targets[0].attempts], [true, true, true, false, 0]);
+  assert.match(tg.here, /Razi/);
+  const srcBefore = JSON.stringify(row(CI, 'assessments', 'q1'));
+  // copy: published, assigned to everyone, the same password
+  const c1 = T('aeCopyTo', { assessmentId: 'q1', targets: [MS], publish: true, assign: true, password: 'same' }); assert.ok(c1.ok, JSON.stringify(c1));
+  assert.deepStrictEqual([c1.results[0].ok, c1.results[0].published, c1.results[0].assigned, c1.results[0].password], [true, true, 'yes', 'same']);
+  const a = row(MS, 'assessments', 'q1'); assert.deepStrictEqual([a.status, a.publishedVersion, a.copiedFrom], ['published', 1, CI]);
+  assert.deepStrictEqual(row(MS, 'assessmentversions', 'q1@1').questionIds, ['x1'], 'the frozen questions came along');
+  assert.strictEqual(X.apwMap_(MS).q1.pw, 'Necro-26');
+  const mine = X.assessSvc_(MS).getMyAssessments('someone@uni.ly'); assert.ok(mine.items.some(function (i) { return i.assessment.id === 'q1'; }), 'students of that group get it');
+  assert.strictEqual(JSON.stringify(row(CI, 'assessments', 'q1')), srcBefore, 'the source is unchanged');
+  // again: updated in place, never a second assignment
+  const c2 = T('aeCopyTo', { assessmentId: 'q1', targets: [MS], publish: true, assign: true, password: 'random' });
+  assert.strictEqual(c2.results[0].assigned, 'already'); assert.match(X.apwMap_(MS).q1.pw, /^[A-Z2-9]{6}$/);
+  assert.strictEqual(X.assessStore_(MS).list('assignment').filter(function (x) { return x.assessmentId === 'q1'; }).length, 1);
+  // once students have started it there, that group's copy is kept as it is
+  X.assessStore_(MS).put('attempt', 'att1', { id: 'att1', assessmentId: 'q1', email: 'someone@uni.ly', status: 'in_progress' });
+  assert.strictEqual(T('aeCopyTargets', { assessmentId: 'q1' }).targets[0].attempts, 1);
+  const c3 = T('aeCopyTo', { assessmentId: 'q1', targets: [MS], publish: false, password: 'none' });
+  assert.deepStrictEqual([c3.results[0].ok, c3.results[0].kept], [false, true]); assert.strictEqual(row(MS, 'assessments', 'q1').status, 'published', 'kept');
+  // without "publish": arrives as a draft (no version, no assignment)
+  const c4 = T('aeCopyTo', { assessmentId: 'q2', targets: [MS], publish: false, assign: true, password: 'none' }); assert.ok(c4.results[0].ok);
+  assert.deepStrictEqual([row(MS, 'assessments', 'q2').status, row(MS, 'assessments', 'q2').publishedVersion, !!row(MS, 'assessmentversions', 'q2@1')], ['draft', 0, false]);
+  assert.ok(!X.assessStore_(MS).list('assignment').some(function (x) { return x.assessmentId === 'q2'; }));
+  assert.ok(!X.apwMap_(MS).q2, 'no password asked for');
+  // permissions: Dr. Ahmed teaches only Al-Razi A → no other group to copy to; Misrata refused; students / no sign-in refused
+  const at = S.t('teacherOpen', S.ahmed.tok, { deliveryId: S.ci.deliveryId }).token;
+  const A = function (action, o) { return S.call(Object.assign({ module: CI, action: action, token: at }, o || {})); };
+  assert.deepStrictEqual(A('aeCopyTargets', { assessmentId: 'q1' }).targets, []);
+  assert.strictEqual(A('aeCopyTo', { assessmentId: 'q1', targets: [MS], publish: true }).code, 'forbidden');
+  assert.strictEqual(S.call({ module: CI, action: 'aeCopyTo', assessmentId: 'q1', targets: [MS] }).ok, false);
+  const stu = login(S, CI, 'b1', 'basma-pass-1').token;
+  assert.strictEqual(S.call({ module: CI, action: 'aeCopyTargets', stoken: stu, assessmentId: 'q1' }).ok, false);
+  assert.strictEqual(T('aeCopyTo', { assessmentId: 'nope', targets: [MS] }).code, 'notfound');
+  assert.strictEqual(T('aeCopyTo', { assessmentId: 'q1', targets: [] }).ok, false);
+});

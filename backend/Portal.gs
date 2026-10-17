@@ -191,7 +191,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.20';
+var PORTAL_VERSION = '2.21';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -222,6 +222,7 @@ function portalHook_(module, p) {
     var gl = examGroupLockHook_(String(module), act, p); if (gl) return gl;   // 2.6: a combined exam of the group closes all its modules for candidates
     var ll = learnLockHook_(String(module), act, p); if (ll) return ll;   // 2.18: Learning module locked during assessments (students)
     var ap = assessPwHook_(String(module), act, p); if (ap) return ap;   // 2.19: one password per assessment (asked only to start it)
+    if (act === 'aeCopyTargets' || act === 'aeCopyTo') return aeCopyHook_(String(module), act, p);   // 2.21: copy an assessment to other groups
     // 2.5 speed: the frequent "anything new?" check is answered from memory when nothing changed for this storage
     if (act === 'getAllContent') { var fast = cvFastUnchanged_(String(module), p); if (fast) return fast; }
     else if (!CV_NO_CONTENT_WRITE[act]) cvMarkWrite_(String(module));
@@ -2994,6 +2995,100 @@ function assessPwHook_(storage, act, p) {
   try { var out = assessSvc_(storage).startAttempt(a.id, email, st.name); llForget_(storage); return out; } finally { lock2.releaseLock(); }
 }
 
+/* ======================================================================
+ * Copy an assessment to other groups (2.21) — module Teacher Portal → 📝 Assessments → 📤 Copy to groups.
+ * Each group (delivery) keeps its own assessments, assignments, passwords and results; this copies ONE assessment of
+ * this storage into other deliveries of the SAME module that the caller teaches (Admin: all; personal teacher: the
+ * deliveries assigned to them — the same rule as the exam-bank transfers). Module teacher token of the source storage.
+ *   aeCopyTargets {assessmentId}  → the possible groups, with whether each already has it and how many attempts it has
+ *   aeCopyTo {assessmentId, targets:[storage], publish, assign, password:'same'|'random'|'none'}
+ *     · a group where students already have attempts at this assessment is never changed (reported as kept)
+ *     · otherwise the assessment (same id, so a later copy updates it) is written there; with publish (and a published
+ *       source) its published version — questions frozen inside it — goes too; without, it arrives as a draft
+ *     · assign: an "everyone" assignment with the source's dates / attempts / time limit (skipped if one exists)
+ *     · password: the source's own password, a new random one per group, or none
+ *   Results stay separate per group; nothing else in the target (other assessments, attempts, content) changes.
+ * ====================================================================== */
+function aeCopyPlaces_(S, token) {
+  var base = cvBaseOf_(S), caller = examCaller_(token), mine = null;
+  if (!caller.admin) { mine = {}; teacherDeliveries_(caller.userId).forEach(function (d) { mine[d.deliveryId] = 1; }); }
+  var gr = {}; dirAll_(DIR.GROUP).forEach(function (g) { gr[g.groupId] = g; });
+  var ins = {}; dirAll_(DIR.INST).forEach(function (i) { ins[i.institutionId] = i; });
+  var label = function (d) { var g = gr[d.groupId] || {}, i = ins[g.institutionId] || {}; return (i.shortName || i.name || '?') + ' · ' + (g.name || '?') + (g.academicYear ? ' (' + g.academicYear + ')' : ''); };
+  var here = '', out = [];
+  dirAll_(DIR.DELIV).forEach(function (d) {
+    if (d.moduleId !== base) return;
+    if (d.backendModule === S) { here = label(d); return; }
+    if (mine && !mine[d.deliveryId]) return;
+    out.push({ storage: String(d.backendModule), deliveryId: d.deliveryId, label: label(d), active: !(d.active === false || d.active === 'false') });
+  });
+  out.sort(function (a, b) { return a.label.localeCompare(b.label); });
+  return { places: out, here: here || (S === base ? 'Main copy (no group)' : S) };
+}
+function aeCopyAttempts_(T, id) { return assessStore_(T).list('attempt').filter(function (t) { return t.assessmentId === id; }).length; }
+function aeCopyHook_(S, act, p) {
+  return authed_(S, p, function (token) {
+    if (typeof assessStore_ !== 'function' || typeof assessSvc_ !== 'function') return { ok: false, error: 'Update Code.gs to 1.7 first.' };
+    if (!dirReadable_()) return dirErr_('The platform directory is empty.');
+    var id = String(p.assessmentId || '').trim().slice(0, 120); if (!id) return { ok: false, error: 'Choose an assessment.' };
+    var row = findContentRow_(S, 'assessments', id), src = row && !isTrue_(row.deleted) ? unpackJson_(row) : null;
+    if (!src) return { ok: false, code: 'notfound', error: 'This assessment is not on the class server yet — wait a moment for it to save, then try again.' };
+    var pl = aeCopyPlaces_(S, token), pv = Number(src.publishedVersion) || 0, published = src.status === 'published' && pv > 0;
+    var tmpl = assessStore_(S).list('assignment').filter(function (a) { return a.assessmentId === id && a.status === 'active' && a.targetType === 'all'; })[0] || null;
+    if (act === 'aeCopyTargets') {
+      return { ok: true, here: pl.here, title: String(src.title || ''), published: published, hasAssignment: !!tmpl, hasPassword: !!(apwMap_(S)[id] || {}).pw,
+        targets: pl.places.map(function (x) { var r = findContentRow_(x.storage, 'assessments', id); return Object.assign({}, x, { has: !!(r && !isTrue_(r.deleted)), attempts: aeCopyAttempts_(x.storage, id) }); }) };
+    }
+    var allowed = {}; pl.places.forEach(function (x) { allowed[x.storage] = x; });
+    var targets = (Array.isArray(p.targets) ? p.targets : []).map(String).filter(function (t, i, a) { return a.indexOf(t) === i; }).slice(0, 60);
+    if (!targets.length) return { ok: false, error: 'Tick at least one group.' };
+    var bad = targets.filter(function (t) { return !allowed[t]; });
+    if (bad.length) return { ok: false, code: 'forbidden', error: 'You do not teach this module in: ' + bad.join(', ') };
+    var publish = (p.publish === true || p.publish === 'true') && published, assign = (p.assign === true || p.assign === 'true') && publish;
+    var pwMode = { same: 1, random: 1 }[String(p.password || '')] ? String(p.password) : 'none', srcPw = (apwMap_(S)[id] || {}).pw || '';
+    var ver = null;
+    if (publish) { var vr = findContentRow_(S, 'assessmentversions', id + '@' + pv); ver = vr && !isTrue_(vr.deleted) ? unpackJson_(vr) : null; if (!ver) publish = assign = false; }
+    var now = Date.now(), results = [];
+    targets.forEach(function (T) {
+      var x = allowed[T], res = { storage: T, label: x.label };
+      try {
+        var n = aeCopyAttempts_(T, id);
+        if (n) { res.ok = false; res.kept = true; res.error = 'students have already started it there (' + n + ' attempt' + (n > 1 ? 's' : '') + ') — kept unchanged'; results.push(res); return; }
+        var doc = JSON.parse(JSON.stringify(src));
+        doc.copiedFrom = S; doc.copiedAt = now; doc.updatedAt = now;
+        doc.log = (Array.isArray(doc.log) ? doc.log : []).concat([{ at: now, action: 'Copied', detail: 'Copied from ' + pl.here }]).slice(-50);
+        if (!publish) { doc.status = 'draft'; doc.publishedVersion = 0; doc.publishedAt = null; doc.dirty = false; }
+        if (publish) actionUpsert_(T, { collection: 'assessmentversions', id: id + '@' + pv, data: ver });
+        actionUpsert_(T, { collection: 'assessments', id: id, data: doc });
+        cvMarkWrite_(T);
+        res.ok = true; res.published = !!publish;
+        if (assign) {
+          var have = assessStore_(T).list('assignment').some(function (a) { return a.assessmentId === id && a.status === 'active'; });
+          if (have) res.assigned = 'already';
+          else {
+            var inp = { assessmentId: id, targetType: 'all', availableFrom: tmpl ? tmpl.availableFrom : null, dueAt: tmpl ? tmpl.dueAt : null, allowLate: tmpl ? !!tmpl.allowLate : false,
+              attemptsAllowed: tmpl ? tmpl.attemptsAllowed : null, timeLimitMin: tmpl ? tmpl.timeLimitMin : null, note: tmpl ? String(tmpl.note || '') : '' };
+            var lk = LockService.getScriptLock(); lk.waitLock(30000);
+            try { var ar = assessSvc_(T).createAssignments([inp]); var r0 = ar && ar.results && ar.results[0]; res.assigned = r0 && r0.ok ? 'yes' : ''; if (!res.assigned) res.assignError = (r0 && r0.error) || (ar && ar.error) || 'could not assign'; }
+            finally { lk.releaseLock(); }
+          }
+        }
+        if (pwMode !== 'none') {
+          var pw = pwMode === 'same' ? srcPw : apwRandom_();
+          if (pw) {
+            var lk2 = LockService.getScriptLock(); lk2.waitLock(20000);
+            try { var m = apwMap_(T); m[id] = { pw: pw, at: now, by: 'copy' }; setSetting_('apw:' + T, JSON.stringify(m)); } finally { lk2.releaseLock(); }
+            res.password = pwMode;
+          }
+        }
+        llForget_(T);
+      } catch (e) { res.ok = false; res.error = String(e && e.message || e); }
+      results.push(res);
+    });
+    console.log('assessment copy · ' + S + ' · ' + id + ' → ' + results.map(function (r) { return r.storage + (r.ok ? '' : ' (' + (r.kept ? 'kept' : 'error') + ')'); }).join(', '));
+    return { ok: true, results: results, publish: !!publish, assign: !!assign };
+  });
+}
 function learnLockHook_(storage, act, p) {
   if (LL_FORGET[act]) llForget_(storage);   // an attempt started/submitted, an assignment changed → fresh at once
   if (act === 'learnLockStatus') {
