@@ -357,6 +357,11 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
 
 ## 8. Lessons learned (bugs we hit and what fixed them)
 
+- **Teacher sign-in fails in ONE browser only (module shows the student sign-in), 2026-10-17:** a module prefers a server
+  address saved in that browser (`<prefix>backend_url_v1`, from Backend & sharing → Connect) over its configuration; an
+  old deployment address there made it reject the fresh pass. → portal.js `resetModuleUrl(pfx, backend)` drops a saved
+  address that differs from the platform's server whenever a module is opened from the platform (Admin, personal
+  teacher, student hand-over). Manual cure for a browser: clear the site data of third-year-med.github.io, Ctrl+Shift+R.
 - **Teacher opened a module from the dashboard and got the STUDENT sign-in (Cell Injury · Razi B, 2026-10-17):** the
   dashboard reused a saved teacher pass the server had already ended; the module refused it, dropped it and showed the
   student sign-in (a second click worked). → `teacherOpen` (Admin) and the personal-teacher open in portal.js always
@@ -423,7 +428,8 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   (add_repo, push access). Everything is built in Claude Code (builder skill available there) — no Claude Home step.
   See the top of docs/NEW-MODULE-PROMPT.md.
 - **Front page (2026-10-17):** opening a module from the Teacher Dashboard (Admin or personal teacher) always requests a
-  FRESH teacher pass — never reuse a saved one (a stale pass showed the module's student sign-in; see §8).
+  FRESH teacher pass — never reuse a saved one — and drops an old saved server address of that module (`resetModuleUrl`;
+  both showed the module's student sign-in; see §8).
 - **Standing instruction (user, 2026-10-16):** finished + tested → merge into `main` and push directly (no asking);
   still report what went live and give Portal.gs deploy steps when the backend changed.
 - Older history below.

@@ -564,7 +564,10 @@ test('personal teacher: Admin creates Dr. Ahmed with ONE group + module; he sign
   ['cellinjury', 'cellinjury-tm-a', 'inflhealing-tr-a'].forEach(function (m) { assert.strictEqual(main.call({ module: m, action: 'listStudents', token: tok }).ok, false, m); });
   // opening again ALWAYS asks for a fresh pass (2026-10-17): a saved pass the server had ended showed the student sign-in
   await p.goto(url + '#/teacher'); await dash(p, 'modules'); await p.waitForSelector('#t-mine .mod[data-id="cellinjury"] .t-open');
+  // an OLD server address saved in this browser (an earlier deployment) is dropped, so the module uses its own server
+  await p.evaluate(function () { localStorage.setItem('ci_tr-a_backend_url_v1', JSON.stringify('https://script.google.com/macros/s/OLD-DEPLOYMENT/exec')); });
   await p.click('#t-mine .mod[data-id="cellinjury"] .t-open'); await p.waitForTimeout(400);
+  assert.strictEqual(await p.evaluate(function () { return localStorage.getItem('ci_tr-a_backend_url_v1'); }), null, 'old saved address removed');
   const tok2 = JSON.parse(await p.evaluate(function () { return localStorage.getItem('ci_tr-a_backend_token_v1'); })).token;
   assert.notStrictEqual(tok2, tok, 'a new pass, not the saved one');
   assert.strictEqual(main.call({ module: 'cellinjury-tr-a', action: 'studentSession', token: tok2 }).role, 'teacher');

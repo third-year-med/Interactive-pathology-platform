@@ -61,7 +61,7 @@
     // no "url" field: the module then uses its own backend address (it rejects a session whose recorded address differs
     // from its configuration, which would silently send the student back to the module's sign-in page); the session
     // token itself is still verified by that backend.
-    if (m.handoff === 'neo') sset(k, { token: acc.token, expiresAt: acc.expiresAt, student: acc.student }, remember);
+    if (m.handoff === 'neo') { resetModuleUrl(m.storagePrefix + (m.group ? m.group + '_' : ''), backendOf(m)); sset(k, { token: acc.token, expiresAt: acc.expiresAt, student: acc.student }, remember); }
     else if (m.handoff === 'vp') sset(k, { role: 'student', stoken: acc.token, username: acc.student.username, name: acc.student.name, remember: !!remember }, remember);
   }
 
@@ -450,6 +450,11 @@
   function tteach() { var t = tget(); return t && t.role === 'teacher' ? t : null; }
   function lsGet(k) { try { var v = window.localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
   function lsSet(k, v) { try { window.localStorage.setItem(k, JSON.stringify(v)); } catch (e) { } }
+  /** 2026-10-17: a module page prefers a server address saved in this browser (Backend & sharing → Connect) over its own
+   *  configuration. An old saved address (e.g. a previous Apps Script deployment) made the module refuse the fresh pass and
+   *  show the student sign-in in that browser only — so opening a module from the platform drops any saved address that
+   *  differs from the platform's own server. */
+  function resetModuleUrl(pfx, backend) { var k = pfx + 'backend_url_v1', cur = lsGet(k); if (cur && String(cur).trim() !== String(backend || CFG.backendUrl || '').trim()) { try { window.localStorage.removeItem(k); } catch (e) { } } }
   function lsDel(k) { try { window.localStorage.removeItem(k); } catch (e) { } }
   /** Modules the teacher can enter straight from the dashboard: platform modules on this backend. */
   function teacherDirect(m) { return !!(m.url && m.moduleKey && m.handoff === 'neo' && m.storagePrefix && (!m.backend || m.backend === CFG.backendUrl)); }
@@ -480,6 +485,7 @@
       if (!r.ok) { if (r.code === 'auth') { sdel(TKEY); toast('Your teacher session has ended — please sign in again.'); return route(); } toast(r.code === 'badaction' ? 'Update Portal.gs on the backend (see SETUP.md) to open modules from the dashboard.' : r.error); return; }
       var acc = r.modules && r.modules[sk];
       if (!acc) { toast(g ? 'Group links need the updated Portal.gs on the backend (see SETUP.md).' : 'This module is not on the front-page list.'); return; }
+      resetModuleUrl(pfxOf(m, g), backendOf(m));
       lsSet(teacherKey(m, g), { token: acc.token, expiresAt: acc.expiresAt });
       sdel(pfxOf(m, g) + 'stu_session_v1');   // this browser opens the module as the teacher, not as a student
       t.mods = t.mods || {}; t.mods[sk] = { token: acc.token, expiresAt: acc.expiresAt, prefix: pfxOf(m, g) };
@@ -773,6 +779,7 @@
         if (r.code === 'mustchange') return teacherPwForm(true);
         toast(r.error || 'This module cannot be opened.'); return;
       }
+      resetModuleUrl(pfx, CFG.backendUrl);
       lsSet(pfx + 'backend_token_v1', { token: r.token, expiresAt: r.expiresAt });
       sdel(pfx + 'stu_session_v1');
       t.mods = t.mods || {}; t.mods[sk] = { token: r.token, expiresAt: r.expiresAt, prefix: pfx };
