@@ -214,6 +214,19 @@ chapter position (HANDBOOK §5 step 5) — that position is its place on every g
   Order for students (user's request): `topic-order.py` — in each group of My Assessments, titles "Topic N quiz" sort by N
   (1 first) after the other assessments, which stay newest first.
   **How the user ran it (2026-10-17):** pressed ⚡ Topic quizzes in Cell Injury → 17 topic quizzes created and copied.
+- **Pathology Overall Results & Analytics (Portal.gs 2.22, 2026-10-18, user's request):** TS action `resOverall {groupId}`
+  (Admin / personal teacher via `tsPlaces_`; partial flag like attOverall) → `resOverallCompute_(g, members, set)`.
+  Rows = the group's StudentMemberships (active AND inactive, keyed by Student ID). Per delivery (ordered by the
+  front-page registry): AssessRecords kind "attempt", status "submitted", deduped by record id; matched email →
+  <id>@student.local → unique name (reportDelivery_ rule); module % = unrounded mean of the student's submitted attempt
+  percentages (= the existing per-module "assessment average" rule; all attempts count). Exams (kind exattempt),
+  practice (Results) and attendance never count. Overall: equal mean or weighted Σw·p/Σw over modules WITH a result
+  (missing never zero; weight 0 = excluded; unconfigured weight = 1, flagged `weightDefault`); rounded to 0.1 once.
+  "Has assessments" = an active assignment or a submission; completion complete / partial / none / inactive.
+  Summary stats over ACTIVE students (inactive listed, not counted). Settings `aov:settings` {method, weights,
+  savedAt} via `resSettings` (Admin only, validated). Front end: portal.js `resultsSection` (dashboard card
+  `results`), CSV all / per student from the same data. Tests: backend "Pathology Overall Results (2.22)…", e2e
+  "Pathology Overall Results & Analytics (2.22)…".
 - **Copy to groups (Portal.gs 2.21, 2026-10-17, user's request):** `aeCopyHook_` (module teacher token of the source
   storage): `aeCopyTargets {assessmentId}` → other deliveries of the same module the caller teaches (`examCaller_` →
   Admin all / personal teacher `teacherDeliveries_`), each with `has` and `attempts`; `aeCopyTo {assessmentId, targets,
@@ -472,7 +485,7 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
 
 ## 10. Current state (updated 2026-10-17)
 
-- **Backend: Portal.gs 2.21 — deployed by the user 2026-10-17, platformCheck ✅** (2.21 = 📤 Copy to groups; 2.20 retires the class quiz password). Since 2.15: Overall
+- **Backend: Portal.gs 2.22 in the repo** (2.22 = 📈 Pathology Overall Results; 2.21 deployed by the user 2026-10-17, platformCheck ✅ = 📤 Copy to groups; 2.20 retires the class quiz password). Since 2.15: Overall
   Pathology Attendance (75 % rule, Excel / CSV / print, student card); student homepage redesign (curricular order from
   the Teacher Management list, exams in their own section, Teaching Sessions panel with full history); group Live
   Classroom off (`GROUP_CLASSROOM=false`); Learning Module lock (manual + automatic, server-enforced, compact card with

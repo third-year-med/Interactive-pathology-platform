@@ -2243,7 +2243,7 @@ test('Presentation Mode attendance code: the open code stays in the corner on ev
   await p.context().close();
 });
 
-test('Teacher Dashboard: compact cards first; each card opens its full management view; Back / browser Back / deep links; typed input is kept and unsaved changes are protected; a personal teacher gets four cards', { skip: SKIP }, async function () {
+test('Teacher Dashboard: compact cards first; each card opens its full management view; Back / browser Back / deep links; typed input is kept and unsaved changes are protected; a personal teacher gets five cards', { skip: SKIP }, async function () {
   groupFixture();
   main.call({ module: 'portal', action: 'setup', password: TPW });
   const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
@@ -2259,7 +2259,7 @@ test('Teacher Dashboard: compact cards first; each card opens its full managemen
   await p.waitForSelector('.dash-grid .dash-card');
   // only the six cards are on screen — no management form or table
   assert.deepStrictEqual(await p.$$eval('.dash-card', function (c) { return c.map(function (x) { return x.dataset.view + '|' + x.querySelector('.dc-t').textContent; }); }),
-    ['modules|Teaching Modules', 'sessions|Teaching Sessions', 'overall|Overall Pathology Attendance', 'exams|Official Exams', 'manage|Teacher Management', 'directory|Platform Directory']);
+    ['modules|Teaching Modules', 'sessions|Teaching Sessions', 'overall|Overall Pathology Attendance', 'results|Pathology Overall Results & Analytics', 'exams|Official Exams', 'manage|Teacher Management', 'directory|Platform Directory']);
   assert.strictEqual(await p.$$eval('.dash-view', function (v) { return v.filter(function (x) { return !x.hidden; }).length; }), 0);
   for (const sel of ['#t-modules', '#t-sessions', '#t-overall', '#t-exams', '#t-manage', '#t-dir', 'form.ts-form', '.modrow', 'table']) assert.ok(!(await p.isVisible(sel)), sel + ' hidden on the dashboard');
   // summaries from the data the sections already loaded
@@ -2343,7 +2343,7 @@ test('Teacher Dashboard: compact cards first; each card opens its full managemen
   await p.waitForSelector('#t-exams .ex-row', { state: 'visible' });
   assert.strictEqual(await p.evaluate(function () { return document.activeElement && document.activeElement.id; }), 'dv-h-exams', 'focus moves to the view title');
   await p.context().close();
-  // a personal teacher: four cards (no Teacher Management / Platform Directory)
+  // a personal teacher: five cards (no Teacher Management / Platform Directory)
   const un = 'dash.teacher', cr = A('teacherSave', { create: true, record: { username: un, name: 'Dr. Dash', password: 'dash-teacher-1' } }); assert.ok(cr.ok, JSON.stringify(cr));
   assert.ok(A('teacherAssign', { userId: cr.teacher.userId, deliveryIds: [d.deliveryId] }).ok);
   const lg = main.call({ module: 'portal', action: 'teacherLogin', username: un, password: 'dash-teacher-1' });
@@ -2352,7 +2352,7 @@ test('Teacher Dashboard: compact cards first; each card opens its full managemen
   await q.goto(url + '#/teacher');
   await q.fill('#t-u', un); await q.fill('#t-p', 'dash-teacher-2'); await q.click('form.card button[type=submit]');
   await q.waitForSelector('.dash-card');
-  assert.deepStrictEqual(await q.$$eval('.dash-card', function (c) { return c.map(function (x) { return x.dataset.view; }); }), ['modules', 'sessions', 'overall', 'exams']);
+  assert.deepStrictEqual(await q.$$eval('.dash-card', function (c) { return c.map(function (x) { return x.dataset.view; }); }), ['modules', 'sessions', 'overall', 'results', 'exams']);
   await q.waitForFunction(function () { return /1 module in 1 group/.test(document.querySelector('.dash-card[data-view=modules] .dc-sum').textContent); });
   await dash(q, 'modules'); await q.waitForSelector('#t-mine .mod[data-id="cellinjury"] .t-open', { state: 'visible' });
   await q.click('.dash-view[data-view=modules] .dv-back');
@@ -3198,6 +3198,74 @@ test('module Live Classroom: a signed-in registered student goes straight in (no
 test('no JavaScript errors', { skip: SKIP }, function () { assert.deepStrictEqual(errors, []); });
 
 /* ---------------- Overall Pathology Attendance (2.15) ---------------- */
+test('Pathology Overall Results & Analytics (2.22): one row per student, module assessment % and overall % (equal / weighted), missing ≠ 0, filters, sort, details, CSV = table', { skip: SKIP }, async function () {
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const A = function (action, o) { const r = main.call(Object.assign({ module: 'portal', action: action, token: t }, o || {})); assert.ok(r.ok, action + ' ' + JSON.stringify(r)); return r; };
+  const sv = function (kind, record) { return A('dirSave', { kind: kind, record: record }).record; };
+  A('dirGet');
+  const inst = sv('institution', { name: 'Results Test University', shortName: 'RTU' });
+  const g = sv('group', { institutionId: inst.institutionId, name: 'Group R', academicYear: '2026-27', linkCode: 'rs-a' });
+  sv('delivery', { groupId: g.groupId, moduleId: 'cellinjury', status: 'available' }); sv('delivery', { groupId: g.groupId, moduleId: 'inflhealing', status: 'available' });
+  A('rosterAdd', { groupId: g.groupId, mustChange: false, students: [{ studentId: '27010001', name: 'Amina Full', password: 'pass-r1-xyz' }, { studentId: '27010002', name: 'Basel Half', password: 'pass-r2-xyz' }, { studentId: '27010003', name: 'Carim None', password: 'pass-r3-xyz' }] });
+  const CI = 'cellinjury-rs-a', IH = 'inflhealing-rs-a'; let n = 0;
+  const att = function (st, id, pct, ref) { n++; main.ctx.assessStore_(st).put('attempt', 'rs' + n, { id: 'rs' + n, assessmentId: ref || 'q1', assessmentTitle: 'Topic ' + (ref || 'q1'), email: id + '@student.local', status: 'submitted', percent: pct, submittedAt: Date.now() }); };
+  att(CI, '27010001', 80); att(IH, '27010001', 60, 'q1'); att(IH, '27010001', 80, 'q2');   // CI 80, IH 70 → 75
+  att(CI, '27010002', 50);                                                                 // only CI → partial, overall 50
+  const p = await page();
+  await p.goto(url + '#/teacher'); await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+  await dash(p, 'results');
+  await p.waitForSelector('#t-results .rs-g');
+  await p.selectOption('#t-results .rs-g', g.groupId);
+  await p.waitForFunction(function () { return document.querySelectorAll('#t-results .rs-tbl tbody tr[data-student]').length === 3; }, null, { timeout: 15000 });
+  const cells = function (id) { return p.$eval('#t-results tr[data-student="' + id + '"]', function (tr) { return Array.prototype.map.call(tr.cells, function (c) { return c.textContent.trim(); }); }); };
+  const r1 = await cells('27010001'), r2 = await cells('27010002'), r3 = await cells('27010003');
+  assert.deepStrictEqual(r1.slice(0, 9), ['27010001', 'Amina Full', 'active', '2 / 2', '2', '80%', '70%', '75%', '✓ All modules']);
+  assert.deepStrictEqual(r2.slice(3, 9), ['1 / 2', '1', '50%', '—', '50%', 'Partial'], 'missing module shown as —, not 0');
+  assert.deepStrictEqual(r3.slice(3, 9), ['0 / 2', '0', '—', '—', '—', 'No results yet']);
+  const kpi = await p.textContent('#t-results .ov-kpis');
+  assert.match(kpi, /Enrolled students3[\s\S]*With an overall result2[\s\S]*Incomplete \(some modules\)1[\s\S]*Cohort mean62\.5%[\s\S]*Highest · lowest75% · 50%[\s\S]*Modules contributing2 \/ 2/);
+  assert.match(await p.textContent('#t-results .ov-method'), /Equal weighting[\s\S]*never counted as zero/);
+  if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'overall-results.png'), fullPage: true });
+  // filters, search, sort
+  await p.selectOption('#t-results .rs-show', 'partial');
+  assert.deepStrictEqual(await p.$$eval('#t-results .rs-tbl tbody tr[data-student]', function (r) { return r.map(function (x) { return x.dataset.student; }); }), ['27010002']);
+  await p.selectOption('#t-results .rs-show', 'all');
+  await p.fill('#t-results .rs-q', 'carim');
+  assert.deepStrictEqual(await p.$$eval('#t-results .rs-tbl tbody tr[data-student]', function (r) { return r.map(function (x) { return x.dataset.student; }); }), ['27010003']);
+  await p.fill('#t-results .rs-q', '');
+  await p.click('#t-results .rs-tbl th[data-k=overall]');
+  assert.deepStrictEqual(await p.$$eval('#t-results .rs-tbl tbody tr[data-student]', function (r) { return r.map(function (x) { return x.dataset.student; }); }), ['27010001', '27010002', '27010003'], 'highest first, no result last');
+  const ihId = await p.$eval('#t-results .rs-mod option:nth-child(3)', function (o) { return o.value; });
+  await p.selectOption('#t-results .rs-mod', ihId);
+  assert.match(await p.textContent('#t-results .rs-tbl thead'), /Inflammation/); assert.ok(!/Cell Injury/.test(await p.textContent('#t-results .rs-tbl thead')));
+  await p.selectOption('#t-results .rs-mod', '');
+  // drill-down
+  await p.click('#t-results tr[data-student="27010001"] button');
+  await p.waitForSelector('#t-results .rs-stu');
+  assert.match(await p.textContent('#t-results .rs-stu'), /Overall assessment75%[\s\S]*Topic q1 \(1 · 60%\)[\s\S]*Topic q2 \(1 · 80%\)[\s\S]*70%/);
+  // CSV = table
+  const dl = function (sel) { return Promise.all([p.waitForEvent('download'), p.click(sel)]).then(function (x) { return x[0].path(); }).then(function (f) { return fs.readFileSync(f, 'utf8').replace(/^﻿/, ''); }); };
+  const all = (await dl('#t-results [data-a=csv]')).split(/\r\n/);
+  assert.match(all[0], /^Student ID,Name,Status,Completion,Modules with results,Modules included,Modules with assessments,Calculation method,.*Overall assessment %$/);
+  assert.strictEqual(all[1], '27010001,Amina Full,active,complete,2,2,2,equal,80,70,75');
+  assert.strictEqual(all[2], '27010002,Basel Half,active,partial,1,1,2,equal,50,,50', 'missing = empty, not 0');
+  assert.strictEqual(all[3], '27010003,Carim None,active,none,0,0,2,equal,,,');
+  const one = await dl('#t-results .rs-stu [data-a=c]');
+  assert.match(one, /27010001,Amina Full,OVERALL,,equal,75,/);
+  // weighted: Cell Injury ×3 → (240 + 70) / 4 = 77.5
+  await p.click('#t-results .rs-set summary');
+  await p.check('#t-results input[name=rs-m][value=weighted]');
+  await p.fill('#t-results input[data-m=cellinjury]', '3');
+  await p.click('#t-results .rs-set [data-a=s]');
+  await p.waitForFunction(function () { var r = document.querySelector('#t-results tr[data-student="27010001"]'); return r && /77\.5%/.test(r.textContent); }, null, { timeout: 15000 });
+  assert.match(await p.textContent('#t-results .ov-method'), /Weighted average/);
+  assert.match(await p.textContent('#t-results .ov-mods'), /weight 3[\s\S]*weight 1 \(default\)/);
+  A('resSettings', { method: 'equal', weights: {} });
+  assert.strictEqual(errors.filter(function (e) { return !/ERR_TUNNEL|net::/.test(e); }).length, 0, errors.join('\n'));
+  await p.context().close();
+});
+
 test('Overall Pathology Attendance: every module together, all registered students, % and absence %, 75% warning, report, Excel / CSV / print, student card', { skip: SKIP }, async function () {
   main.call({ module: 'portal', action: 'setup', password: TPW });
   const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;

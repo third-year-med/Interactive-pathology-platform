@@ -404,6 +404,19 @@ are kept in the new sheet **TeachingSessions** (created automatically the first 
 - **Bold text on slides (2026-10-17):** Presentation mode → ✎ Edit slide (or + Add slide) → in *Bullet points* or
   *Subtitle* select the words → **B** (or Ctrl+B) makes them bold; select them again → **B** removes the bold. With no
   selection, B works on the word at the cursor. A *Preview* under the box shows the result; **Save slide**.
+- **📈 Pathology Overall Results & Analytics (Portal.gs 2.22):** Teacher Dashboard → **📈 Pathology Overall Results &
+  Analytics** → choose the group. One row per student of the group: Student ID, name, status (active / inactive / no
+  account), modules with results, modules included, the **assessment %** of every module, the **overall %** and the
+  completion (all modules / partial / no results yet / inactive). A module's assessment % is the same figure as in that
+  module's *Results & attendance* sheet — the mean of the student's submitted assessment attempts there; practice
+  quizzes, exams and attendance are not part of it. **Overall % = the mean of the module percentages the student has**
+  (equal weighting, the default) — a module without a result is left out, **never counted as zero**. Admin: **⚙ Calculation
+  method** → *Weighted* + a weight per module (empty = 1, 0 = leave out) → 💾 Save (applies to every group).
+  Summary at the top (enrolled, with results, incomplete, cohort mean, highest / lowest, modules contributing), search,
+  *Show* (completion) and *Module* filters, click **Overall %** to sort, **Details →** for a student's module-by-module
+  marks (each assessment, attempts and average), **⬇ CSV — all students** and **⬇ CSV — this student** (missing results
+  are empty cells). Personal teachers see only their assigned modules (a note says so). The per-module *Results &
+  attendance* sheets and Overall Attendance are unchanged.
 - **🔒 Lock Learning Module:** Teacher Dashboard → **Teaching Modules** → the small *Learning Module lock* card (click it to open) → the group + module →
   **🔒 Lock Learning Module**. Its students can then open only **Assessments** in that module (within a minute); every other
   page and address is closed and the server stops sending them learning material. **🔓 Unlock Learning Module** opens it

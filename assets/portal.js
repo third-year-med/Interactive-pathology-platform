@@ -520,6 +520,7 @@
     modules: ['📚', 'Teaching Modules', 'Open a module in teacher mode or its Teacher Portal; lock the Learning module during an assessment.'],
     sessions: ['🎓', 'Teaching Sessions', 'Schedule or start lectures, live attendance, Live Classroom, history.'],
     overall: ['📊', 'Overall Pathology Attendance', 'All modules together: attendance and absence % per student, module breakdown, below-75% warnings, Excel and print; results of every module.'],
+    results: ['📈', 'Pathology Overall Results & Analytics', 'Assessment results of every module together: overall % per student (equal or weighted), module-by-module marks, completion, CSV.'],
     exams: ['📝', 'Official Exams', 'Module and combined exams, exam banks, student exam pages, results.'],
     manage: ['🧩', 'Teacher Management', 'Front-page module cards: title, icon, colour, link, status.'],
     directory: ['🏛️', 'Platform Directory', 'Institutions, groups, modules, deliveries, students, teachers, content.']
@@ -613,6 +614,10 @@
     dashSum('overall', x.group + ' · ' + x.students + ' student' + (x.students === 1 ? '' : 's') + ' · ' + x.ended + ' session' + (x.ended === 1 ? '' : 's') + ' in ' + x.modules + ' module' + (x.modules === 1 ? '' : 's'),
       x.warn ? '⚠ ' + x.warn + ' below ' + x.th + '%' : '', 'warn');
   }
+  function resultsSummary(x) {
+    if (x.none) { dashSum('results', x.none); return; }
+    dashSum('results', x.group + ' · ' + x.withResults + ' of ' + x.enrolled + ' student' + (x.enrolled === 1 ? '' : 's') + ' with results · ' + x.modules + ' module' + (x.modules === 1 ? '' : 's') + (x.mean != null ? ' · mean ' + x.mean + '%' : ''));
+  }
   function examSummary(places) {
     var groups = {}, comb = 0; places.forEach(function (p) { groups[p.groupLabel] = 1; if (p.kind === 'combined') comb++; });
     var g = Object.keys(groups).length;
@@ -640,6 +645,7 @@
     var ex = examsSection(call, true, examSummary);
     var ov = overallSection(call, overallSummary);
     ov.appendChild(reportBlock(call));
+    var rs = resultsSection(call, resultsSummary);
     var mg = h('<section class="t-sec" id="t-manage"><div class="sec-head"><h2>Teacher Management</h2><span class="small muted">Front-page modules, statuses and links</span></div><div class="t-box"><p class="muted">Loading…</p></div></section>');
     var box = $('.t-box', mg);
     var dir = directorySection(function (D) {
@@ -647,7 +653,7 @@
       dashSum('directory', n('institutions', 'institution').replace('institutionss', 'institutions') + ' · ' + n('groups', 'group') + ' · ' + n('deliveries', 'delivery').replace('deliverys', 'deliveries'));
     });
     main.appendChild(dashShell({ intro: 'Signed in as the platform administrator. Choose an area to open it.',
-      views: [['modules', tmW], ['sessions', ss], ['overall', ov], ['exams', ex], ['manage', mg], ['directory', dir]] }));
+      views: [['modules', tmW], ['sessions', ss], ['overall', ov], ['results', rs], ['exams', ex], ['manage', mg], ['directory', dir]] }));
     DASH.onOpen.directory = function () { var d = $('details.dir', dir); if (d && !d.open) d.open = true; };   // loads the directory the first time
     moduleSummary();
     dashShow();
@@ -719,9 +725,10 @@
     $('[data-a=pw]', bar).onclick = function () { teacherPwForm(false); };
     var box = h('<section class="t-sec" id="t-mine"><p class="muted">Loading…</p></section>');
     var sessW = h('<div class="dv-wrap"><p class="muted small">Loading…</p></div>'), exW = h('<div class="dv-wrap"><p class="muted small">Loading…</p></div>'), ovW = h('<div class="dv-wrap"><p class="muted small">Loading…</p></div>');
+    var resW = h('<div class="dv-wrap"><p class="muted small">Loading…</p></div>');
     var boxW = h('<div class="dv-wrap"></div>'); boxW.appendChild(learnLockSection(call)); boxW.appendChild(box);   // 2.18: the lock first
     main.appendChild(dashShell({ intro: 'Signed in as <b>' + esc(u.name || u.username) + '</b> (' + esc(u.username) + '). Your groups and modules — choose an area to open it.', tools: bar,
-      views: [['modules', boxW], ['sessions', sessW], ['overall', ovW], ['exams', exW]] }));
+      views: [['modules', boxW], ['sessions', sessW], ['overall', ovW], ['results', resW], ['exams', exW]] }));
     dashShow();
     post(CFG.backendUrl, { module: 'portal', action: 'teacherMe', ttoken: t.ttoken }).then(function (r) {
       if (!r.ok) { if (r.code === 'auth') { sdel(TKEY); toast('Your teacher session has ended — please sign in again.'); return route(); } box.innerHTML = '<p class="err">' + esc(r.error) + '</p>'; return; }
@@ -730,8 +737,8 @@
       box.innerHTML = '';
       if (!r.deliveries.length) {
         box.appendChild(h('<div class="card"><p>No group or module has been assigned to you yet. Please contact the platform administrator.</p></div>'));
-        sessW.innerHTML = exW.innerHTML = ovW.innerHTML = '<p class="muted small">No group or module is assigned to you yet.</p>';
-        ['modules', 'sessions', 'overall', 'exams'].forEach(function (id) { dashSum(id, 'Nothing assigned yet'); });
+        sessW.innerHTML = exW.innerHTML = ovW.innerHTML = resW.innerHTML = '<p class="muted small">No group or module is assigned to you yet.</p>';
+        ['modules', 'sessions', 'overall', 'results', 'exams'].forEach(function (id) { dashSum(id, 'Nothing assigned yet'); });
         return;
       }
       var nG = {}, nOpen = 0; r.deliveries.forEach(function (d) { nG[d.groupId] = 1; if (d.open) nOpen++; });
@@ -750,6 +757,7 @@
       sessW.innerHTML = ''; sessW.appendChild(sessionsSection(call, false, { byStudent: false, onSummary: sessSummary }));
       exW.innerHTML = ''; exW.appendChild(examsSection(call, false, examSummary));
       ovW.innerHTML = ''; ovW.appendChild(overallSection(call, overallSummary)); ovW.appendChild(reportBlock(call));
+      resW.innerHTML = ''; resW.appendChild(resultsSection(call, resultsSummary));
     });
   }
   function myCard(d) {
@@ -1408,6 +1416,149 @@
     var d = f.contentWindow.document;
     d.open(); d.write('<!doctype html><html lang="en"><head><meta charset="utf-8"><title>' + esc(title) + '</title><style>' + OV_PRINT_CSS + '</style></head><body>' + inner + '</body></html>'); d.close();
     setTimeout(function () { try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { toast('Printing is not available in this browser.'); } }, 200);
+  }
+  /* ---------------- Pathology Overall Results & Analytics (2.22): the ASSESSMENT % of every module and the overall % ---------------- */
+  function resultsSection(call, onSummary) {
+    var sec = h('<section class="t-sec" id="t-results"><div class="rs-body"><p class="muted small">Loading…</p></div></section>');
+    var body = $('.rs-body', sec), G = null, groupId = '', R = null, show = 'all', q = '', modSel = '', sortBy = 'id', dir = 1;
+    function fail(r) {
+      if (r.code === 'auth') { sdel(TKEY); toast('Your session has ended — please sign in again.'); route(); return; }
+      if (r.code === 'mustchange') { teacherPwForm(true); return; }
+      body.innerHTML = '<p class="small ' + (r.code === 'badaction' ? 'muted' : 'err') + '">' + esc(r.code === 'badaction' ? 'Update Portal.gs on the backend (version 2.22) to see the overall results.' : r.error || 'Something went wrong.') + '</p>';
+    }
+    function start() {
+      call('tsGroups').then(function (r) {
+        if (!r.ok) { fail(r); if (onSummary) onSummary({ none: 'Not available' }); return; }
+        G = r;
+        if (!G.groups.length) { body.innerHTML = '<p class="muted small">No group has teaching modules yet.</p>'; if (onSummary) onSummary({ none: 'No teaching group yet' }); return; }
+        try { groupId = sessionStorage.getItem('pp_ts_group') || ''; } catch (e) { }
+        if (!G.groups.some(function (g) { return g.groupId === groupId; })) groupId = G.groups[0].groupId;
+        load();
+      });
+    }
+    function load() {
+      body.innerHTML = '<p class="muted small">Loading the assessment results of every module…</p>';
+      call('resOverall', { groupId: groupId }).then(function (r) {
+        if (!r.ok) { fail(r); if (onSummary && r.code === 'badaction') onSummary({ none: 'Update Portal.gs (2.22)' }); return; }
+        R = r; if (modSel && !R.modules.some(function (m) { return m.deliveryId === modSel; })) modSel = ''; draw();
+        if (onSummary) onSummary({ group: r.group.label, enrolled: r.summary.enrolled, withResults: r.summary.withResults, modules: r.modules.length, mean: r.summary.mean });
+      });
+    }
+    function pc(v) { return v == null ? '—' : v + '%'; }
+    function method() { return R.settings.method === 'weighted' ? 'Weighted average of the module percentages' : 'Equal weighting — mean of the module percentages'; }
+    var COMP = { complete: ['✓ All modules', 'open'], partial: ['Partial', 'soon'], none: ['No results yet', ''], inactive: ['Inactive', 'locked'] };
+    function badge(x) { var c = COMP[x.completion] || ['?', '']; return '<span class="pill ' + c[1] + '">' + esc(c[0]) + '</span>'; }
+    function modOf(x, id) { return x.modules.filter(function (m) { return m.deliveryId === id; })[0]; }
+    function visible() {
+      var k = q.trim().toLowerCase();
+      var list = R.students.filter(function (x) {
+        if (show !== 'all' && x.completion !== show) return false;
+        return !k || String(x.studentId).toLowerCase().indexOf(k) >= 0 || String(x.name).toLowerCase().indexOf(k) >= 0;
+      });
+      var val = function (x) { if (sortBy === 'overall') return x.overall; if (sortBy === 'mod') { var m = modOf(x, modSel); return m ? m.pct : null; } return null; };
+      return list.sort(function (a, b) {
+        if (sortBy === 'id') return dir * String(a.studentId).localeCompare(String(b.studentId));
+        if (sortBy === 'name') return dir * String(a.name).localeCompare(String(b.name));
+        var x = val(a), y = val(b); if (x == null && y == null) return String(a.studentId).localeCompare(String(b.studentId));
+        if (x == null) return 1; if (y == null) return -1; return dir * (x - y) || String(a.studentId).localeCompare(String(b.studentId));
+      });
+    }
+    function draw() {
+      var S = R.summary; body.innerHTML = '';
+      var top = h('<div class="ts-top"><label class="ts-g">Group <select class="rs-g">' + G.groups.map(function (x) { return '<option value="' + esc(x.groupId) + '"' + (x.groupId === groupId ? ' selected' : '') + '>' + esc(x.label) + '</option>'; }).join('') + '</select></label>' +
+        '<button class="btn small" type="button" data-a="r">↻ Refresh</button></div>');
+      $('.rs-g', top).onchange = function () { groupId = this.value; try { sessionStorage.setItem('pp_ts_group', groupId); } catch (e) { } load(); };
+      $('[data-a=r]', top).onclick = load;
+      body.appendChild(top);
+      body.appendChild(h('<div class="ov-kpis">' +
+        '<div class="ov-kpi"><span>Enrolled students</span><b>' + S.enrolled + '</b>' + (S.inactive ? '<small>+ ' + S.inactive + ' inactive (not counted)</small>' : '') + '</div>' +
+        '<div class="ov-kpi"><span>With an overall result</span><b>' + S.withResults + '</b><small>of ' + S.enrolled + ' enrolled</small></div>' +
+        '<div class="ov-kpi"><span>Incomplete (some modules)</span><b>' + S.incomplete + '</b><small>' + S.none + ' with no results yet</small></div>' +
+        '<div class="ov-kpi"><span>Cohort mean</span><b>' + pc(S.mean) + '</b><small>of students with a result</small></div>' +
+        '<div class="ov-kpi"><span>Highest · lowest</span><b>' + pc(S.high) + ' · ' + pc(S.low) + '</b><small>overall %, students with a result</small></div>' +
+        '<div class="ov-kpi"><span>Modules contributing</span><b>' + S.modulesWithResults + ' / ' + S.modules + '</b><small>' + S.modulesAssessed + ' with assessments</small></div></div>'));
+      body.appendChild(h('<p class="small ov-mods"><b>Modules:</b> ' + (R.modules.length ? R.modules.map(function (m) { return '<span class="ov-chip">' + esc(m.icon + ' ' + m.title) + ' · ' + (m.submitted ? m.students + ' student' + (m.students === 1 ? '' : 's') + ' · ' + m.submitted + ' attempt' + (m.submitted === 1 ? '' : 's') : m.hasAssessments ? 'assigned, no submission yet' : 'no assessments') + (R.settings.method === 'weighted' ? ' · weight ' + m.weight + (m.weightDefault ? ' (default)' : '') : '') + '</span>'; }).join(' ') : '—') + '</p>'));
+      if (R.partial) body.appendChild(h('<p class="note small">Only the ' + R.modules.length + ' module(s) assigned to you are included; the group has ' + R.groupModules + ' teaching module(s). The platform administrator sees every module.</p>'));
+      body.appendChild(h('<p class="small muted ov-method"><b>' + esc(method()) + '.</b> A module’s assessment % is the same figure as in that module’s Results &amp; attendance sheet: the mean of the student’s submitted assessment attempts in that module (every submitted attempt, each counted once). Practice quizzes, official exams and attendance are not included. ' +
+        (R.settings.method === 'weighted' ? 'Overall % = Σ(weight × module %) ÷ Σ(weight) over the modules the student has results in; weight 0 = excluded; a module without a configured weight counts 1. ' : 'Overall % = the sum of the student’s module percentages ÷ the number of those modules; every module counts equally. ') +
+        'Modules without a result are left out — never counted as zero. Percentages are rounded to one decimal at the end.</p>'));
+      if (R.admin) body.appendChild(settingsBox());
+      var tools = h('<div class="roster-tools"><button class="btn primary" type="button" data-a="csv">⬇ CSV — all students</button></div>');
+      $('[data-a=csv]', tools).onclick = csvAll; body.appendChild(tools);
+      if (!R.students.length) { body.appendChild(h('<p class="muted small">No students in this group yet (Platform directory → Students).</p>')); return; }
+      var tbl = h('<div class="ts-block rs-class"><h3>📈 Overall assessment results — ' + esc(R.group.label) + '</h3>' +
+        '<div class="ov-filter"><label>Find<input type="search" class="rs-q" placeholder="Name or Student ID" value="' + esc(q) + '"></label>' +
+        '<label>Show<select class="rs-show">' + [['all', 'All students'], ['complete', 'Results in all modules'], ['partial', 'Partial (some modules)'], ['none', 'No results yet'], ['inactive', 'Inactive']].map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === show ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
+        '<label>Module<select class="rs-mod"><option value="">All modules</option>' + R.modules.map(function (m) { return '<option value="' + esc(m.deliveryId) + '"' + (m.deliveryId === modSel ? ' selected' : '') + '>' + esc(m.title) + '</option>'; }).join('') + '</select></label>' +
+        '<span class="small muted rs-count"></span></div><div class="tbl-wrap"><table class="dir-tbl rs-tbl"><thead></thead><tbody></tbody></table></div></div>');
+      body.appendChild(tbl);
+      var detailBox = h('<div class="ov-detail rs-detail"></div>'); body.appendChild(detailBox);
+      function th(label, key, cls) { return '<th class="' + (cls || '') + ' rs-sort" data-k="' + key + '" title="Sort">' + label + (sortBy === key ? (dir > 0 ? ' ▲' : ' ▼') : '') + '</th>'; }
+      function rows() {
+        var mods = modSel ? R.modules.filter(function (m) { return m.deliveryId === modSel; }) : R.modules;
+        $('thead', tbl).innerHTML = '<tr>' + th('Student ID', 'id') + th('Name', 'name') + '<th>Status</th><th class="n">Modules with results</th><th class="n">Included</th>' +
+          mods.map(function (m) { return modSel ? th(esc(m.icon + ' ' + m.title), 'mod', 'n') : '<th class="n">' + esc(m.icon + ' ' + m.title) + '</th>'; }).join('') + th('Overall %', 'overall', 'n') + '<th>Completion</th><th></th></tr>';
+        Array.prototype.forEach.call(tbl.querySelectorAll('.rs-sort'), function (c) { c.onclick = function () { var k = c.dataset.k; if (sortBy === k) dir = -dir; else { sortBy = k; dir = k === 'overall' || k === 'mod' ? -1 : 1; } rows(); }; });
+        var list = visible(), tb = $('tbody', tbl); tb.innerHTML = '';
+        list.forEach(function (x) {
+          var tr = h('<tr data-student="' + esc(x.studentId) + '"' + (x.active ? '' : ' class="muted"') + '><td><code>' + esc(x.studentId) + '</code></td><td dir="auto">' + esc(x.name) + '</td><td class="small">' + esc(x.status) + '</td>' +
+            '<td class="n">' + x.withResults + ' / ' + x.assessedModules + '</td><td class="n">' + x.included + '</td>' +
+            mods.map(function (m) { var y = modOf(x, m.deliveryId); return '<td class="n">' + (y && y.pct != null ? (y.included ? '' : '<span class="small muted" title="Weight 0 — not in the overall">(') + y.pct + '%' + (y.included ? '' : ')</span>') : '<span class="muted">—</span>') + '</td>'; }).join('') +
+            '<td class="n"><b>' + pc(x.overall) + '</b></td><td>' + badge(x) + '</td><td><button class="btn small" type="button">Details →</button></td></tr>');
+          $('button', tr).onclick = function () { detail(x); };
+          tb.appendChild(tr);
+        });
+        if (!list.length) tb.appendChild(h('<tr><td colspan="' + (8 + mods.length) + '" class="muted small">No student matches.</td></tr>'));
+        $('.rs-count', tbl).textContent = list.length + ' of ' + R.students.length + ' student' + (R.students.length === 1 ? '' : 's');
+      }
+      $('.rs-q', tbl).oninput = function () { q = this.value; rows(); };
+      $('.rs-show', tbl).onchange = function () { show = this.value; rows(); };
+      $('.rs-mod', tbl).onchange = function () { modSel = this.value; if (!modSel && sortBy === 'mod') sortBy = 'overall'; rows(); };
+      rows();
+      if (R.others.length) body.appendChild(h('<p class="small warn-t">Assessment attempts not matched to this group’s student list (not counted): ' + R.others.map(function (o) { return esc(o.label) + ' — ' + esc(o.module) + ' (' + o.attempts + ')'; }).join('; ') + '</p>'));
+      function detail(x) {
+        var w = h('<div class="note ov-stu rs-stu" tabindex="-1"><div class="ov-stu-h"><div><b dir="auto">' + esc(x.name) + '</b> <code>' + esc(x.studentId) + '</code><div class="small muted">' + esc(R.group.label) + ' · ' + esc(x.status) + '</div></div>' + badge(x) + '</div>' +
+          '<div class="ov-kpis"><div class="ov-kpi"><span>Overall assessment</span><b>' + pc(x.overall) + '</b><small>' + esc(R.settings.method === 'weighted' ? 'weighted' : 'equal weighting') + '</small></div>' +
+          '<div class="ov-kpi"><span>Modules with results</span><b>' + x.withResults + '</b><small>of ' + x.assessedModules + ' with assessments</small></div><div class="ov-kpi"><span>Included in overall</span><b>' + x.included + '</b></div><div class="ov-kpi"><span>Not yet assessed</span><b>' + x.remaining + '</b></div></div>' +
+          '<div class="tbl-wrap"><table class="dir-tbl"><thead><tr><th>Module</th><th class="n">Attempts</th><th>Assessments (attempts · average)</th><th class="n">Module %</th>' + (R.settings.method === 'weighted' ? '<th class="n">Weight</th>' : '') + '<th>In overall</th></tr></thead><tbody>' +
+          x.modules.map(function (m) { return '<tr><td>' + esc(m.icon + ' ' + m.module) + '</td><td class="n">' + m.attempts + '</td><td class="small">' + (m.assessments.length ? m.assessments.map(function (a) { return esc(a.title) + ' (' + a.attempts + ' · ' + a.avg + '%)'; }).join('<br>') : '<span class="muted">—</span>') + '</td><td class="n"><b>' + pc(m.pct) + '</b></td>' + (R.settings.method === 'weighted' ? '<td class="n">' + m.weight + '</td>' : '') + '<td>' + (m.included ? '✓' : m.pct == null ? '<span class="muted">no result</span>' : '<span class="muted">weight 0</span>') + '</td></tr>'; }).join('') +
+          '<tr><td><b>Overall</b></td><td></td><td class="small muted">' + esc(method()) + '</td><td class="n"><b>' + pc(x.overall) + '</b></td>' + (R.settings.method === 'weighted' ? '<td></td>' : '') + '<td></td></tr></tbody></table></div>' +
+          '<div class="roster-tools"><button class="btn" type="button" data-a="c">⬇ CSV — this student</button><button class="btn" type="button" data-a="x">Close</button></div></div>');
+        $('[data-a=x]', w).onclick = function () { detailBox.innerHTML = ''; };
+        $('[data-a=c]', w).onclick = function () { csvStudent(x); };
+        detailBox.innerHTML = ''; detailBox.appendChild(w); w.scrollIntoView({ block: 'nearest' }); try { w.focus({ preventScroll: true }); } catch (e) { }
+      }
+    }
+    function settingsBox() {
+      var set = R.settings;
+      var w = h('<details class="ts-block rs-set"><summary><b>⚙ Calculation method</b> <span class="small muted">— ' + esc(method()) + ' (Admin)</span></summary>' +
+        '<p class="small"><label><input type="radio" name="rs-m" value="equal"' + (set.method !== 'weighted' ? ' checked' : '') + '> <b>Equal weighting</b> (default) — every module counts the same</label><br>' +
+        '<label><input type="radio" name="rs-m" value="weighted"' + (set.method === 'weighted' ? ' checked' : '') + '> <b>Weighted</b> — use the weights below (e.g. from the approved curriculum)</label></p>' +
+        '<div class="rs-w">' + R.modules.map(function (m) { return '<label class="small">' + esc(m.icon + ' ' + m.title) + ' <input type="number" min="0" max="1000" step="any" data-m="' + esc(m.moduleId) + '" value="' + (set.weights[m.moduleId] != null ? set.weights[m.moduleId] : '') + '" placeholder="1"></label>'; }).join('') + '</div>' +
+        '<p class="small muted">Weights apply to every group. Empty = 1; 0 = leave the module out of the overall. Nothing changes until you press Save.</p>' +
+        '<div class="roster-tools"><button class="btn primary" type="button" data-a="s">💾 Save calculation method</button><span class="small rs-set-msg"></span></div></details>');
+      $('[data-a=s]', w).onclick = function () {
+        var m = (w.querySelector('input[name=rs-m]:checked') || {}).value || 'equal', ws = Object.assign({}, set.weights);
+        Array.prototype.forEach.call(w.querySelectorAll('input[data-m]'), function (i) { if (i.value === '') delete ws[i.dataset.m]; else ws[i.dataset.m] = i.value; });
+        var msg = $('.rs-set-msg', w); msg.textContent = 'Saving…';
+        call('resSettings', { method: m, weights: ws }).then(function (r) { if (!r.ok) { msg.textContent = '✗ ' + (r.error || 'Could not save.'); return; } toast('Calculation method saved.'); load(); });
+      };
+      return w;
+    }
+    function fname(x) { return 'pathology-overall-results-' + R.group.linkCode + (x ? '-' + x : '') + '-' + new Date().toISOString().slice(0, 10) + '.csv'; }
+    function csvAll() {
+      var head = ['Student ID', 'Name', 'Status', 'Completion', 'Modules with results', 'Modules included', 'Modules with assessments', 'Calculation method'].concat(R.modules.map(function (m) { return m.title + ' %'; }), ['Overall assessment %']);
+      csvDownload(fname(''), head, R.students.slice().sort(function (a, b) { return String(a.studentId).localeCompare(String(b.studentId)); }).map(function (x) {
+        return [x.studentId, x.name, x.status, x.completion, x.withResults, x.included, x.assessedModules, R.settings.method].concat(R.modules.map(function (m) { var y = modOf(x, m.deliveryId); return y && y.pct != null ? y.pct : ''; }), [x.overall == null ? '' : x.overall]);
+      }));
+    }
+    function csvStudent(x) {
+      var rows = x.modules.map(function (m) { return [x.studentId, x.name, m.module, m.attempts, m.assessments.map(function (a) { return a.title + ' (' + a.attempts + ' · ' + a.avg + '%)'; }).join('; '), m.pct == null ? '' : m.pct, R.settings.method === 'weighted' ? m.weight : 1, m.included ? 'yes' : 'no']; });
+      rows.push([x.studentId, x.name, 'OVERALL', '', R.settings.method, x.overall == null ? '' : x.overall, '', x.included + ' module(s)']);
+      csvDownload(fname(String(x.studentId).replace(/[^A-Za-z0-9_-]/g, '')), ['Student ID', 'Name', 'Module', 'Attempts', 'Assessments', 'Module assessment %', 'Weight', 'Included in overall'], rows);
+    }
+    start();
+    return sec;
   }
   function overallSection(call, onSummary) {
     var sec = h('<section class="t-sec" id="t-overall"><div class="ov-body"><p class="muted small">Loading…</p></div></section>');

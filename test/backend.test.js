@@ -2350,3 +2350,67 @@ test('copy an assessment to other groups (2.21): only groups of the same module 
   assert.strictEqual(T('aeCopyTo', { assessmentId: 'nope', targets: [MS] }).code, 'notfound');
   assert.strictEqual(T('aeCopyTo', { assessmentId: 'q1', targets: [] }).ok, false);
 });
+
+test('Pathology Overall Results (2.22): module % = mean of submitted assessment attempts; overall equal (75% example) or weighted; missing ≠ zero; inactive / duplicates / exams / practice excluded; settings; permissions', function () {
+  const S = tsSetup(), X = S.b.ctx;
+  const M = ['ovA', 'ovB', 'ovC', 'ovD'].map(function (k, i) { return { deliveryId: 'd-' + k, moduleId: 'mod' + k, title: ['Cell Injury', 'Inflammation', 'Hemodynamic Disorders', 'Neoplasia'][i], icon: '📘', storage: 'mod' + k + '-tg', active: true }; });
+  const g = { groupId: 'g-ov', label: 'Test group', linkCode: 'tg', academicYear: '2026-27', modules: M };
+  let n = 0;
+  const att = function (st, email, pct, status, ref) { n++; X.assessStore_(st).put('attempt', 'at' + n, { id: 'at' + n, assessmentId: ref || 'q1', assessmentTitle: 'Quiz ' + (ref || 'q1'), email: email, name: '', status: status || 'submitted', percent: pct, submittedAt: n }); return 'at' + n; };
+  const members = [{ studentId: 's1', name: 'Student One', active: true, email: '' }, { studentId: 's2', name: 'Student Two', active: true, email: 's2@uni.ly' },
+    { studentId: 's3', name: 'Student Three', active: true, email: '' }, { studentId: 's4', name: 'Former Student', active: false, email: '' }];
+  // s1: 80 / 70 / 90 / 60 → 75 (the example); module A has two attempts 70 + 90 = 80 (all submitted attempts, the existing rule)
+  att(M[0].storage, 's1@student.local', 70, 'submitted', 'q1'); att(M[0].storage, 's1@student.local', 90, 'submitted', 'q2');
+  att(M[1].storage, 's1@student.local', 70); att(M[2].storage, 's1@student.local', 90); att(M[3].storage, 's1@student.local', 60);
+  att(M[3].storage, 's1@student.local', 0, 'in_progress');                                   // not submitted → never counted
+  // s2 (real email): results in 2 modules only → partial; never zero for the missing ones
+  att(M[0].storage, 's2@uni.ly', 50); att(M[1].storage, 's2@uni.ly', 100);
+  // s4 inactive, with a result; an unknown person's attempt is not merged into anyone
+  att(M[0].storage, 's4@student.local', 40); att(M[0].storage, 'stranger@x.y', 99);
+  // a duplicated record (same attempt id twice in the sheet) is counted once
+  const dupId = att(M[2].storage, 's2@uni.ly', 30); const row = X.rpRows_('AssessRecords').filter(function (r) { return r.id === dupId; })[0];
+  X.appendRow_('AssessRecords', Object.assign({}, row)); assert.strictEqual(X.rpRows_('AssessRecords').filter(function (r) { return r.id === dupId; }).length, 2);
+  // exams and practice quizzes are other metrics
+  X.assessStore_(M[1].storage).put('exattempt', 'ex1', { id: 'ex1', examId: 'e1', username: 's1', status: 'submitted', percent: 5 });
+  X.appendRow_('Results', { module: M[1].storage, id: 'r1', name: 'Student One', email: 's1@student.local', percent: 3, submittedAt: 1 });
+  // module D has an active assignment → counts as a module with assessments
+  X.assessStore_(M[3].storage).put('assignment', 'asgD', { id: 'asgD', assessmentId: 'q1', status: 'active', targetType: 'all' });
+
+  const eq = X.resOverallCompute_(g, members, { method: 'equal', weights: {} });
+  const by = function (r, id) { return r.students.filter(function (x) { return x.studentId === id; })[0]; };
+  const pcts = function (x) { return M.map(function (m) { return x.modules.filter(function (y) { return y.deliveryId === m.deliveryId; })[0].pct; }); };
+  const modOf = function (x, i) { return x.modules.filter(function (y) { return y.deliveryId === M[i].deliveryId; })[0]; };
+  const gm = function (r, i) { return r.modules.filter(function (y) { return y.deliveryId === M[i].deliveryId; })[0]; };
+  const s1 = by(eq, 's1'), s2 = by(eq, 's2'), s3 = by(eq, 's3'), s4 = by(eq, 's4');
+  assert.deepStrictEqual(pcts(s1), [80, 70, 90, 60]);
+  assert.deepStrictEqual([s1.overall, s1.withResults, s1.included, s1.completion, s1.remaining], [75, 4, 4, 'complete', 0], 'the 75% example');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(modOf(s1, 0).assessments.map(function (a) { return [a.title, a.attempts, a.avg]; }))), [['Quiz q1', 1, 70], ['Quiz q2', 1, 90]]);
+  assert.deepStrictEqual(pcts(s2), [50, 100, 30, null], 'missing stays missing; the duplicate counted once');
+  assert.deepStrictEqual([s2.overall, s2.withResults, s2.completion, s2.remaining], [60, 3, 'partial', 1]);
+  assert.deepStrictEqual([s3.overall, s3.withResults, s3.completion], [null, 0, 'none'], 'no submissions → no overall (not zero)');
+  assert.deepStrictEqual([s4.status, s4.completion, s4.overall], ['inactive', 'inactive', 40], 'inactive listed with history, not dropped');
+  assert.strictEqual(gm(eq, 1).submitted, 2, 'exam attempt and practice result are not assessments');
+  assert.strictEqual(gm(eq, 3).hasAssessments, true);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(eq.summary)), { enrolled: 3, inactive: 1, withResults: 2, incomplete: 1, none: 1, complete: 1, mean: 67.5, high: 75, low: 60, modulesWithResults: 4, modulesAssessed: 4, modules: 4 });
+  assert.ok(eq.others.some(function (o) { return o.label === 'stranger@x.y'; }), 'unmatched attempts reported apart');
+  // weighted: A×2, B×1, C×1, D×0 (excluded) → s1 = (160 + 70 + 90) / 4 = 80; an unconfigured module counts 1 and is flagged
+  const w = X.resOverallCompute_(g, members, { method: 'weighted', weights: { modovA: 2, modovB: 1, modovC: 1, modovD: 0 } });
+  assert.deepStrictEqual([by(w, 's1').overall, by(w, 's1').included, by(w, 's1').withResults], [80, 3, 4]);
+  assert.strictEqual(modOf(by(w, 's1'), 3).included, false);
+  const w2 = X.resOverallCompute_(g, members, { method: 'weighted', weights: { modovA: 3 } });
+  assert.deepStrictEqual([gm(w2, 1).weight, gm(w2, 1).weightDefault, by(w2, 's1').overall], [1, true, 76.7], '(240+70+90+60)/6');
+  // settings: Admin only, validated, not changed silently
+  assert.strictEqual(S.tt('resSettings', S.ahmed.tok, { method: 'weighted', weights: {} }).code, 'forbidden');
+  assert.strictEqual(S.ts('resSettings', { method: 'nonsense' }).ok, false);
+  assert.strictEqual(S.ts('resSettings', { method: 'weighted', weights: { modovA: -1 } }).ok, false);
+  assert.strictEqual(S.ts('resSettings', { method: 'weighted', weights: { modovA: 0, modovB: 0 } }).ok, false);
+  const sv = S.ts('resSettings', { method: 'weighted', weights: { cellinjury: 2, inflhealing: '' } }); assert.ok(sv.ok, JSON.stringify(sv));
+  assert.deepStrictEqual(JSON.parse(JSON.stringify([sv.settings.method, sv.settings.weights])), ['weighted', { cellinjury: 2 }]);
+  // the real group through the dashboard action: Admin and the group's teacher; another teacher refused
+  const r = S.ts('resOverall', { groupId: S.ra.groupId }); assert.ok(r.ok, JSON.stringify(r).slice(0, 300));
+  assert.deepStrictEqual(r.modules.map(function (m) { return m.storage; }).sort(), ['cellinjury-razi-a-26', 'inflhealing-razi-a-26']);
+  assert.strictEqual(r.settings.method, 'weighted'); assert.ok(r.students.some(function (x) { return x.studentId === 'b1'; }));
+  assert.ok(S.tt('resOverall', S.ahmed.tok, { groupId: S.ra.groupId }).ok);
+  assert.strictEqual(S.tt('resOverall', S.sara.tok, { groupId: S.ra.groupId }).code, 'forbidden');
+  S.ts('resSettings', { method: 'equal', weights: {} });
+});

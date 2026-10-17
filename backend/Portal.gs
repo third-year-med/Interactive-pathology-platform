@@ -69,6 +69,9 @@
  *                     (module teacher token); signed-in students: getMyAssessments / submitAttempt need no password,
  *                     startAttempt needs THAT assessment's password (see "Assessment passwords" below)
  *   llList / llSet {deliveryId, locked?, auto?}  2.18: Learning-module lock per group + module (see "Learning lock" below)
+ *   resOverall {groupId}  2.22: Pathology Overall Results & Analytics — every student of the group, the ASSESSMENT
+ *                         percentage of each teaching module and the overall percentage (equal or weighted); read-only
+ *   resSettings {method:'equal'|'weighted', weights:{moduleId:number}}  Admin: how the overall percentage is calculated
  *   attOverall {groupId}  2.15: Overall Pathology Attendance — every student of the group over EVERY teaching module
  *                     (sessions taken inside the modules and Teaching Sessions alike, each counted once), same % and warning
  *   Sheet TeachingSessions (created on first use). Attendance itself stays in AttendanceSessions/AttendanceRecords.
@@ -191,7 +194,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.21';
+var PORTAL_VERSION = '2.22';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -2329,7 +2332,7 @@ var TS_GRACE_MS = 20000;                        // …and the code it replaced i
 var TS_FAIL_MAX = 10, TS_FAIL_WINDOW_S = 600;  // per student and group: 10 wrong codes → wait 10 minutes
 var TS_STATUSES = { scheduled: 1, live: 1, ended: 1, cancelled: 1 };
 var TS_MARKS = { present: 1, late: 1, excused: 1 };
-var TS_ACTIONS = { tsGroups: 1, tsList: 1, tsSave: 1, tsStart: 1, tsState: 1, tsClose: 1, tsCancel: 1, tsDelete: 1, tsMark: 1, tsSettings: 1, attOverall: 1, llList: 1, llSet: 1 };
+var TS_ACTIONS = { tsGroups: 1, tsList: 1, tsSave: 1, tsStart: 1, tsState: 1, tsClose: 1, tsCancel: 1, tsDelete: 1, tsMark: 1, tsSettings: 1, attOverall: 1, llList: 1, llSet: 1, resOverall: 1, resSettings: 1 };
 
 function tsRoute_(p) {
   if (p.ttoken) return tAuthed_(p, function (u) {
@@ -2354,6 +2357,8 @@ function tsDo_(p, who) {
     case 'tsDelete': return tsDelete_(who, p);
     case 'tsMark': return tsMark_(who, p);
     case 'attOverall': return attOverall_(who, p);
+    case 'resOverall': return resOverall_(who, p);   // 2.22: Pathology Overall Results & Analytics
+    case 'resSettings': return who.admin ? rosterWrite_(function () { return resSettingsSave_(p); }) : { ok: false, code: 'forbidden', error: 'Only the platform administrator can change the calculation method.' };
     case 'llList': return llList_(who);
     case 'llSet': return rosterWrite_(function () { return llSet_(who, p); });
     case 'tsSettings': return who.admin ? rosterWrite_(function () { return tsSettingsSave_(p); }) : { ok: false, code: 'forbidden', error: 'Only the platform administrator can change these settings.' };
@@ -2836,6 +2841,128 @@ function attOverall_(who, p) {
   var r = attOverallCompute_(g, g.modules, tsMembers_(g.groupId), tsSettings_());
   r.ok = true; r.serverTime = Date.now();
   r.partial = !!(all && all.modules.length > g.modules.length);   // a teacher who has only some of the group's modules
+  r.groupModules = all ? all.modules.length : g.modules.length;
+  return r;
+}
+
+/* ======================================================================
+ * Pathology Overall Results & Analytics (2.22) — READ-ONLY (only resSettings writes one setting).
+ * One row per student of the group (the roster = StudentMemberships; the stable Student ID is the key; inactive members are
+ * listed and marked, never merged or dropped). For every teaching module of the group (the deliveries the caller teaches —
+ * Admin: all; personal teacher: the assigned ones), the student's MODULE ASSESSMENT % is the existing per-module rule of
+ * the Results & attendance sheet: the mean of the percentages of all the student's SUBMITTED assessment attempts in that
+ * delivery (AssessRecords kind "attempt", status "submitted", each attempt counted once by its record id). Practice
+ * quizzes (Results), official exams (kind "exattempt") and attendance are NOT part of it. Attempts are matched to the
+ * roster exactly as reportDelivery_ does: Student ID → email (incl. <id>@student.local) → a unique name.
+ * Overall % (from the unrounded module percentages, rounded to 0.1 once at the end):
+ *   equal (default)  mean of the module percentages the student HAS (missing = not counted, never zero)
+ *   weighted         Σ(weight × module %) ÷ Σ(weight) over those modules; a module without a configured weight counts 1,
+ *                    weight 0 = excluded (both shown to the teacher)
+ * A module "has assessments" when it has an active assignment or a submitted attempt; completion = results in all of
+ * them (complete), in some (partial) or none.
+ * ====================================================================== */
+var RES_SETTING = 'aov:settings';
+function resSettings_() {
+  var v = tsJson_(getSetting_(RES_SETTING), null) || {}, w = {};
+  Object.keys(v.weights || {}).forEach(function (k) { var n = Number(v.weights[k]); if (isFinite(n) && n >= 0) w[k] = n; });
+  return { method: v.method === 'weighted' ? 'weighted' : 'equal', weights: w, savedAt: Number(v.savedAt) || 0 };
+}
+function resSettingsSave_(p) {
+  var method = p.method === 'weighted' ? 'weighted' : p.method === 'equal' ? 'equal' : '';
+  if (!method) return { ok: false, error: 'Choose “equal” or “weighted”.' };
+  var w = {}, bad = [];
+  Object.keys(p.weights || {}).forEach(function (k) {
+    var id = String(k).replace(/[^A-Za-z0-9_]/g, '').slice(0, 40); if (!id) return;
+    var raw = p.weights[k]; if (raw === '' || raw == null) return;
+    var n = Number(raw); if (!isFinite(n) || n < 0 || n > 1000) bad.push(id); else w[id] = Math.round(n * 1000) / 1000;
+  });
+  if (bad.length) return { ok: false, error: 'Weights must be numbers from 0 to 1000 (' + bad.join(', ') + ').' };
+  if (method === 'weighted' && Object.keys(w).length && !Object.keys(w).some(function (k) { return w[k] > 0; })) return { ok: false, error: 'At least one module needs a weight above 0.' };
+  setSetting_(RES_SETTING, JSON.stringify({ method: method, weights: w, savedAt: Date.now() }));
+  return { ok: true, settings: resSettings_() };
+}
+function resR1_(v) { return v == null ? null : Math.round(v * 10) / 10; }
+/** g: a place of tsPlaces_; members: the group's roster (active and inactive); set: resSettings_(). */
+function resOverallCompute_(g, members, set) {
+  var reg = {}; portalRegistry_().forEach(function (m, i) { if (m.moduleKey) reg[m.moduleKey] = i; });
+  var mods = g.modules.slice().sort(function (a, b) { var x = reg[a.moduleId], y = reg[b.moduleId]; x = x == null ? 1e6 : x; y = y == null ? 1e6 : y; return x - y || a.title.localeCompare(b.title); });
+  var want = {}; mods.forEach(function (m) { want[m.storage] = m; });
+  var acc = {}, att = {}, asg = {}, seenAtt = {};
+  mods.forEach(function (m) { acc[m.storage] = {}; att[m.storage] = []; asg[m.storage] = {}; });
+  rpRows_(SHEETS.STUDENTS).forEach(function (r) { if (want[r.module]) acc[r.module][normUser_(r.username)] = r; });
+  rpRows_(SHEETS.ASSESS).forEach(function (r) {
+    if (!want[r.module] || r.status === '__deleted') return;
+    if (r.kind === 'assignment') { if (r.status === 'active') asg[r.module][String(r.ref || '')] = 1; return; }
+    if (r.kind !== 'attempt') return;   // official exams ("exattempt") are not assessments
+    var key = r.module + '|' + r.id; if (seenAtt[key]) return; seenAtt[key] = 1;   // each attempt once
+    var x = unpackJson_(r); if (!x || x.status !== 'submitted') return;
+    var pc = Number(x.percent); if (!isFinite(pc)) return;
+    att[r.module].push({ ref: String(x.assessmentId || ''), title: String(x.assessmentTitle || x.assessmentId || ''), email: String(x.email || '').trim().toLowerCase(), name: String(x.name || ''), percent: pc, at: Number(x.submittedAt) || 0 });
+  });
+  var list = members.slice().sort(function (a, b) { return String(a.studentId).localeCompare(String(b.studentId)); });
+  var nameCount = {}; list.forEach(function (m) { var k = String(m.name || '').trim().toLowerCase(); if (k) nameCount[k] = (nameCount[k] || 0) + 1; });
+  var rows = list.map(function (m) { return { studentId: String(m.studentId), name: String(m.name || ''), active: !!m.active, email: String(m.email || '').trim().toLowerCase(), hasAccount: false, by: {} }; });
+  var others = {};
+  var modules = mods.map(function (m) {
+    var idx = {};
+    rows.forEach(function (row) {
+      var a = acc[m.storage][normUser_(row.studentId)]; if (a) row.hasAccount = true;
+      idx['id:' + normUser_(row.studentId)] = row;
+      [row.email, a && a.email, String(row.studentId).toLowerCase().replace(/[^a-z0-9._-]/g, '') + '@student.local'].forEach(function (e) { e = String(e || '').trim().toLowerCase(); if (e && !idx['em:' + e]) idx['em:' + e] = row; });
+      var nk = row.name.trim().toLowerCase(); if (nk && nameCount[nk] === 1) idx['nm:' + nk] = row;
+    });
+    var titles = {}, subs = 0, withRes = {};
+    att[m.storage].forEach(function (q) {
+      titles[q.ref] = q.title;
+      var row = (q.email && idx['em:' + q.email]) || (q.email && /@student\.local$/.test(q.email) && idx['id:' + q.email.replace(/@student\.local$/, '')]) || (q.name && idx['nm:' + q.name.trim().toLowerCase()]) || null;
+      if (!row) { var k = (q.email || q.name || '?') + '|' + m.storage; var o = others[k] || (others[k] = { label: q.name || q.email || '?', module: m.title, attempts: 0 }); o.attempts++; return; }
+      subs++; withRes[row.studentId] = 1;
+      var b = row.by[m.deliveryId] || (row.by[m.deliveryId] = { percents: [], per: {} });
+      b.percents.push(q.percent);
+      var e = b.per[q.ref] || (b.per[q.ref] = { id: q.ref, title: q.title, percents: [] }); e.percents.push(q.percent);
+    });
+    var assigned = Object.keys(asg[m.storage]).length;
+    return { deliveryId: m.deliveryId, moduleId: m.moduleId, title: m.title, icon: m.icon, storage: m.storage, active: m.active,
+      assignments: assigned, submitted: subs, students: Object.keys(withRes).length, hasAssessments: assigned > 0 || subs > 0,
+      weight: set.method === 'weighted' ? (set.weights[m.moduleId] != null ? set.weights[m.moduleId] : 1) : 1,
+      weightDefault: set.method === 'weighted' && set.weights[m.moduleId] == null };
+  });
+  var assessed = modules.filter(function (m) { return m.hasAssessments; });
+  var students = rows.map(function (row) {
+    var sumW = 0, sum = 0, nRes = 0, nInc = 0;
+    var mm = modules.map(function (m) {
+      var b = row.by[m.deliveryId], pct = null, n = 0, per = [];
+      if (b && b.percents.length) {
+        pct = b.percents.reduce(function (x, y) { return x + y; }, 0) / b.percents.length; n = b.percents.length;
+        per = Object.keys(b.per).map(function (k) { var e = b.per[k]; return { id: e.id, title: e.title, attempts: e.percents.length, avg: resR1_(e.percents.reduce(function (x, y) { return x + y; }, 0) / e.percents.length), best: resR1_(Math.max.apply(null, e.percents)) }; });
+      }
+      var included = pct != null && m.weight > 0;
+      if (pct != null) nRes++;
+      if (included) { nInc++; sum += m.weight * pct; sumW += m.weight; }
+      return { deliveryId: m.deliveryId, moduleId: m.moduleId, module: m.title, icon: m.icon, pct: resR1_(pct), attempts: n, assessments: per, included: included, weight: m.weight };
+    });
+    var overall = sumW > 0 ? resR1_(sum / sumW) : null;
+    var done = assessed.filter(function (m) { var x = row.by[m.deliveryId]; return x && x.percents.length; }).length;
+    var state = !row.active ? 'inactive' : !assessed.length || !done ? 'none' : done >= assessed.length ? 'complete' : 'partial';
+    return { studentId: row.studentId, name: row.name, active: row.active, hasAccount: row.hasAccount,
+      status: !row.active ? 'inactive' : row.hasAccount ? 'active' : 'no account',
+      withResults: nRes, included: nInc, assessedModules: assessed.length, remaining: Math.max(0, assessed.length - done), overall: overall, completion: state, modules: mm };
+  });
+  var act = students.filter(function (x) { return x.active; }), res = act.filter(function (x) { return x.overall != null; }), vals = res.map(function (x) { return x.overall; });
+  return { settings: set, group: { groupId: g.groupId, label: g.label, linkCode: g.linkCode, academicYear: g.academicYear }, modules: modules, students: students,
+    summary: { enrolled: act.length, inactive: students.length - act.length, withResults: res.length, incomplete: act.filter(function (x) { return x.completion === 'partial'; }).length,
+      none: act.filter(function (x) { return x.completion === 'none'; }).length, complete: act.filter(function (x) { return x.completion === 'complete'; }).length,
+      mean: vals.length ? resR1_(vals.reduce(function (x, y) { return x + y; }, 0) / vals.length) : null,
+      high: vals.length ? Math.max.apply(null, vals) : null, low: vals.length ? Math.min.apply(null, vals) : null,
+      modulesWithResults: modules.filter(function (m) { return m.submitted > 0; }).length, modulesAssessed: assessed.length, modules: modules.length },
+    others: Object.keys(others).map(function (k) { return others[k]; }) };
+}
+function resOverall_(who, p) {
+  var g = tsGroupOf_(who, p.groupId); if (!g) return { ok: false, code: 'forbidden', error: 'Choose one of your groups.' };
+  var all = tsPlaces_({ ids: null }).filter(function (x) { return x.groupId === g.groupId; })[0];
+  var r = resOverallCompute_(g, rpMembers_()[g.groupId] || [], resSettings_());
+  r.ok = true; r.serverTime = Date.now(); r.admin = !!who.admin;
+  r.partial = !!(all && all.modules.length > g.modules.length);
   r.groupModules = all ? all.modules.length : g.modules.length;
   return r;
 }
