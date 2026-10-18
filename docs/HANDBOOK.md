@@ -13,6 +13,7 @@ in this repository, so every new session starts from it. State as of **2026-10-0
 | `Interactive-pathology-platform` | Front page (Platform Home, group pages, Teacher Sign-In, Teacher Dashboard, Admin directory), `backend/Portal.gs`, tests, release tool, docs | `https://third-year-med.github.io/Interactive-pathology-platform/` |
 | `cell-injury-teaching-platform` | Module **Cell Injury & Cell Death** — one `index.html` (module key `cellinjury`, storage prefix `ci_`) | `…/cell-injury-teaching-platform/` |
 | `inflammation-healing` | Module **Inflammation & Healing** — one `index.html` (`inflhealing`, `ih_`) | `…/inflammation-healing/` |
+| `third-year-med-inflammation-condensed` | Module **Inflammation & Healing — Condensed** (2026-10-18): an independent ~50 % shorter high-yield version of Inflammation & Healing — one `index.html` (`inflcondensed`, `ic_`, its OWN content key) | `…/third-year-med-inflammation-condensed/` |
 | `introduction-to-pathology` | Module **Introduction to Pathology** (Chapter 1, first card) — one `index.html` (`intropath`, `ip_`) | `…/introduction-to-pathology/` |
 | `pathology-exams` | The Official Exams app — one `index.html` (`?m=<storage>`, `?g=<link code>`) | `…/pathology-exams/` |
 
@@ -490,9 +491,19 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   the Teacher Management list, exams in their own section, Teaching Sessions panel with full history); group Live
   Classroom off (`GROUP_CLASSROOM=false`); Learning Module lock (manual + automatic, server-enforced, compact card with
   per-group lists); per-assessment passwords (`apw:<storage>`, `aePwList` / `aePwSet`).
-- **Modules** (intropath, cellinjury, inflhealing) carry every patch in `modules/patches/` (all ✅, incl. 🖼 Import pictures
+- **Modules** (intropath, cellinjury, inflhealing, inflcondensed) carry every patch in `modules/patches/` (all ✅, incl. 🖼 Import pictures
   2026-10-17). Tests: 91 backend; e2e 57 pass with IH_CONTENT_KEY only (23 skip: 22 need CI_CONTENT_KEY, 1 group
   classroom off); module smoke ✅.
+- **Inflammation & Healing — Condensed (2026-10-18):** repo `third-year-med/third-year-med-inflammation-condensed` (GitHub kept
+  the owner prefix in the name), module key `inflcondensed`, prefix `ic_`, build `condensed-1.0`, own content key (env
+  `IC_CONTENT_KEY` in sessions). Made from the inflhealing PACKAGED course with the same app code (all patches ✅): same 18
+  topics (t01–t18, IDs kept); 86 → 67 sections (merged sections keep the first ID; UX_UNITS/UX_FLOW targets kept); prose
+  19,397 → 9,054 words (−53 %); real deck 248 → 190 slides, on-slide words 14,085 → 7,385 (−48 %); 229 → 226 questions
+  (q008, q156, q173 dropped), cases unchanged, 65 → 51 atlas images, 169 → 42 picture links, all 29 schematic figures and 13
+  flowcharts kept. NOT carried over (they live in the inflhealing backend overlay, not the package): the 28 imported Robbins
+  pictures, master-draft edits, custom slides, practicals. e2e test "condensed Inflammation module (inflcondensed)…" walks
+  every section, view and slide with the real course; the module smoke test includes it. User's deployment: the four Code.gs
+  additions for `inflcondensed`, platformCheck, Deploy, front-page card, Modules → Add + Deliveries, then versioned content.
 - **Where new-module chats start (2026-10-17):** Claude Code → ＋ next to **Cloud** → repository
   `Interactive-pathology-platform`; the user first creates the empty module repo on GitHub, the chat attaches it
   (add_repo, push access). Everything is built in Claude Code (builder skill available there) — no Claude Home step.

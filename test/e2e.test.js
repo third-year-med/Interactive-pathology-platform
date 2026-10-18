@@ -691,6 +691,8 @@ test('an Available card works before sign-in: "Sign in to open" → sign in → 
 // and the in-module header can be tested too.
 const REAL = [['cellinjury', 'cell-injury-teaching-platform', process.env.CI_MODULE_HTML || '/home/user/cell-injury-teaching-platform/index.html', process.env.CI_CONTENT_KEY],
  ['inflhealing', 'inflammation-healing', process.env.IH_MODULE_HTML || '/home/user/inflammation-healing/index.html', process.env.IH_CONTENT_KEY]];
+// Inflammation & Healing — Condensed (2026-10-18): its own repository, module key and content key (IC_CONTENT_KEY, env only).
+const IC = ['inflcondensed', 'third-year-med-inflammation-condensed', process.env.IC_MODULE_HTML || '/home/user/third-year-med-inflammation-condensed/index.html', process.env.IC_CONTENT_KEY];
 const HOME = 'https://third-year-med.github.io/Interactive-pathology-platform/';
 const SERVE = {};
 const PNG1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
@@ -710,7 +712,7 @@ async function realPage(M, calls, ctxOpts) {
   await p.route('https://third-year-med.github.io/**', function (route) {
     const u = new URL(route.request().url());
     if (u.pathname.indexOf('/pathology-exams/') === 0) return route.fulfill({ status: 200, contentType: 'text/html', body: fs.readFileSync(EXAM_HTML) });
-    const own = REAL.filter(function (R) { return u.pathname.indexOf('/' + R[1] + '/') === 0; })[0];
+    const own = REAL.concat([IC]).filter(function (R) { return u.pathname.indexOf('/' + R[1] + '/') === 0; })[0];
     if (own) {
       const sub = /\/preview\/(index\.html)?$/.test(u.pathname) ? own[1] + '/preview/' : own[1] + '/';
       if (SERVE[sub] === null || (sub !== own[1] + '/' && !SERVE[sub])) return route.fulfill({ status: 404, body: '' });
@@ -4177,4 +4179,84 @@ test('Assessment passwords (2.19/2.20): Assessments open without a password; eac
     assert.strictEqual(errors.filter(function (e) { return !/ERR_TUNNEL|net::/.test(e); }).length, 0, errors.join('\n'));
     await s.context().close(); await t.context().close();
   } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
+});
+
+/* ---------------- Inflammation & Healing — Condensed: the REAL page with its REAL course ----------------
+   Registered as the four Code.gs additions and the front-page card register it (HANDBOOK §5), then every learning view
+   is opened as a student and every slide of the generated deck as the teacher. Needs IC_CONTENT_KEY (env only). */
+test('condensed Inflammation module (inflcondensed): every topic, section, view and slide renders with the real course; student and teacher', { skip: SKIP || ((!fs.existsSync(IC[2]) || !IC[3]) && 'condensed module page or IC_CONTENT_KEY not available') }, async function () {
+  main.ctx.STUDENT_AUTH_MODULES.inflcondensed = true; main.ctx.CONTENT_KEYS.inflcondensed = IC[3];
+  main.ctx.DEFAULT_QUIZ_PW.inflcondensed = 'INFLCONDENSED-2026'; main.ctx.DEFAULT_LIVE_PW.inflcondensed = 'CLASSROOM-2026';
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const reg = main.call({ module: 'portal', action: 'portalInfo' }).modules;
+  assert.ok(main.call({ module: 'portal', action: 'portalAdminSave', token: t, modules: reg.concat([{ id: 'inflcondensed', title: 'Inflammation & Healing — Condensed', icon: '🔥', status: 'available',
+    url: 'https://third-year-med.github.io/' + IC[1] + '/', moduleKey: 'inflcondensed', handoff: 'neo', storagePrefix: 'ic_' }]) }).ok);
+  main.addStudents('inflcondensed', [{ username: 'ic1', name: 'Condensed Student', password: PW, mustChange: false }]);
+  const start = errors.length;
+  try {
+    // ---- student: sign in on the module page, then every topic, section and view ----
+    const p = await realPage(IC, []);
+    await p.goto('https://third-year-med.github.io/' + IC[1] + '/');
+    await p.waitForSelector('#nb-user'); await p.fill('#nb-user', 'ic1'); await p.fill('#nb-pass', PW); await p.click('#neo-boot button[type=submit]');
+    await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'student'; }, null, { timeout: 20000 });
+    const info = await p.evaluate(function () { return { cfg: window.NEO_CONFIG, course: COURSE.title, topics: DATA.topics.map(function (t) { return { id: t.id, title: t.title, sections: t.sections.map(function (s) { return { id: s.id, heading: s.heading, tables: s.tables.length, figures: s.figures.length }; }) }; }) }; });
+    assert.strictEqual(info.cfg.moduleKey, 'inflcondensed'); assert.strictEqual(info.cfg.storagePrefix, 'ic_');
+    assert.match(info.course, /Condensed/);
+    assert.strictEqual(info.topics.length, 18);
+    assert.ok(await p.evaluate(function () { return !!sessionStorage.getItem('ic_stu_session_v1') || !!localStorage.getItem('ic_stu_session_v1'); }), 'its own storage prefix');
+    for (const tp of info.topics) {
+      for (const sc of tp.sections) {
+        await p.evaluate(function (h) { location.hash = h; }, '#/explain/' + tp.id + '/' + sc.id);
+        await p.waitForFunction(function (h) { const v = document.querySelector('#view-explain'); return v && v.offsetParent !== null && v.textContent.indexOf(h) >= 0; }, sc.heading, { timeout: 10000 });
+        const txt = await p.textContent('#view-explain');
+        assert.ok(!/undefined|\[object Object\]|\[!(DEF|FLOW|EXAM|RECALL|CONFUSION|HIGHYIELD|PRACTICAL|CLINICAL|REMEMBER|DX|MUSTKNOW)\]/.test(txt), sc.id + ': raw markup or undefined on the page');
+      }
+    }
+    const check = await p.evaluate(function () { return uxValidatePathway(); });
+    assert.deepStrictEqual(check.errors, [], 'the learning-unit links (UX_UNITS, UX_FLOW) all point at existing, matching topics and sections');
+    const views = ['#/learn', '#/practise', '#/apply', '#/progress', '#/revision', '#/review', '#/review/facts', '#/review/compare', '#/review/morph', '#/review/traps', '#/review/quick',
+      '#/cases', '#/practical', '#/study/recall', '#/study/sequence', '#/study/compare', '#/study/glossary', '#/study/challenge', '#/study/connect', '#/quiz'];
+    for (const h of views) {
+      await p.evaluate(function (x) { location.hash = x; }, h);
+      await p.waitForTimeout(350);
+      const shown = await p.evaluate(function () { const v = Array.prototype.filter.call(document.querySelectorAll('[id^="view-"]'), function (e) { return e.offsetParent !== null; })[0]; return v ? { id: v.id, n: v.textContent.trim().length, t: v.textContent } : null; });
+      assert.ok(shown && shown.n > 40, h + ' shows a view with content');
+      assert.ok(!/undefined|\[object Object\]/.test(shown.t), h + ': no undefined');
+    }
+    const lmr = await p.evaluate(function () { const d = LMR.data(); return { facts: d.facts.length, comparisons: d.comparisons.length, traps: d.traps.length, morph: d.morphology.length }; });
+    assert.ok(lmr.facts > 50 && lmr.comparisons >= 10 && lmr.traps >= 5 && lmr.morph >= 5, 'Last-Minute Review is built from the condensed course: ' + JSON.stringify(lmr));
+    await p.context().close();
+
+    // ---- teacher: a fresh teacher pass as the dashboard gives it → every slide of the deck ----
+    const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['inflcondensed'] }).modules.inflcondensed;
+    assert.ok(tt && tt.token, 'the front-page card makes the module openable from the dashboard');
+    const q = await realPage(IC, []);
+    await q.addInitScript(function (v) { localStorage.setItem('ic_backend_token_v1', v); }, JSON.stringify({ token: tt.token, expiresAt: tt.expiresAt }));
+    await q.goto('https://third-year-med.github.io/' + IC[1] + '/#/present/slide/1');
+    await q.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+    await q.waitForSelector('#pres-stage .slide', { timeout: 15000 });
+    const n = await q.evaluate(function () { return Views.present.list().length; });
+    assert.ok(n > 120 && n < 230, 'the condensed deck is clearly shorter than the original (248 slides): ' + n);
+    const bad = await q.evaluate(function () {
+      const out = [], V = Views.present;
+      for (let i = 0; i < V.list().length; i++) {
+        V.go(i); const s = V.cur(), st = document.querySelector('#pres-stage .slide'), tx = st ? st.textContent : '';
+        if (!st) out.push(i + ' no slide');
+        else if (/no longer in the course content|Flowchart not found|Question unavailable|undefined/.test(tx)) out.push(i + ' ' + s.type + ': ' + tx.slice(0, 80));
+        else if (s.type === 'table' && !st.querySelector('table')) out.push(i + ' table missing');
+        else if (s.type === 'content' && !(s.bullets || []).length) out.push(i + ' content without bullets');
+      }
+      return out;
+    });
+    assert.deepStrictEqual(bad, [], 'every slide renders');
+    await q.evaluate(function () { location.hash = '#/teacher'; });
+    await q.waitForSelector('#view-teacher', { state: 'visible', timeout: 10000 });
+    const plan = await q.evaluate(function () { return AssessUI.topicQuizPlan().topics.filter(function (x) { return x.ok; }).length; });
+    assert.ok(plan >= 15, '⚡ Topic quizzes: most topics still have ≥ 5 practice questions (' + plan + ')');
+    await q.context().close();
+    assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
+  } finally {
+    assert.ok(main.call({ module: 'portal', action: 'portalAdminSave', token: t, modules: reg }).ok);   // other tests keep their module list
+  }
 });
