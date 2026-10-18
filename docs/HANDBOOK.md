@@ -14,6 +14,7 @@ in this repository, so every new session starts from it. State as of **2026-10-0
 | `cell-injury-teaching-platform` | Module **Cell Injury & Cell Death** — one `index.html` (module key `cellinjury`, storage prefix `ci_`) | `…/cell-injury-teaching-platform/` |
 | `inflammation-healing` | Module **Inflammation & Healing** — one `index.html` (`inflhealing`, `ih_`) | `…/inflammation-healing/` |
 | `third-year-med-inflammation-condensed` | Module **Inflammation & Healing — Condensed** (2026-10-18): an independent ~50 % shorter high-yield version of Inflammation & Healing — one `index.html` (`inflcondensed`, `ic_`, its OWN content key) | `…/third-year-med-inflammation-condensed/` |
+| `cell-injury-condensed` | Module **Cell Injury & Cell Death — Condensed** (2026-10-18): an independent ~50 % shorter high-yield version of Cell Injury & Cell Death — one `index.html` (`cellcondensed`, `cc_`, its OWN content key) | `…/cell-injury-condensed/` |
 | `introduction-to-pathology` | Module **Introduction to Pathology** (Chapter 1, first card) — one `index.html` (`intropath`, `ip_`) | `…/introduction-to-pathology/` |
 | `pathology-exams` | The Official Exams app — one `index.html` (`?m=<storage>`, `?g=<link code>`) | `…/pathology-exams/` |
 
@@ -502,7 +503,7 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   the Teacher Management list, exams in their own section, Teaching Sessions panel with full history); group Live
   Classroom off (`GROUP_CLASSROOM=false`); Learning Module lock (manual + automatic, server-enforced, compact card with
   per-group lists); per-assessment passwords (`apw:<storage>`, `aePwList` / `aePwSet`).
-- **Modules** (intropath, cellinjury, inflhealing, inflcondensed) carry every patch in `modules/patches/` (all ✅, incl. 🖼 Import pictures
+- **Modules** (intropath, cellinjury, inflhealing, inflcondensed, cellcondensed) carry every patch in `modules/patches/` (all ✅, incl. 🖼 Import pictures
   2026-10-17). Tests: 91 backend; e2e 57 pass with IH_CONTENT_KEY only (23 skip: 22 need CI_CONTENT_KEY, 1 group
   classroom off); module smoke ✅.
 - **Inflammation & Healing — Condensed (2026-10-18):** repo `third-year-med/third-year-med-inflammation-condensed` (GitHub kept
@@ -519,6 +520,16 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   committed; the NETs figure is missing from the Drive folder) imported in Edit master draft and published. A later batch
   must use new keys. User's deployment: the four Code.gs
   additions for `inflcondensed`, platformCheck, Deploy, front-page card, Modules → Add + Deliveries, then versioned content.
+- **Cell Injury & Cell Death — Condensed (2026-10-18):** repo `third-year-med/cell-injury-condensed`, module key
+  `cellcondensed`, prefix `cc_`, build `condensed-1.0`, own content key (env `CC_CONTENT_KEY` in sessions). Made the same way
+  as inflcondensed from the cellinjury PACKAGED course: same 17 topics (IDs kept); 90 → 71 sections (merged sections keep the
+  first ID; UX_UNITS/UX_FLOW targets kept); Learn text 19,073 → 8,053 words (−58 %, incl. tables and picture notes); real
+  deck 241 → 204 slides, on-slide words 13,747 → 7,876 (−43 %; the 18 flowcharts and 17 quick-check questions are unchanged),
+  speaker notes −47 %; all 203 questions, 16 cases, 131 glossary terms, 23 sequences, 16 comparisons, 32 schematic figures
+  and 18 flowcharts kept; 78 → 62 atlas images, 118 → 31 picture links (topic sections that already show ≥ 2 pictures lost
+  their link chips; the Practical topic keeps them); the low-yield hyper/hypopigmentation table and 8 rarely used stains
+  were dropped. NOT carried over: cellinjury master v1.1 edits and the 30 `ci-robbins1` imported pictures. e2e test
+  "condensed Cell Injury module (cellcondensed)…" walks every section, view and slide; module smoke includes it.
 - **Where new-module chats start (2026-10-17):** Claude Code → ＋ next to **Cloud** → repository
   `Interactive-pathology-platform`; the user first creates the empty module repo on GitHub, the chat attaches it
   (add_repo, push access). Everything is built in Claude Code (builder skill available there) — no Claude Home step.
