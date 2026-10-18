@@ -422,6 +422,14 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
 
 ## 8. Lessons learned (bugs we hit and what fixed them)
 
+- **"Not registered for your account" on a group page right after delivering a NEW module (2026-10-18, inflcondensed):**
+  the group page decides access at sign-in and keeps it for the session; it re-checks a newly delivered module by itself
+  (`portalGroupRefresh`) only with a session of ANOTHER module of the group. In a group whose only module is the new one,
+  a student who signed in before the accounts existed stays "not registered" → **Sign out and sign in again** fixed it.
+  Accounts are created on delivery only if Code.gs (STUDENT_AUTH_MODULES) was already deployed; otherwise Platform
+  directory → Students → the group → **＋ Create missing accounts**. The module's Teacher Portal → Students shows only the
+  copy that was opened (main `inflcondensed` vs the group's `inflcondensed-<link>`).
+
 - **Two chats edited `modules/patches/apply.sh` at the same time (2026-10-17):** the picture chat added `picture-import`
   while this chat added `slide-bold`; the slide-bold entry was lost from ORDER (the checker cannot notice a patch missing
   from the list). → Before committing a new patch: `git pull`, append to ORDER, and verify that an OLD module page
