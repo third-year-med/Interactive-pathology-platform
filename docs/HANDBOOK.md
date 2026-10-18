@@ -532,6 +532,13 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   rebuilt for this module 2026-10-18: 30 pictures (Robbins Basic Ch. 1, Drive folder "Cell injury pictures"), keys
   `cc-robbins1-01…30`, file `cellcondensed-pictures-robbins1.json` (not committed), all 30 pass `picImportPlan` on the real page. e2e test
   "condensed Cell Injury module (cellcondensed)…" walks every section, view and slide; module smoke includes it.
+- **Printing (2026-10-18, user request — students print the chapter):** patches `media-print`, `print-large`,
+  `print-clean`, `print-mirror` (all modules). The print document now carries the module's own screen stylesheet plus a
+  paper layer (`PRINT_MIRROR_CSS`): it looks like the screen (callouts, flowcharts as charts, colours), ≈ 13 pt text,
+  ≈ 1 cm margins, added pictures one per row fitted to the page (before: a 1600-px picture ran off the page and the
+  browser shrank the WHOLE chapter), atlas pictures two per row from the full-size file (before: hidden inside the
+  print-hidden zoom button), picture-link cards left out. Check print changes by rendering the chapter to PDF
+  (Playwright `page.pdf`) and looking at the pages — not only by the DOM.
 - **Where new-module chats start (2026-10-17):** Claude Code → ＋ next to **Cloud** → repository
   `Interactive-pathology-platform`; the user first creates the empty module repo on GitHub, the chat attaches it
   (add_repo, push access). Everything is built in Claude Code (builder skill available there) — no Claude Home step.

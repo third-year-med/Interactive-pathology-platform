@@ -4315,8 +4315,10 @@ test('condensed Cell Injury module (cellcondensed): every topic, section, view a
       return html.replace(/<script>window\.onload[\s\S]*?<\/script>/, '');
     });
     const pp = await p.context().newPage(); await pp.setViewportSize({ width: 794, height: 1123 }); await pp.setContent(pr, { waitUntil: 'load' });
-    const fit = await pp.evaluate(function () { const im = document.querySelector('.media-item img'), b = document.querySelector('.print-body'); return { img: im ? im.getBoundingClientRect().width : -1, body: b.getBoundingClientRect().width, over: document.documentElement.scrollWidth - document.documentElement.clientWidth, fs: getComputedStyle(document.documentElement).fontSize }; });
-    assert.strictEqual(fit.fs, '18.7px', 'print-large patch: larger print text');
+    const fit = await pp.evaluate(function () { const im = document.querySelector('.media-item img'), b = document.querySelector('.print-body'); return { img: im ? im.getBoundingClientRect().width : -1, body: b.getBoundingClientRect().width, over: document.documentElement.scrollWidth - document.documentElement.clientWidth, fs: getComputedStyle(document.documentElement).fontSize, links: document.querySelectorAll('.links-card').length, linksShown: Array.prototype.filter.call(document.querySelectorAll('.links-card'), function (x) { return x.offsetParent !== null; }).length, atlasBtn: Array.prototype.filter.call(document.querySelectorAll('button.atl-imgbtn'), function (x) { return getComputedStyle(x).display !== 'none'; }).length, mirror: (function () { const c = document.querySelector('.callout'); return !!c && getComputedStyle(c).backgroundColor !== 'rgba(0, 0, 0, 0)'; })() }; });
+    assert.strictEqual(fit.fs, '17px', 'print-mirror patch: larger print text');
+    assert.ok(fit.mirror, 'print-mirror patch: the printed page carries the screen look (callout colours)');
+    assert.ok(fit.links > 0 && fit.linksShown === 0 && fit.atlasBtn > 0, 'print-clean patch: picture link cards left out, atlas pictures printed: ' + JSON.stringify(fit));
     assert.ok(fit.img > 100 && fit.img <= fit.body + 1 && fit.over <= 0, 'an added picture prints within the page width: ' + JSON.stringify(fit));
     await pp.close();
     const lmr = await p.evaluate(function () { const d = LMR.data(); return { facts: d.facts.length, comparisons: d.comparisons.length, traps: d.traps.length, morph: d.morphology.length }; });
