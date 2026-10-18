@@ -528,7 +528,9 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   speaker notes −47 %; all 203 questions, 16 cases, 131 glossary terms, 23 sequences, 16 comparisons, 32 schematic figures
   and 18 flowcharts kept; 78 → 62 atlas images, 118 → 31 picture links (topic sections that already show ≥ 2 pictures lost
   their link chips; the Practical topic keeps them); the low-yield hyper/hypopigmentation table and 8 rarely used stains
-  were dropped. NOT carried over: cellinjury master v1.1 edits and the 30 `ci-robbins1` imported pictures. e2e test
+  were dropped. NOT carried over: cellinjury master v1.1 edits and the 30 `ci-robbins1` imported pictures. Robbins batch
+  rebuilt for this module 2026-10-18: 30 pictures (Robbins Basic Ch. 1, Drive folder "Cell injury pictures"), keys
+  `cc-robbins1-01…30`, file `cellcondensed-pictures-robbins1.json` (not committed), all 30 pass `picImportPlan` on the real page. e2e test
   "condensed Cell Injury module (cellcondensed)…" walks every section, view and slide; module smoke includes it.
 - **Where new-module chats start (2026-10-17):** Claude Code → ＋ next to **Cloud** → repository
   `Interactive-pathology-platform`; the user first creates the empty module repo on GitHub, the chat attaches it
