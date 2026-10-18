@@ -2949,7 +2949,7 @@ test('Learning Mode: 🖨️ Print Entire Chapter — every topic and section ex
       topics: [].map.call(d.querySelectorAll('.print-topic'), function (t) { return t.dataset.topic; }),
       sections: [].map.call(d.querySelectorAll('.print-section'), function (s) { return s.dataset.section || s.querySelector('h2').textContent; }),
       toc: d.querySelectorAll('.print-toc li').length, mk: d.querySelectorAll('.mustknow-card').length, tables: d.querySelectorAll('table').length,
-      visibleUi: [].filter.call(d.querySelectorAll('button, input, textarea, select, .notes-box, .edit-bar, .sec-actions, nav.app-nav, #app-nav'), vis).length,
+      visibleUi: [].filter.call(d.querySelectorAll('button:not(.atl-imgbtn), input, textarea, select, .notes-box, .edit-bar, .sec-actions, nav.app-nav, #app-nav'), vis).length,   // the atlas picture frame is a button that holds the picture (print-clean)
       css: [].map.call(d.querySelectorAll('style'), function (x) { return x.textContent; }).join(''), lazy: d.querySelectorAll('img[loading="lazy"]').length };
   }); };
   // 🖨️ Print Entire Chapter → the print window
