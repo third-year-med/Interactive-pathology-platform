@@ -427,7 +427,10 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   (`portalGroupRefresh`) only with a session of ANOTHER module of the group. In a group whose only module is the new one,
   a student who signed in before the accounts existed stays "not registered" → **Sign out and sign in again** fixed it.
   Accounts are created on delivery only if Code.gs (STUDENT_AUTH_MODULES) was already deployed; otherwise Platform
-  directory → Students → the group → **＋ Create missing accounts**. The module's Teacher Portal → Students shows only the
+  directory → Students → the group → **＋ Create missing accounts**.
+- **Published master pictures not visible in groups A/B (2026-10-18, inflcondensed):** after "Create master v1.0", ✏️ Edit
+  master draft and ⬆ Publish draft already work while versioned content is still OFF — but groups read the master only
+  when it is ON. → **Switch versioned content ON** (then Ctrl+F5 in the group's module). Check the label first. The module's Teacher Portal → Students shows only the
   copy that was opened (main `inflcondensed` vs the group's `inflcondensed-<link>`).
 
 - **Two chats edited `modules/patches/apply.sh` at the same time (2026-10-17):** the picture chat added `picture-import`
@@ -510,7 +513,11 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   (q008, q156, q173 dropped), cases unchanged, 65 → 51 atlas images, 169 → 42 picture links, all 29 schematic figures and 13
   flowcharts kept. NOT carried over (they live in the inflhealing backend overlay, not the package): the 28 imported Robbins
   pictures, master-draft edits, custom slides, practicals. e2e test "condensed Inflammation module (inflcondensed)…" walks
-  every section, view and slide with the real course; the module smoke test includes it. User's deployment: the four Code.gs
+  every section, view and slide with the real course; the module smoke test includes it. State (user, 2026-10-18): Code.gs entries,
+  card, directory module, deliveries (Groups A, B) done; master v1.0 created and versioned content ON; the Robbins batch
+  rebuilt for this module (27 pictures, keys `ic-robbins2-01…27`, file `inflcondensed-pictures-robbins2.json`, not
+  committed; the NETs figure is missing from the Drive folder) imported in Edit master draft and published. A later batch
+  must use new keys. User's deployment: the four Code.gs
   additions for `inflcondensed`, platformCheck, Deploy, front-page card, Modules → Add + Deliveries, then versioned content.
 - **Where new-module chats start (2026-10-17):** Claude Code → ＋ next to **Cloud** → repository
   `Interactive-pathology-platform`; the user first creates the empty module repo on GitHub, the chat attaches it
