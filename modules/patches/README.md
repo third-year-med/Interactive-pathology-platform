@@ -36,6 +36,8 @@ patched with `apply.sh`, is byte-identical to the current one.
 | 18 | `teacher-board.py` | Assessment tab for a teacher: published assessments with covered passwords (👁 Show / 📋 Copy / 🔑), attempts, 📊 results — in the students' order; the Assessment Library uses the same order (others newest first, then Topic 1 … N) | 2.19+ |
 | 19 | `att-teacher-short.py` | 📋 Attendance tab for a teacher: the short Teacher Portal version — ▶ Start attendance, the live session panel (QR, link, code, close), the report of the session just closed; ⚙ History, reports & settings opens Teacher Portal → Attendance | — |
 | 20 | `att-code-big.py` | Attendance live panel: no QR code, no link — only the attendance code, projector-sized, ⛶ Full screen (code alone on a dark screen), 🔄 Regenerate, ⏹ Close | — |
+| 21 | `media-print.py` | Pictures added to a Learning section (＋ Picture / 🖼 Import pictures): 🖨 Print and Print Entire Chapter fit each picture to the page (whole, centred, never split, caption underneath — before, a 1600-px picture ran off the page and the browser shrank the whole chapter); on screen the whole picture shows (no 180-px crop) and a wide multi-panel figure takes a full row | — |
+| 22 | `print-large.py` | Printed pages (🖨 Print / Print Entire Chapter): narrow margins (≈ 1 cm), text across the full page width, all print text ≈ 17 % larger (body ≈ 13 pt) — easier for students to read; screen unchanged | — |
 | — | `navblock.py` | Writes `modules/platform-nav.js` into the page's `<script id="platform-nav">` (learning-lock guard, back link, …) | 2.18 for the lock |
 
 Test after applying: `node test/module-smoke/smoke.js` (boots every module with a synthetic course: student sign-in,

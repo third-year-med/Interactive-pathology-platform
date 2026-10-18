@@ -4306,6 +4306,19 @@ test('condensed Cell Injury module (cellcondensed): every topic, section, view a
       assert.ok(shown && shown.n > 40, h + ' shows a view with content');
       assert.ok(!/undefined|\[object Object\]/.test(shown.t), h + ': no undefined');
     }
+    // media-print patch: a wide 3000-px picture added to a section prints fitted to the page (no overflow, nothing shrunk)
+    const pr = await p.evaluate(function () {
+      const c = document.createElement('canvas'); c.width = 3000; c.height = 700; const g = c.getContext('2d'); g.fillStyle = '#c33'; g.fillRect(0, 0, 3000, 700);
+      State.customMedia.s0703 = [{ id: 'mp1', type: 'image', url: c.toDataURL('image/jpeg', .5), caption: 'Wide test picture', credit: 'test' }];
+      let html = ''; const o = window.open; window.open = function () { return { document: { write: function (x) { html += x; }, close: function () {} } }; };
+      try { Views.explain.printChapter(); } finally { window.open = o; delete State.customMedia.s0703; }
+      return html.replace(/<script>window\.onload[\s\S]*?<\/script>/, '');
+    });
+    const pp = await p.context().newPage(); await pp.setViewportSize({ width: 794, height: 1123 }); await pp.setContent(pr, { waitUntil: 'load' });
+    const fit = await pp.evaluate(function () { const im = document.querySelector('.media-item img'), b = document.querySelector('.print-body'); return { img: im ? im.getBoundingClientRect().width : -1, body: b.getBoundingClientRect().width, over: document.documentElement.scrollWidth - document.documentElement.clientWidth, fs: getComputedStyle(document.documentElement).fontSize }; });
+    assert.strictEqual(fit.fs, '18.7px', 'print-large patch: larger print text');
+    assert.ok(fit.img > 100 && fit.img <= fit.body + 1 && fit.over <= 0, 'an added picture prints within the page width: ' + JSON.stringify(fit));
+    await pp.close();
     const lmr = await p.evaluate(function () { const d = LMR.data(); return { facts: d.facts.length, comparisons: d.comparisons.length, traps: d.traps.length, morph: d.morphology.length }; });
     assert.ok(lmr.facts > 50 && lmr.comparisons >= 8 && lmr.traps >= 5 && lmr.morph >= 5, 'Last-Minute Review is built from the condensed course (original: 101 facts, 8 comparisons): ' + JSON.stringify(lmr));
     await p.context().close();
