@@ -4204,7 +4204,7 @@ test('condensed Inflammation module (inflcondensed): every topic, section, view 
     await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'student'; }, null, { timeout: 20000 });
     const info = await p.evaluate(function () { return { cfg: window.NEO_CONFIG, course: COURSE.title, topics: DATA.topics.map(function (t) { return { id: t.id, title: t.title, sections: t.sections.map(function (s) { return { id: s.id, heading: s.heading, tables: s.tables.length, figures: s.figures.length }; }) }; }) }; });
     assert.strictEqual(info.cfg.moduleKey, 'inflcondensed'); assert.strictEqual(info.cfg.storagePrefix, 'ic_');
-    assert.match(info.course, /Condensed/);
+    assert.strictEqual(info.course, 'Inflammation & Healing', 'plain name — no "Condensed" (user, 2026-10-19)');
     assert.strictEqual(info.topics.length, 18);
     assert.ok(await p.evaluate(function () { return !!sessionStorage.getItem('ic_stu_session_v1') || !!localStorage.getItem('ic_stu_session_v1'); }), 'its own storage prefix');
     for (const tp of info.topics) {
@@ -4284,7 +4284,7 @@ test('condensed Cell Injury module (cellcondensed): every topic, section, view a
     await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'student'; }, null, { timeout: 20000 });
     const info = await p.evaluate(function () { return { cfg: window.NEO_CONFIG, course: COURSE.title, topics: DATA.topics.map(function (t) { return { id: t.id, title: t.title, sections: t.sections.map(function (s) { return { id: s.id, heading: s.heading, tables: s.tables.length, figures: s.figures.length }; }) }; }) }; });
     assert.strictEqual(info.cfg.moduleKey, 'cellcondensed'); assert.strictEqual(info.cfg.storagePrefix, 'cc_');
-    assert.match(info.course, /Condensed/);
+    assert.strictEqual(info.course, 'Cell Injury & Cell Death', 'plain name — no "Condensed" (user, 2026-10-19)');
     assert.strictEqual(info.topics.length, 17);
     assert.ok(await p.evaluate(function () { return !!sessionStorage.getItem('cc_stu_session_v1') || !!localStorage.getItem('cc_stu_session_v1'); }), 'its own storage prefix');
     for (const tp of info.topics) {

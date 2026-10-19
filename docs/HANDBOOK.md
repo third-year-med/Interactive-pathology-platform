@@ -352,6 +352,12 @@ Backend: **Portal.gs 2.21**.
 
 ### 4.2 Content standard: CONDENSED by default (user decision, 2026-10-19)
 
+**The two condensed modules were renamed 2026-10-19** (user hides the original full modules): visible title now
+"Inflammation & Healing" / "Cell Injury & Cell Death" (page, header, footer, NEO_CONFIG.title, course title and fileStem,
+re-encrypted with the SAME keys); module keys `inflcondensed` / `cellcondensed`, prefixes, repositories, URLs and the build
+label `condensed-1.0` unchanged (renaming those would cut the students' accounts and results). The user renames the
+front-page card (Teacher Management) and the Platform directory module title.
+
 Every NEW module is written as a high-yield **condensed** module from the start — the density of
 `third-year-med-inflammation-condensed` and `cell-injury-condensed` (built 2026-10-18), not of the older full modules.
 Only build a full-length version when the user explicitly asks for one. Same architecture, features and look; only the
