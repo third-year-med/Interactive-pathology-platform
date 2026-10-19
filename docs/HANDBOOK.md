@@ -539,6 +539,8 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   browser shrank the WHOLE chapter), atlas pictures two per row from the full-size file (before: hidden inside the
   print-hidden zoom button), picture-link cards left out. Check print changes by rendering the chapter to PDF
   (Playwright `page.pdf`) and looking at the pages — not only by the DOM.
+  Grey block over a picture in the PDF (2026-10-19) = the print dialog opened before that picture was loaded/decoded
+  (the print window is written with document.write; its load event does not wait for pictures) → patch `print-decode`.
 - **Where new-module chats start (2026-10-17):** Claude Code → ＋ next to **Cloud** → repository
   `Interactive-pathology-platform`; the user first creates the empty module repo on GitHub, the chat attaches it
   (add_repo, push access). Everything is built in Claude Code (builder skill available there) — no Claude Home step.
