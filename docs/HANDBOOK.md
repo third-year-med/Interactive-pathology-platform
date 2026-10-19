@@ -16,6 +16,7 @@ in this repository, so every new session starts from it. State as of **2026-10-0
 | `third-year-med-inflammation-condensed` | Module **Inflammation & Healing — Condensed** (2026-10-18): an independent ~50 % shorter high-yield version of Inflammation & Healing — one `index.html` (`inflcondensed`, `ic_`, its OWN content key) | `…/third-year-med-inflammation-condensed/` |
 | `cell-injury-condensed` | Module **Cell Injury & Cell Death — Condensed** (2026-10-18): an independent ~50 % shorter high-yield version of Cell Injury & Cell Death — one `index.html` (`cellcondensed`, `cc_`, its OWN content key) | `…/cell-injury-condensed/` |
 | `introduction-to-pathology` | Module **Introduction to Pathology** (Chapter 1, first card) — one `index.html` (`intropath`, `ip_`) | `…/introduction-to-pathology/` |
+| `neoplasia` | Module **Neoplasia** (Chapter 4, after Inflammation & Healing; 2026-10-19) — a NEW condensed build, one `index.html` (`neoplasm`, `nm_`, its OWN content key) | `…/neoplasia/` |
 | `pathology-exams` | The Official Exams app — one `index.html` (`?m=<storage>`, `?g=<link code>`) | `…/pathology-exams/` |
 
 **Cancelled (2026-10-10):** the Vulva and Vagina modules (`Vulvar-pathology`, `vaginal-pathology`, their separate
@@ -554,8 +555,27 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
 - Preserve existing features and data; no redesigns or rewrites unless asked; smallest reliable fix.
 - After each step give: what changed, how it was tested, and the exact deployment steps.
 
-## 10. Current state (updated 2026-10-17)
+## 10. Current state (updated 2026-10-19)
 
+- **Neoplasia (2026-10-19, `third-year-med/neoplasia`, module key `neoplasm`, prefix `nm_`, build `1.0`, own content key —
+  env `NM_CONTENT_KEY` in sessions):** built from scratch, condensed from the start, with the app code of `cell-injury-condensed`
+  (all patches ✅). Sources: syllabus Ch. 7 "Neoplasia" (Drive folder "Neoplasia syllabus", 127 pp.), practical Exercises 19–20
+  (8 specimens, text written into topic t15; the book's figures NOT used — user: poor quality), 152 MCQs (repeats 22→14,
+  35/71→30, 77/79→50 merged → 147) and 44 clinical vignettes, plus 110 questions written for the module. 16 topics (t15 =
+  Practical, t16 = Integration), 61 sections, Learn text ≈ 10,800 words (incl. tables), deck 136 slides; 301 questions,
+  16 cases, 151 glossary terms, 13 sequences, 14 comparisons, 9 original SVG figures, 7 flowcharts, 28 quiz ids.
+  UX_UNITS: 6 units + finale (t15, t16); the Apply page's practical link points at t15 (model modules use t17).
+  **Pictures (open):** the session's network policy blocked peir.path.uab.edu, commons.wikimedia.org, librepathology.org,
+  webpath.med.utah.edu, webpathology.com and pathologyoutlines.com (also for web-fetch), so `images` is empty and no link
+  cards exist yet — the next session adds them once the user allows those domains (Network access → Allowed domains). If the
+  user has already created master v1.0 by then, the pictures go in through the REBUILD procedure (preview → golive).
+  Robbins batch: 39 pictures (Drive "Neoplasia pictures": all 38 captioned figures + the hallmarks figure), keys
+  `nm-robbins6-01…39`, file `neoplasm-pictures-robbins6.json` (not committed) — imported by the user in Edit master draft.
+  Official Exams: a SEPARATE exam-only bank of 88 questions (`xq_nm001…088`, `source {kind:'examonly', course:'neoplasm'}`),
+  file `neoplasm-exam-bank.json` (not committed; validated with exValidateQuestion_) — the user imports it in the exam app
+  (Exam question bank → Import). e2e test "Neoplasia module (neoplasm)…" and the module smoke test include it.
+  User's steps: four Code.gs additions for `neoplasm` (and remove the old `neoplasia` line from DEFAULT_QUIZ_PW), platformCheck,
+  Deploy, GitHub Pages ON for the repo, front-page card at Chapter 4, Modules → Add + Deliveries, versioned content.
 - **Backend: Portal.gs 2.22 in the repo** (2.22 = 📈 Pathology Overall Results; 2.21 deployed by the user 2026-10-17, platformCheck ✅ = 📤 Copy to groups; 2.20 retires the class quiz password). Since 2.15: Overall
   Pathology Attendance (75 % rule, Excel / CSV / print, student card); student homepage redesign (curricular order from
   the Teacher Management list, exams in their own section, Teaching Sessions panel with full history); group Live
