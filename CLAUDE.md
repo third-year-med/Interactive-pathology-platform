@@ -8,7 +8,9 @@ Essentials:
 - **Repositories in use:** `third-year-med/Interactive-pathology-platform` (this one — start every chat here),
   `introduction-to-pathology`, `cell-injury-teaching-platform`, `inflammation-healing`, `pathology-exams`,
   the condensed modules `third-year-med-inflammation-condensed` (`inflcondensed`) and `cell-injury-condensed` (`cellcondensed`);
-  `Gyn-pathology` is kept but not part of the platform. **`Vulvar-pathology` and `vaginal-pathology` were DELETED on
+  `Gyn-pathology` is kept but not part of the platform. **Neoplasia (2026-10-19):** the OLD test module (`Neoplasia-platform`,
+  key `neoplasia`) is retired — the NEW module is a fresh build in `third-year-med/neoplasia` with module key `neoplasm`,
+  prefix `nm_` (never reuse the key `neoplasia`: old test data may sit under it on the backend). **`Vulvar-pathology` and `vaginal-pathology` were DELETED on
   2026-10-10 — never refer to, link to, clone or build on them.**
 - **Links to files:** always give the FULL GitHub address, e.g.
   `https://github.com/third-year-med/Interactive-pathology-platform/blob/main/docs/NEW-MODULE-PROMPT.md` — a bare path

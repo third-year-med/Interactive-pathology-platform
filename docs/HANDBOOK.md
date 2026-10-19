@@ -383,6 +383,13 @@ or printouts — the title is the plain subject (e.g. "Neoplasia"). Module key, 
 - **Scientific QA** of every topic against the source; teacher-confirmed wording notes kept.
 - Report: Learn words and slide words separately, sections per topic, pictures kept/removed, what was merged.
 
+### 4.2.1 Neoplasia — a NEW module, not the old test (user, 2026-10-19)
+The earlier Neoplasia (repository `third-year-med/Neoplasia-platform`, module key `neoplasia`, Code.gs
+`DEFAULT_QUIZ_PW.neoplasia = 'NEOPL-2026'`) was only a platform test and is retired. The new Neoplasia module is built
+from scratch in `third-year-med/neoplasia` (empty, created 2026-10-19) with module key **`neoplasm`** and prefix
+**`nm_`** — nothing is reused from the test (no code, content, key or storage). Its four Code.gs additions use `neoplasm`;
+the user removes the old `neoplasia` line from DEFAULT_QUIZ_PW and retires any old card / directory record.
+
 ### 4.3 Picture sources (user, 2026-10-19): use ALL of them, each under its own rules
 
 A new module searches every source for every section and practical specimen. Pictures are registered in the course's
