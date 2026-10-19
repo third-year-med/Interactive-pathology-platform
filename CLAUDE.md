@@ -6,12 +6,15 @@ build of a module; `SETUP.md` is the user-facing setup guide.
 
 Essentials:
 - **Repositories in use:** `third-year-med/Interactive-pathology-platform` (this one — start every chat here),
-  `introduction-to-pathology`, `cell-injury-teaching-platform`, `inflammation-healing`, `pathology-exams`;
+  `introduction-to-pathology`, `cell-injury-teaching-platform`, `inflammation-healing`, `pathology-exams`,
+  the condensed modules `third-year-med-inflammation-condensed` (`inflcondensed`) and `cell-injury-condensed` (`cellcondensed`);
   `Gyn-pathology` is kept but not part of the platform. **`Vulvar-pathology` and `vaginal-pathology` were DELETED on
   2026-10-10 — never refer to, link to, clone or build on them.**
 - **Links to files:** always give the FULL GitHub address, e.g.
   `https://github.com/third-year-med/Interactive-pathology-platform/blob/main/docs/NEW-MODULE-PROMPT.md` — a bare path
   like `docs/NEW-MODULE-PROMPT.md` opens in whatever repository the chat is attached to.
+- **New modules are CONDENSED by default (user, 2026-10-19):** high-yield, ≈ 50 % of a full write-up (Learn text and
+  slides), all features and the full question bank kept — HANDBOOK §4.2. Build a full-length module only when asked.
 - Code.gs belongs to the user — never rewrite it. `backend/Portal.gs` (here) is pasted by the user into the Apps Script
   file "Portal"; after each change give the raw-URL steps, the new line count and the last 3 lines, then
   "Deploy → Manage deployments → Edit → New version → Deploy".

@@ -350,6 +350,30 @@ students; no Teacher / Class server buttons for students; per-tab sync cursor (m
 panel on the Learn home; learning-lock guard in the platform block; 🖼 Import pictures (Teacher Portal → 💾 Backup).
 Backend: **Portal.gs 2.21**.
 
+### 4.2 Content standard: CONDENSED by default (user decision, 2026-10-19)
+
+Every NEW module is written as a high-yield **condensed** module from the start — the density of
+`third-year-med-inflammation-condensed` and `cell-injury-condensed` (built 2026-10-18), not of the older full modules.
+Only build a full-length version when the user explicitly asks for one. Same architecture, features and look; only the
+amount of text changes. Targets and method (what worked for the two condensed modules):
+- **Learn text ≈ 50 % of a full write-up of the same syllabus** (measured on prose + key points + tables): every
+  syllabus point, definition, mechanism, classification, example and exam fact stays — cut repetition, long
+  introductions, side stories and duplicated explanations. Merge thin sections (≈ 3–6 sections per topic); a merged
+  section keeps the first section's ID.
+- **Per section:** short paragraphs or bullet lists with **bold** key terms; callouts kept where they teach
+  (DEF, FLOW, HIGHYIELD, CONFUSION, PRACTICAL, CLINICAL, RECALL — 1–3 RECALL questions); **2–3 key points** of one
+  line each (`slideKeyPoints` = the same text with **bold**); syllabus tables kept but trimmed to the rows that carry
+  facts; one table per comparison (no duplicates).
+- **Per topic:** a one-line summary, 3 must-know lines.
+- **Slides ≈ 50 % of a full deck** follow automatically from the shorter key points, must-know lines and summaries;
+  check with the real deck count (Presentation mode) — galleries add slides, so curate pictures.
+- **Pictures:** at most ~3 atlas pictures per section, no duplicates of the same view; a WebPath link chip is
+  redundant where the section already shows ≥ 2 pictures (keep link chips in the Practical topic).
+- **Questions, cases, glossary, sequences, comparisons:** complete (the question bank is NOT halved) — but every
+  question must be answerable from the condensed text (check each one; add the missing fact back to the text).
+- **Scientific QA** of every topic against the source; teacher-confirmed wording notes kept.
+- Report: Learn words and slide words separately, sections per topic, pictures kept/removed, what was merged.
+
 ## 5. Adding the next module — checklist (follow in this order; learned the hard way on 2026-10-10)
 
 **Golden rule: never give the user a complete new Code.gs.** Code.gs is the user's file and carries lines added

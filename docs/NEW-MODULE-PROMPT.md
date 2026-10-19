@@ -13,6 +13,12 @@
    Code.gs additions, platformCheck, Deploy, the front-page card and the deliveries.
 5. The new content key is shown ONCE in the chat — save it in your password manager (it is never written to a file).
 
+## Condensed by default (2026-10-19)
+
+New modules are written **condensed** (high-yield, about half the text and slides of a full write-up) — the prompt
+below already says so, and the platform's CLAUDE.md and HANDBOOK §4.2 require it, so a chat follows it even if that
+part of the prompt is missed. For a full-length module, delete the "CONTENT STYLE" section from the prompt.
+
 ## The prompt
 
 Copy everything inside the box into a new Claude chat, replace the parts in [brackets] and attach the source material.
@@ -34,8 +40,23 @@ BEFORE YOU START
    steps and §8 lessons learned), SETUP.md and docs/REBUILD.md.
 2. Use the existing modules as the model: third-year-med/introduction-to-pathology,
    third-year-med/cell-injury-teaching-platform and third-year-med/inflammation-healing
-   (same architecture, same look, same platform block).
+   (same architecture, same look, same platform block). For the AMOUNT of text, the model is the
+   condensed modules: third-year-med/third-year-med-inflammation-condensed and
+   third-year-med/cell-injury-condensed.
 3. Tell me your plan step by step before changing anything, and keep my plan's order.
+
+CONTENT STYLE — CONDENSED (high-yield) BY DEFAULT
+- Write the module condensed from the start, following docs/HANDBOOK.md §4.2: Learn text and slides about
+  half of a full write-up, every syllabus point, definition, mechanism, classification and exam fact kept,
+  repetition and long introductions cut, thin sections merged (3–6 per topic), 2–3 one-line key points per
+  section, 3 must-know lines per topic.
+- Keep ALL features and the COMPLETE question bank, cases, glossary, sequences and comparisons; every
+  question must be answerable from the condensed text.
+- Curate pictures (no duplicates, about 3 per section at most).
+- Scientific QA of every topic against my source material.
+- In the final report give me: Learn word count, slide count and on-slide words, sections per topic,
+  pictures kept, and anything you were unsure about.
+[Delete this section only if I want a FULL-length module this time.]
 
 STRICT RULES
 - NEVER give me a complete new Code.gs. Give me ONLY the lines to add and exactly where
@@ -82,4 +103,28 @@ Report: the repository URLs, the commit links, the live links, what I still have
 (numbered, with exact buttons), and update docs/HANDBOOK.md (current state) for the next chat.
 If something breaks after a deploy, first tell me how to roll back
 (Manage deployments → Edit → Version: the previous one → Deploy).
+```
+
+## Prompt to condense an EXISTING module
+
+For a module that was built full-length (as done for Inflammation & Healing and Cell Injury on 2026-10-18). Start the
+chat the same way (Code → ＋ next to Cloud → Interactive-pathology-platform), after creating an EMPTY repository on
+GitHub for the condensed copy.
+
+```
+Please make a condensed (high-yield, about 50 % shorter) version of my [MODULE NAME] module, the same way
+the Inflammation and Cell Injury condensed modules were made (docs/HANDBOOK.md §4.2 and §10).
+
+- Original module repository: third-year-med/[e.g. neoplasia] — do NOT change it.
+- New repository (already created, empty): third-year-med/[e.g. neoplasia-condensed]
+- New module key: [e.g. neocondensed]  (no "-")      New storage prefix: [e.g. nc_]
+- The original module's content key: I will give it to you in the chat when you ask (never write it to a file).
+
+Keep the architecture, every feature and the complete question bank; condense the Learn text and the
+slides; keep the IDs of continuing topics, sections, questions, cases and images; curate the pictures;
+scientific QA; test on the real page; then give me the report (word counts, slides, what was merged,
+pictures), the NEW content key once, and my deployment steps (four Code.gs additions, platformCheck,
+Deploy, front-page card, Platform directory Modules + Deliveries, versioned content ON before publishing,
+⚡ Topic quizzes). If the original module has imported Robbins pictures, rebuild the picture-import file
+for the condensed module from my Drive folder [folder name].
 ```
