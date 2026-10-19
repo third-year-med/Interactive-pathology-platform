@@ -15,6 +15,7 @@ Essentials:
   like `docs/NEW-MODULE-PROMPT.md` opens in whatever repository the chat is attached to.
 - **New modules are CONDENSED by default (user, 2026-10-19):** high-yield, ≈ 50 % of a full write-up (Learn text and
   slides), all features and the full question bank kept — HANDBOOK §4.2. Build a full-length module only when asked.
+  The NAME never mentions it: no "Condensed" (or similar) in titles, cards, page text, keys or repository names.
 - Code.gs belongs to the user — never rewrite it. `backend/Portal.gs` (here) is pasted by the user into the Apps Script
   file "Portal"; after each change give the raw-URL steps, the new line count and the last 3 lines, then
   "Deploy → Manage deployments → Edit → New version → Deploy".

@@ -355,7 +355,10 @@ Backend: **Portal.gs 2.21**.
 Every NEW module is written as a high-yield **condensed** module from the start — the density of
 `third-year-med-inflammation-condensed` and `cell-injury-condensed` (built 2026-10-18), not of the older full modules.
 Only build a full-length version when the user explicitly asks for one. Same architecture, features and look; only the
-amount of text changes. Targets and method (what worked for the two condensed modules):
+amount of text changes. **The name never says so (user, 2026-10-19):** no "Condensed", "High-yield", "Short" or similar
+in the module title, subtitle, page `<title>`, header, footer, front-page card, Platform directory title, file names
+or printouts — the title is the plain subject (e.g. "Neoplasia"). Module key, prefix and repository name are plain too
+(e.g. `neoplasia`, `np_`, `third-year-med/neoplasia`). Targets and method (what worked for the two condensed modules):
 - **Learn text ≈ 50 % of a full write-up of the same syllabus** (measured on prose + key points + tables): every
   syllabus point, definition, mechanism, classification, example and exam fact stays — cut repetition, long
   introductions, side stories and duplicated explanations. Merge thin sections (≈ 3–6 sections per topic); a merged

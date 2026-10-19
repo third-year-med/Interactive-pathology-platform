@@ -15,7 +15,8 @@
 
 ## Condensed by default (2026-10-19)
 
-New modules are written **condensed** (high-yield, about half the text and slides of a full write-up) — the prompt
+New modules are written **condensed** (high-yield, about half the text and slides of a full write-up), and the word
+"condensed" never appears in the module's name — the prompt
 below already says so, and the platform's CLAUDE.md and HANDBOOK §4.2 require it, so a chat follows it even if that
 part of the prompt is missed. For a full-length module, delete the "CONTENT STYLE" section from the prompt.
 
@@ -52,6 +53,8 @@ CONTENT STYLE — CONDENSED (high-yield) BY DEFAULT
   section, 3 must-know lines per topic.
 - Keep ALL features and the COMPLETE question bank, cases, glossary, sequences and comparisons; every
   question must be answerable from the condensed text.
+- Do NOT put "Condensed", "High-yield" or similar in the module's name anywhere (title, subtitle, page,
+  front-page card, printouts, module key, repository name) — the title is just the subject, e.g. [Neoplasia].
 - Curate pictures (no duplicates, about 3 per section at most).
 - Scientific QA of every topic against my source material.
 - In the final report give me: Learn word count, slide count and on-slide words, sections per topic,
@@ -118,6 +121,7 @@ the Inflammation and Cell Injury condensed modules were made (docs/HANDBOOK.md �
 - Original module repository: third-year-med/[e.g. neoplasia] — do NOT change it.
 - New repository (already created, empty): third-year-med/[e.g. neoplasia-condensed]
 - New module key: [e.g. neocondensed]  (no "-")      New storage prefix: [e.g. nc_]
+- Title shown to students: [e.g. Neoplasia]  (no "Condensed" in the name unless I write it here)
 - The original module's content key: I will give it to you in the chat when you ask (never write it to a file).
 
 Keep the architecture, every feature and the complete question bank; condense the Learn text and the
