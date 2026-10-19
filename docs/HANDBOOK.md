@@ -383,6 +383,23 @@ or printouts — the title is the plain subject (e.g. "Neoplasia"). Module key, 
 - **Scientific QA** of every topic against the source; teacher-confirmed wording notes kept.
 - Report: Learn words and slide words separately, sections per topic, pictures kept/removed, what was merged.
 
+### 4.3 Picture sources (user, 2026-10-19): use ALL of them, each under its own rules
+
+A new module searches every source for every section and practical specimen. Pictures are registered in the course's
+`images` (atlas) with an `imageProviders` entry (name, long, home, mode, terms, rule) — the model is the provider list of
+the existing modules — and appear in Learn, Presentation (Images slides), Practical → Image atlas and the reviews.
+| Source | How | Credit / rule |
+|---|---|---|
+| **PEIR Digital Library** (UAB) | embed (`mode: embed`) | "© UAB Department of Pathology"; non-profit educational use, UAB acknowledged |
+| **Wikimedia Commons** | embed per image (`mode: per-image`) | only Public domain, CC0, CC BY, CC BY-SA files (check each file page): author + licence + Commons link; other licences → link only |
+| **Libre Pathology** | as Commons (its images are Commons files) | same per-file rule; link to the Libre Pathology page too |
+| **Robbins** (user's attached pictures + captions, or a Drive folder) | picture-import file `neo-picture-import` (§8 / patch `picture-import`), imported by the user in ✏️ Edit master draft after go-live | credit line "Kumar V, et al. Robbins & Kumar Basic Pathology … © Elsevier … teaching use within this course only"; never committed |
+| **WebPath** (Utah) | link only (`mode: link`, section `links`) | reproduction forbidden without written permission |
+| **WebPathology** | link only | personal viewing only; may not be copied, displayed or framed |
+| **Pathology Outlines** | link only (add a provider `pathout`, `mode: link`) | © PathologyOutlines.com — images may not be reproduced |
+Every entry: the right section, a short "what to look for", source + credit, checked URL, no duplicate views; about
+3 embedded pictures per section (condensed standard, §4.2). The final report lists pictures and links per source.
+
 ## 5. Adding the next module — checklist (follow in this order; learned the hard way on 2026-10-10)
 
 **Golden rule: never give the user a complete new Code.gs.** Code.gs is the user's file and carries lines added

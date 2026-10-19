@@ -61,6 +61,22 @@ CONTENT STYLE — CONDENSED (high-yield) BY DEFAULT
   pictures kept, and anything you were unsure about.
 [Delete this section only if I want a FULL-length module this time.]
 
+PICTURE SOURCES — use ALL of them (docs/HANDBOOK.md §4.3), each under its own rules
+- Search every source for each section and practical specimen; give every section with a visible
+  lesion real pictures (gross AND microscopic where they exist), curated (about 3 per section).
+- Embedded in the page (shown inside the module), with the credit each source requires:
+  · PEIR Digital Library (UAB) — embed, "© UAB Department of Pathology".
+  · Wikimedia Commons, and Libre Pathology (its images are Commons files) — embed ONLY files whose
+    licence is Public domain, CC0, CC BY or CC BY-SA (check each file page), with author + licence +
+    link; any other licence → link only.
+  · Robbins pictures with captions that I attach (or put in a Google Drive folder [folder name]) — as a
+    picture-import file (neo-picture-import) that I import in Edit master draft; never committed.
+- Link only (a card that opens the site in a new tab; never copy, embed or frame their images):
+  · WebPath (University of Utah), WebPathology, Pathology Outlines — their terms forbid reproduction.
+- Every picture or link: the right section, a short "what to look for", its source name and credit;
+  no broken links (check every URL), no duplicates of the same view.
+- In the final report, list the pictures and links per source.
+
 STRICT RULES
 - NEVER give me a complete new Code.gs. Give me ONLY the lines to add and exactly where
   (Ctrl+F text). For a new module that is exactly four additions: STUDENT_AUTH_MODULES,
