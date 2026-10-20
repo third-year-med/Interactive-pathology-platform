@@ -194,7 +194,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.23';
+var PORTAL_VERSION = '2.24';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -237,6 +237,8 @@ function portalHook_(module, p) {
     if ((act === 'login' || act === 'setup') && !portalModuleLoginAllowed_()) return PORTAL_MODULE_LOGIN_CLOSED;
     // a student changing the password inside a module of a group: apply it to all of the group's modules
     if (act === 'studentChangePassword') return rosterModulePassword_(String(module), p);
+    // 2.24: a student added in a group module's Teacher Portal → Students also joins that group's student list
+    if ((act === 'saveStudent' && (p.create === true || p.create === 'true')) || act === 'bulkAddStudents') return rosterModuleAdd_(String(module), act, p);
     return null;
   }
   var a = String(p.action || '');
@@ -963,6 +965,42 @@ function rosterImport_(p) {
     added++;
   });
   return { ok: true, added: added };
+}
+
+/** 2.24 — Teacher Portal → 👥 Students inside a GROUP's module (storage of a delivery): the account is created exactly as
+ *  Code.gs does (same checks, same temporary password), then the student joins the group's student list (Platform
+ *  directory → Students) with that same password, and gets the missing accounts in the group's other modules — so they
+ *  can sign in on the group page at once (before, they could sign in only inside that one module until the Admin pressed
+ *  "Add existing accounts to this group"). Someone already on the group list is left unchanged. Not a group storage
+ *  (normal link, master draft, no directory) → null: Code.gs alone, unchanged. */
+function rosterModuleAdd_(module, act, p) {
+  try { if (!dirReadable_()) return null; } catch (e) { return null; }
+  var d = null; dirAll_(DIR.DELIV).some(function (x) { if (x.backendModule === module) { d = x; return true; } return false; });
+  if (!d || !d.groupId) return null;
+  return authed_(module, p, function () {
+    var r = act === 'bulkAddStudents' ? actionBulkAddStudents_(module, p) : actionSaveStudent_(module, p);
+    if (!r || !r.ok) return r;
+    var ids = act === 'bulkAddStudents' ? (r.results || []).filter(function (x) { return x.ok && x.username; }).map(function (x) { return x.username; }) : (r.username ? [r.username] : []);
+    if (!ids.length) return r;
+    var j = rosterWrite_(function () { return rosterJoinFromModule_(d.groupId, module, ids); });
+    var g = rosterGroupOr_(d.groupId);
+    r.group = { name: g ? String(g.name || '') : '', joined: j.joined, already: j.already, otherAccounts: j.created };
+    return r;
+  });
+}
+function rosterJoinFromModule_(groupId, storage, ids) {
+  var idx = rosterAccounts_(), st = rosterStorages_(groupId), now = Date.now(), out = { joined: [], already: [], created: 0 };
+  ids.forEach(function (id) {
+    var a = idx[storage + '|' + id]; if (!a) return;
+    if (rosterMember_(groupId, id)) { out.already.push(id); return; }
+    appendRow_(DIR.MEMB, { membershipId: dirNewId_('MEM', DIR.MEMB, 'membershipId'), groupId: groupId, studentId: id, name: a.name || id, email: a.email || '', active: isTrue_(a.active),
+      createdAt: now, updatedAt: now, pwSalt: a.pwSalt, pwHash: a.pwHash, pwIter: Number(a.pwIter) || PW_ITER, mustChange: isTrue_(a.mustChange) });
+    var m = { studentId: id, name: a.name || id, email: a.email || '', active: isTrue_(a.active) };
+    var pw = { salt: a.pwSalt, hash: a.pwHash, iter: Number(a.pwIter) || PW_ITER, mustChange: isTrue_(a.mustChange) };
+    st.forEach(function (x) { if (!idx[x.storage + '|' + id]) { rosterNewAccount_(x.storage, m, pw, now); out.created++; } });
+    out.joined.push(id);
+  });
+  return out;
 }
 
 /* ---------------- one password across the group's modules ---------------- */

@@ -104,6 +104,9 @@ inactive link shows the main platform page with a notice. Without `?g=` the fron
 
 ### Group students (rosters)
 
+Since Portal.gs 2.24 a student added in a group's module (Teacher Portal → 👥 Students) also joins the group's
+student list automatically, with the same password, and can sign in on the group page at once.
+
 Platform directory → **Students** → choose the group:
 - **Add students** — one per line: `Student ID, Name, Email (optional), Password (optional)`. Each student gets one
   account in **every** module of the group, all with the same password. Without a password a temporary one is generated

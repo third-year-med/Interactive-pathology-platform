@@ -350,9 +350,11 @@ function groupsSetup() {
   acct('cellinjury-razi-a-26', [{ username: 'ahmed', name: 'Student Ahmed', password: PW, mustChange: false }]);
   acct('inflhealing-razi-a-26', [{ username: 'ahmed', name: 'Student Ahmed', password: PW, mustChange: false }]);
   acct('cellinjury-misrata-a-26', [{ username: 'sara', name: 'Student Sara', password: PW, mustChange: false }]);
-  // Step 3: the group page needs a roster membership — import the accounts made above
-  assert.strictEqual(S.dir('rosterImport', { groupId: S.ra.groupId }).added, 1);
-  assert.strictEqual(S.dir('rosterImport', { groupId: S.ma.groupId }).added, 1);
+  // Step 3: the group page needs a roster membership — since 2.24 an account made in a group's module joins the list at once
+  // (before, the Admin imported them with rosterImport, which now finds nothing left to add)
+  assert.strictEqual(S.dir('rosterImport', { groupId: S.ra.groupId }).added, 0);
+  assert.strictEqual(S.dir('rosterImport', { groupId: S.ma.groupId }).added, 0);
+  assert.ok(S.b.ctx.rosterMember_(S.ra.groupId, 'ahmed') && S.b.ctx.rosterMember_(S.ma.groupId, 'sara'));
   return S;
 }
 
@@ -467,10 +469,8 @@ test('roster: adding a student creates one account in every module of the group,
 
 test('roster: the group page needs an active membership; deactivating it closes every module of the group at once', function () {
   const S = groupsSetup();
-  // an account made in a module without being on the roster does not open the group page
-  S.call({ module: 'cellinjury-razi-a-26', action: 'login', password: 'teacher-cellinjury-razi-a-26' });
-  const t = S.call({ module: 'cellinjury-razi-a-26', action: 'login', password: 'teacher-cellinjury-razi-a-26' }).token;
-  S.call({ module: 'cellinjury-razi-a-26', action: 'bulkAddStudents', token: t, students: [{ username: 'loner', name: 'Not Listed', password: PW, mustChange: false }] });
+  // an account made in a module (before 2.24) without being on the roster does not open the group page
+  S.b.ctx.rosterNewAccount_('cellinjury-razi-a-26', { studentId: 'loner', name: 'Not Listed', active: true }, S.b.ctx.rosterPw_(PW, false), Date.now());
   assert.strictEqual(S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: 'loner', password: PW }).error, 'Incorrect Student ID or password.');
   assert.strictEqual(S.dir('rosterGet', { groupId: S.ra.groupId }).unlistedAccounts, 1);
   assert.strictEqual(S.dir('rosterImport', { groupId: S.ra.groupId }).added, 1);
@@ -555,8 +555,7 @@ test('fix: a student added BEFORE the group has modules can sign in once modules
 test('fix: adding a student who already had an account in a module sets the new password there too', function () {
   const S = groupsSetup();
   // "early" already has an account in Cell Injury of Al-Razi A (made in that module's Teacher Portal) with another password
-  const t = S.call({ module: 'cellinjury-razi-a-26', action: 'login', password: 'teacher-cellinjury-razi-a-26' }).token;
-  S.call({ module: 'cellinjury-razi-a-26', action: 'bulkAddStudents', token: t, students: [{ username: 'early', name: 'Early', password: 'old-module-pass', mustChange: false }] });
+  S.b.ctx.rosterNewAccount_('cellinjury-razi-a-26', { studentId: 'early', name: 'Early', active: true }, S.b.ctx.rosterPw_('old-module-pass', false), Date.now());   // made before 2.24 (not on the list)
   const add = S.dir('rosterAdd', { groupId: S.ra.groupId, students: [{ studentId: 'early', name: 'Early Bird' }] });
   assert.deepStrictEqual(add.results[0].updatedExisting, ['cellinjury']);
   const r = S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: 'early', password: add.results[0].tempPassword });
@@ -2241,6 +2240,37 @@ test('learning lock: automatic during a scheduled assessment (only its students,
   assert.strictEqual(status(tb1).locked, false);
   assert.ok(S.ts('llSet', { deliveryId: S.ci.deliveryId, locked: true }).ok);
   assert.strictEqual(status(tb1).reason, 'manual');
+});
+
+/* ---------------- 2.24: a student added inside a group's module joins the group's student list ---------------- */
+test('2.24 Teacher Portal → Students in a group module: the new student joins the group list, gets the other modules, signs in on the group page; bulk too; outside a group unchanged', function () {
+  const S = tsSetup(), CI = 'cellinjury-razi-a-26', IH = 'inflhealing-razi-a-26', X = S.b.ctx;
+  const tok = S.call({ module: CI, action: 'login', password: 'teacher-' + CI }).token; assert.ok(tok);
+  const accts = function (id) { return X.readAll_(X.SHEETS.STUDENTS).filter(function (r) { return r.username === id; }).map(function (r) { return r.module; }).sort(); };
+  // one student, password generated (shown once to the teacher)
+  const r = S.call({ module: CI, action: 'saveStudent', token: tok, create: true, student: { username: 'NewOne', name: 'New Student One', email: 'new1@uni.ly', password: '' } });
+  assert.ok(r.ok, JSON.stringify(r)); assert.ok(r.tempPassword); assert.deepStrictEqual(r.group.joined, ['newone']); assert.strictEqual(r.group.otherAccounts, 1);
+  assert.deepStrictEqual(accts('newone'), [CI, IH], 'an account in every module of the group');
+  const m = X.rosterMember_(S.ra.groupId, 'newone'); assert.ok(m && m.active, 'on the group list');
+  // signs in on the GROUP page with the password the teacher was given → both modules open
+  const g = S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: 'newone', password: r.tempPassword });
+  assert.ok(g.ok, JSON.stringify(g));
+  // bulk: two new, one already on the group list (b1 has accounts already → refused by Code.gs as before, nothing changed)
+  const b = S.call({ module: CI, action: 'bulkAddStudents', token: tok, students: [{ username: 'bulk1', name: 'Bulk One' }, { username: 'bulk2', name: 'Bulk Two' }, { username: 'b1', name: 'Basma One' }] });
+  assert.ok(b.ok, JSON.stringify(b)); assert.strictEqual(b.created, 2); assert.deepStrictEqual(b.group.joined.sort(), ['bulk1', 'bulk2']);
+  assert.deepStrictEqual(accts('bulk2'), [CI, IH]);
+  const bp = b.results.filter(function (x) { return x.username === 'bulk1'; })[0].tempPassword;
+  assert.ok(S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: 'bulk1', password: bp }).ok);
+  // errors are unchanged (same message, nothing joined)
+  const dupl = S.call({ module: CI, action: 'saveStudent', token: tok, create: true, student: { username: 'newone', name: 'Again' } });
+  assert.deepStrictEqual([dupl.ok, dupl.code, dupl.group], [false, 'exists', undefined]);
+  // editing a student (not creating) is untouched; no token → refused as before
+  assert.ok(S.call({ module: CI, action: 'saveStudent', token: tok, student: { username: 'newone', name: 'New Student 1', email: '' } }).ok);
+  assert.strictEqual(S.call({ module: CI, action: 'saveStudent', create: true, student: { username: 'hacker', name: 'No Token' } }).ok, false);
+  assert.strictEqual(X.rosterMember_(S.ra.groupId, 'hacker'), null);
+  // a module storage that is not a group delivery: Code.gs alone, no group list
+  const ntok = S.call({ module: 'cellinjury', action: 'login', password: 'teacher-cellinjury' }).token;
+  if (ntok) { const n = S.call({ module: 'cellinjury', action: 'saveStudent', token: ntok, create: true, student: { username: 'solo1', name: 'Solo Student' } }); assert.ok(n.ok, JSON.stringify(n)); assert.strictEqual(n.group, undefined); }
 });
 
 /* ---------------- 2.23: a student's assessment list reads the Content sheet ONCE ---------------- */
