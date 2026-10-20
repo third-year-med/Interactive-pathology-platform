@@ -562,13 +562,19 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   (all patches ✅). Sources: syllabus Ch. 7 "Neoplasia" (Drive folder "Neoplasia syllabus", 127 pp.), practical Exercises 19–20
   (8 specimens, text written into topic t15; the book's figures NOT used — user: poor quality), 152 MCQs (repeats 22→14,
   35/71→30, 77/79→50 merged → 147) and 44 clinical vignettes, plus 110 questions written for the module. 16 topics (t15 =
-  Practical, t16 = Integration), 61 sections, Learn text ≈ 10,800 words (incl. tables), deck 136 slides; 301 questions,
+  Practical, t16 = Integration), 61 sections, Learn text ≈ 10,800 words (incl. tables), deck 136 slides before pictures; 301 questions,
   16 cases, 151 glossary terms, 13 sequences, 14 comparisons, 9 original SVG figures, 7 flowcharts, 28 quiz ids.
   UX_UNITS: 6 units + finale (t15, t16); the Apply page's practical link points at t15 (model modules use t17).
-  **Pictures (open):** the session's network policy blocked peir.path.uab.edu, commons.wikimedia.org, librepathology.org,
-  webpath.med.utah.edu, webpathology.com and pathologyoutlines.com (also for web-fetch), so `images` is empty and no link
-  cards exist yet — the next session adds them once the user allows those domains (Network access → Allowed domains). If the
-  user has already created master v1.0 by then, the pictures go in through the REBUILD procedure (preview → golive).
+  **Pictures (added 2026-10-19, same session after the user allowed the picture domains):** 101 embedded atlas images —
+  88 PEIR (IPLab Lab 7 case pages + PEIR library, found with the library's JSON API
+  `library/ws.php?format=json&method=pwg.images.search&query=…`; credit © UAB Department of Pathology) and 13 Wikimedia
+  Commons files (licence, author and URL read from the Commons API `prop=imageinfo&iiprop=url|extmetadata`; only PD,
+  CC BY, CC BY-SA; provider `wikimedia`, credited author · licence · file page — the build patches `atlasCreditEl` for it) —
+  plus 84 link-only image cards (69 WebPath `NEOHTML/NEOPLxxx.html`, 15 WebPathology `images/<…>/<id>`). Every PEIR URL
+  and link was checked (HTTP 200); Commons images could not be downloaded from the container (upload.wikimedia.org 429,
+  thumb.wikimedia.org not allowed), so they were checked through the API and seen loading in the real-page screenshot.
+  PathologyOutlines.com stayed blocked (429, retry-after 24 h) → no Pathology Outlines links. Sections without a picture
+  (purely molecular): s0803, s0901, s0903, s1603. Deck with pictures: 199 slides; LMR morphology 30.
   Robbins batch: 39 pictures (Drive "Neoplasia pictures": all 38 captioned figures + the hallmarks figure), keys
   `nm-robbins6-01…39`, file `neoplasm-pictures-robbins6.json` (not committed) — imported by the user in Edit master draft.
   Official Exams: a SEPARATE exam-only bank of 88 questions (`xq_nm001…088`, `source {kind:'examonly', course:'neoplasm'}`),
