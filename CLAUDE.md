@@ -30,6 +30,9 @@ Essentials:
 - `?g=` selects a group but never grants access. Module IDs never contain "-". Storage of a delivery = `<module>-<linkCode>`.
 - With versioned content ON, edits inside a module go to that storage's local layer; only "Edit master draft" +
   "Publish draft" change the master.
+- **Two attendance systems — KEEP BOTH (user, 2026-10-20):** the module's own attendance (Teacher Portal → Attendance and the
+  📋 Attendance tab) and the platform's 🎓 Teaching Sessions. Both write the same AttendanceSessions / AttendanceRecords rows
+  (Overall Pathology Attendance counts both). Never remove or hide either; a fix for one is checked in the other.
 - **Module features shared by all modules** live as idempotent patches in `modules/patches/` (README = list + order).
   A feature for all modules = a new patch there; a new module must pass `bash modules/patches/apply.sh --check`.
 - Test before every push: `cd test && node --test backend.test.js && node --test e2e.test.js` (real module pages from the
