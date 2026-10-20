@@ -1694,6 +1694,14 @@ test('Teaching Sessions: Admin schedules a lecture, opens attendance (rotating c
   const ses = main.call({ module: 'cellinjury-tr-a', action: 'studentLogin', username: 'ahmed', password: PW });
   const sub = main.call({ module: 'cellinjury-tr-a', action: 'submitAttendanceByCode', stoken: ses.token, code: code }); assert.ok(sub.ok, JSON.stringify(sub) + ' code ' + code);
   await p.waitForFunction(function () { var r = Array.prototype.filter.call(document.querySelectorAll('#t-sessions .ts-reg tr'), function (x) { return /Student Ahmed/.test(x.textContent); })[0]; return r && /Present/.test(r.textContent); }, null, { timeout: 8000 });
+  // the platform does not answer for a moment → the saved register stays with a "retrying" note; then live again
+  let tsDown = true;
+  await p.route('https://script.google.com/**', function (route) { return tsDown ? route.abort() : route.fallback(); });
+  await p.waitForSelector('#t-sessions .ts-net', { timeout: 15000 });
+  assert.match(await p.textContent('#t-sessions .ts-reg'), /Student Ahmed[\s\S]*Present/);
+  assert.ok(await p.$('#t-sessions .ts-code'), 'the live screen stays open');
+  tsDown = false;
+  await p.waitForFunction(function () { return !document.querySelector('#t-sessions .ts-net') && document.querySelector('#t-sessions .ts-code'); }, null, { timeout: 15000 });
   // close attendance → the register stays open; nobody is "Not yet" any more
   await p.click('#t-sessions [data-a=close]');
   await p.waitForFunction(function () { var s = document.querySelector('#t-sessions .ts-screen'); return s && !document.querySelector('#t-sessions .ts-code') && /Register \(CSV\)/.test(s.textContent); });
@@ -3947,6 +3955,25 @@ test('Attendance tab for a teacher: the short Teacher Portal version — start a
     if (process.env.SHOTS) await t.screenshot({ path: path.join(process.env.SHOTS, 'attendance-code-fullscreen.png') });
     await t.keyboard.press('Escape');
     await t.waitForFunction(function () { return !document.querySelector('.att-fs'); });
+    // LIVE: students who check in appear in the list (with the count) while the session is still open — no closing, no reload
+    const ses1 = main.call({ module: ST, action: 'studentLogin', username: 'ahmed', password: PW });
+    assert.ok(main.call({ module: ST, action: 'submitAttendanceByCode', stoken: ses1.token, code: sess.code }).ok);
+    await t.waitForFunction(function () { var x = document.querySelector('#view-attendance').textContent; return /Student Ahmed/.test(x) && /Present: 1 student\b/.test(x); }, null, { timeout: 12000 });
+    assert.ok(await t.$('#view-attendance button:has-text("Close attendance")'), 'still open');
+    assert.match(await t.textContent('#view-attendance .att-live-note'), /Live — new check-ins appear automatically/);
+    // a second student → the list and the count keep growing; a duplicate check-in adds nobody
+    main.addStudents(ST, [{ username: 'b1', name: 'Student Basma', password: PW, mustChange: false }]);
+    const ses2 = main.call({ module: ST, action: 'studentLogin', username: 'b1', password: PW });
+    assert.ok(main.call({ module: ST, action: 'submitAttendanceByCode', stoken: ses2.token, code: sess.code }).ok);
+    assert.strictEqual(main.call({ module: ST, action: 'submitAttendanceByCode', stoken: ses1.token, code: sess.code }).alreadyRecorded, true);
+    await t.waitForFunction(function () { var x = document.querySelector('#view-attendance').textContent; return /Student Ahmed/.test(x) && /Basma/.test(x) && /Present: 2 students/.test(x); }, null, { timeout: 12000 });
+    assert.strictEqual(await t.$$eval('#view-attendance .data-table tbody tr', function (r) { return r.length; }), 2, 'no duplicate row');
+    // the class server does not answer → the saved list stays, a "retrying" note; back → live again
+    await t.route('**/macros/**', function (route) { return route.abort(); });
+    await t.waitForFunction(function () { var n = document.querySelector('#view-attendance .att-live-note'); return n && /did not answer/.test(n.textContent); }, null, { timeout: 15000 });
+    assert.match(await t.textContent('#view-attendance'), /Present: 2 students[\s\S]*Student Ahmed/);
+    await t.unroute('**/macros/**');
+    await t.waitForFunction(function () { var n = document.querySelector('#view-attendance .att-live-note'); return n && /Live — new check-ins/.test(n.textContent); }, null, { timeout: 15000 });
     await t.click('#view-attendance button:has-text("Close attendance")');
     await t.click('.modal button:has-text("Close attendance")');
     await t.waitForFunction(function () { return /Start attendance for a new teaching session/.test(document.querySelector('#view-attendance').textContent) && /Short-view lecture/.test(document.querySelector('#view-attendance').textContent); }, null, { timeout: 15000 });

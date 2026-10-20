@@ -1176,7 +1176,18 @@
       stop(); liveId = tsId;
       box.innerHTML = '<div class="note ts-screen"><p class="muted small">Loading…</p></div>';
       var w = $('.ts-screen', box), last = null;
-      function load() { return call('tsState', { tsId: tsId }).then(function (r) { if (liveId !== tsId) return; if (!r.ok) { fail(r); box.innerHTML = ''; return; } last = r; draw(r); schedule(r); }); }
+      function load() {
+        if (document.hidden && last && last.session.status === 'live') { if (poll) clearTimeout(poll); poll = setTimeout(load, 5000); return Promise.resolve(); }   // hidden browser tab: no requests
+        return call('tsState', { tsId: tsId }).then(function (r) {
+          if (liveId !== tsId) return;
+          if (!r.ok && (r.code === 'network' || r.code === 'badjson') && last) {   // a temporary failure: keep the saved register on screen, retry
+            if (!$('.ts-net', w)) w.insertBefore(h('<p class="small err ts-net">⚠ The platform did not answer — retrying automatically. The register shows the check-ins saved so far.</p>'), w.firstChild);
+            if (poll) clearTimeout(poll); poll = setTimeout(load, 8000); return;
+          }
+          if (!r.ok) { fail(r); box.innerHTML = ''; return; }
+          last = r; draw(r); schedule(r);
+        });
+      }
       function schedule(r) { if (poll) clearTimeout(poll); poll = r.session.status === 'live' ? setTimeout(load, 5000) : null; }
       function act(o, b) { if (b) b.disabled = true; call('tsMark', Object.assign({ tsId: tsId }, o)).then(function (r) { if (b) b.disabled = false; if (!r.ok) return fail(r); last = r; draw(r); schedule(r); }); }
       function draw(r) {

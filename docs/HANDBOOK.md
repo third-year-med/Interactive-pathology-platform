@@ -564,6 +564,15 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   list, the reason + ↻ Try again instead of the loop; smoke test "assess error+retry"). Teacher paths read content
   differently, which is why the teacher account worked. Never let a failed load re-render the loading state.
 
+- **Attendance names appeared only after "Close attendance" (2026-10-20):** the module's teacher poll
+  (`AttT.poll`, every 4 s) fetched the check-ins but redrew the list only when `attTeacherVisible()` — Teacher Portal →
+  Attendance. The 📋 Attendance tab (patch att-teacher-short, `#/attendance`) was not included, so its list stayed
+  empty until closing redrew the page. Fix: patch `att-live` (`attTeacherOnScreen()` = both places; no request while
+  off screen or the browser tab is hidden; one request at a time; failures keep the saved list with a note). Teaching
+  Sessions (portal.js live screen) already polled every 5 s; a single failed poll used to clear the panel and stop
+  polling — now it keeps the register, shows a note and retries (8 s). Tests: e2e "Attendance tab for a teacher…"
+  (2 students live, duplicate, outage + recovery) and "Teaching Sessions: Admin schedules…" (outage + recovery).
+
 ## 9. How to work with the user
 
 - Keep the agreed plan order; finish one step, report, and wait for "continue" before the next.
