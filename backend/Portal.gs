@@ -194,7 +194,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.22';
+var PORTAL_VERSION = '2.23';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -3056,6 +3056,30 @@ function llMessage_(L) {
  *     submitAttempt     no password (the engine checks that the attempt belongs to this student)
  *   Teachers, local mode and every other action are unchanged; nothing in attempts, grades or the question bank changes.
  * ====================================================================== */
+/** 2.23 — a READ-ONLY assessment service for one request (a student's "My Assessments" list). The shared store reads
+    the whole Content sheet for EVERY assessment and published version it looks up (2 reads per assignment), and
+    re-unpacks every attempt for every assignment; with ⚡ Topic quizzes a group has many assignments, the list took
+    longer than the page waits (30 s) and students saw "Loading your assessments…" for ever. Here the Content sheet
+    is read once (only this storage's assessments / versions are indexed, first row wins — as findContentRow_) and
+    each collection is unpacked once. Same engine, same answer; only for reads (nothing is written through it). */
+function assessSvcFast_(storage) {
+  var s = assessStore_(storage), idx = null, memo = {}, list0 = s.list;
+  function row_(coll, id) {
+    if (!idx) {
+      idx = {};
+      readAll_(SHEETS.CONTENT).forEach(function (r) {
+        if (r.module !== storage || (r.collection !== 'assessments' && r.collection !== 'assessmentversions')) return;
+        var k = r.collection + '|' + String(r.id); if (!(k in idx)) idx[k] = r;
+      });
+    }
+    return idx[coll + '|' + String(id)] || null;
+  }
+  s.getAssessment = function (id) { var r = row_('assessments', id); return r && !r.deleted ? unpackJson_(r) : null; };
+  s.getVersion = function (aid, n) { var r = row_('assessmentversions', aid + '@' + n); return r && !r.deleted ? unpackJson_(r) : null; };
+  s.list = function (kind) { if (!memo[kind]) memo[kind] = list0(kind); return memo[kind].slice(); };
+  s.put = s.del = s.purge = function () { throw new Error('read-only assessment service'); };
+  return AE_createService(s);
+}
 var APW_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 var APW_FAIL_MAX = 10, APW_FAIL_S = 600;
 function apwMap_(storage) { return tsJson_(getSetting_('apw:' + storage), {}) || {}; }
@@ -3089,7 +3113,7 @@ function assessPwHook_(storage, act, p) {
   if (typeof exTeachingLock_ === 'function') { var xl = exTeachingLock_(storage, st.username); if (xl) return xl; }
   var email = studentEmail_(st);
   if (act === 'getMyAssessments') {
-    var r = assessSvc_(storage).getMyAssessments(email);
+    var r = assessSvcFast_(storage).getMyAssessments(email);   // 2.23: one Content read per request (was 2 per assignment)
     if (r && r.ok) {
       r.perAssessmentPasswords = true;
       var pm = apwMap_(storage);   // 2.20: whether each assessment HAS a password (never the password itself)

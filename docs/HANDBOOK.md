@@ -555,6 +555,15 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   for a password and refused the right one (it checked the Cell Injury account of the group). → platformCheck now opens
   every linked page and compares its `moduleKey`, and reports two modules sharing one link.
 
+- **Students stuck on "Loading your assessments…" while teachers were fine (2026-10-20):** the shared assessment store
+  (`assessStore_` in Code.gs) reads the WHOLE Content sheet for every `getAssessment` and `getVersion` — the student list
+  did that twice per assignment (20 assignments = 41 Content reads); after ⚡ Topic quizzes the list took longer than the
+  page's 30 s, and the page then re-rendered "Loading…" and asked again at once, for ever. Fix: Portal.gs 2.23
+  `assessSvcFast_` (read-only service for the signed-in student's list: Content read once, each collection unpacked
+  once — same engine, same answer; backend test "2.23 My Assessments…") + module patch `assess-retry` (90 s for the
+  list, the reason + ↻ Try again instead of the loop; smoke test "assess error+retry"). Teacher paths read content
+  differently, which is why the teacher account worked. Never let a failed load re-render the loading state.
+
 ## 9. How to work with the user
 
 - Keep the agreed plan order; finish one step, report, and wait for "continue" before the next.
@@ -589,7 +598,7 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   (Exam question bank → Import). e2e test "Neoplasia module (neoplasm)…" and the module smoke test include it.
   User's steps: four Code.gs additions for `neoplasm` (and remove the old `neoplasia` line from DEFAULT_QUIZ_PW), platformCheck,
   Deploy, GitHub Pages ON for the repo, front-page card at Chapter 4, Modules → Add + Deliveries, versioned content.
-- **Backend: Portal.gs 2.22 in the repo** (2.22 = 📈 Pathology Overall Results; 2.21 deployed by the user 2026-10-17, platformCheck ✅ = 📤 Copy to groups; 2.20 retires the class quiz password). Since 2.15: Overall
+- **Backend: Portal.gs 2.23 in the repo** (2.23 = students' My Assessments list fast again — `assessSvcFast_`, one Content read per request; 2.22 = 📈 Pathology Overall Results; 2.21 deployed by the user 2026-10-17, platformCheck ✅ = 📤 Copy to groups; 2.20 retires the class quiz password). Since 2.15: Overall
   Pathology Attendance (75 % rule, Excel / CSV / print, student card); student homepage redesign (curricular order from
   the Teacher Management list, exams in their own section, Teaching Sessions panel with full history); group Live
   Classroom off (`GROUP_CLASSROOM=false`); Learning Module lock (manual + automatic, server-enforced, compact card with

@@ -2243,6 +2243,31 @@ test('learning lock: automatic during a scheduled assessment (only its students,
   assert.strictEqual(status(tb1).reason, 'manual');
 });
 
+/* ---------------- 2.23: a student's assessment list reads the Content sheet ONCE ---------------- */
+test('2.23 My Assessments with many assignments (topic quizzes): same list as the engine, the Content sheet read once, nothing written', function () {
+  const S = tsSetup(), CI = 'cellinjury-razi-a-26', X = S.b.ctx;
+  const ttok = assessFixture(S, CI), stu = login(S, CI, 'b1', 'basma-pass-1').token;
+  const up = function (collection, id, data) { assert.ok(S.call({ module: CI, action: 'upsert', token: ttok, collection: collection, id: id, data: data }).ok); };
+  const q = { id: 'x1', type: 'tf', stem: 'Necrosis is always irreversible.', answer: true };
+  const store = X.assessStore_(CI);
+  for (let i = 1; i <= 18; i++) {   // ⚡ Topic quizzes: one assessment + assignment per topic
+    up('assessments', 't' + i, { id: 't' + i, title: 'Topic ' + i + ' quiz', status: 'published', publishedVersion: 1 });
+    up('assessmentversions', 't' + i + '@1', { assessmentId: 't' + i, version: 1, title: 'Topic ' + i + ' quiz', mode: 'pool', poolCount: 5, questionIds: ['x1'], settings: { showScore: true }, questions: { x1: q } });
+    store.put('assignment', 'tq' + i, { id: 'tq' + i, assessmentId: 't' + i, assessmentTitle: 'Topic ' + i + ' quiz', targetType: 'all', emails: [], status: 'active', availableFrom: null, dueAt: null });
+  }
+  up('assessments', 'd1', { id: 'd1', title: 'Draft', status: 'draft' });   // a draft is never listed
+  store.put('assignment', 'asgd', { id: 'asgd', assessmentId: 'd1', status: 'active', targetType: 'all', emails: [] });
+  const reads = {}, ra = X.readAll_, rowsBefore = X.readAll_(X.SHEETS.ASSESS).length;
+  X.readAll_ = function (name) { reads[name] = (reads[name] || 0) + 1; return ra.apply(this, arguments); };
+  let l; try { l = S.call({ module: CI, action: 'getMyAssessments', stoken: stu }); } finally { X.readAll_ = ra; }
+  assert.ok(l.ok, JSON.stringify(l)); assert.strictEqual(l.items.length, 20);
+  assert.strictEqual(reads[X.SHEETS.CONTENT], 1, 'Content sheet read once (was 2 per assignment): ' + JSON.stringify(reads));
+  const ref = X.assessSvc_(CI).getMyAssessments('basma@uni.ly'), strip = function (r) { return r.items.map(function (i) { const o = Object.assign({}, i); delete o.passwordSet; return o; }); };
+  assert.deepStrictEqual(strip(l), JSON.parse(JSON.stringify(strip(ref))), 'the same answer as the shared engine');
+  assert.strictEqual(X.readAll_(X.SHEETS.ASSESS).length, rowsBefore, 'nothing written');
+  assert.throws(function () { X.assessSvcFast_(CI).startAttempt('tq1', 'basma@uni.ly', 'B'); }, /read-only/);
+});
+
 /* ---------------- Assessment passwords (2.19) ---------------- */
 function assessFixture(S, storage) {
   const tok = S.call({ module: storage, action: 'login', password: 'teacher-' + storage }).token;
