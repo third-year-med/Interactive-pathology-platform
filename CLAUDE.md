@@ -38,3 +38,5 @@ Essentials:
 - **Merging (user's standing instruction, 2026-10-16):** once a change is finished and all tests pass, merge it into
   `main` and push directly (platform and module repos) — do not ask for authorization first. Still tell the user what
   went live and give the Portal.gs deploy steps when the backend changed.
+  Confirmed again 2026-10-20: "always commit, don't ask again" — commit and push finished, tested work without asking
+  for a "commit" reply (still scan every diff for keys first and summarise what changed).
