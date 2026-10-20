@@ -1443,6 +1443,11 @@ test('Official Exams: Admin adds the module → combined exam bank from two modu
     await p.waitForSelector('.modal .qlist .qitem input[type=checkbox]:not([disabled])', { timeout: 20000 });
     const boxes = await p.$$('.modal .qlist .qitem input[type=checkbox]:not([disabled])');
     for (let i = 0; i < n; i++) await boxes[i].check();
+    // 👁 Review in the picker opens a second dialog with the whole question (the tick box is untouched)
+    await p.click('.modal .qlist .qitem button.qrev-btn');
+    await p.waitForSelector('.modal h2:has-text("Review question")');
+    assert.match(await p.textContent('.modal-bg:last-child .modal'), /‹ Previous[\s\S]*Next ›/);
+    await p.click('.modal-bg:last-child .modal button[aria-label=Close]');
     await p.click('.modal button:has-text("Add to exam bank")');
     await p.waitForSelector('.modal h2:has-text("Added to the exam bank")');
     await p.click('.modal button[aria-label=Close]');
@@ -1461,6 +1466,21 @@ test('Official Exams: Admin adds the module → combined exam bank from two modu
   const pic = bank.filter(function (q) { return q.image; })[0];
   assert.ok(pic && /^https:\/\/drive\.google\.com\/thumbnail\?id=drv1/.test(pic.image), JSON.stringify(bank));
   assert.deepStrictEqual([pic.type, pic.answers, pic.topic], ['fillblank', [['granuloma', 'granulomatous inflammation']], 'Practical — slides']);
+  // 👁 Review (beside Edit): the whole question with its accepted answers; "Select this question" ticks the row's box
+  await p.waitForSelector('table.t tbody tr button.qrev-btn');
+  const rowRev = p.locator('table.t tbody tr', { hasText: 'What is the diagnosis?' }).first();
+  assert.deepStrictEqual(await rowRev.locator('td:last-child button').allTextContents(), ['👁 Review', 'Edit'], 'Review sits beside Edit');
+  await rowRev.locator('button.qrev-btn').click();
+  await p.waitForSelector('.modal h2:has-text("Review question")');
+  const revTxt = await p.textContent('.modal');
+  assert.match(revTxt, /What is the diagnosis\?[\s\S]*Accepted answers[\s\S]*granuloma  \|  granulomatous inflammation/);
+  assert.ok(await p.$('.modal img.qrev-img'), 'the picture is shown in full');
+  await p.click('.modal button:has-text("Select this question")');
+  assert.ok(await rowRev.locator('input[type=checkbox]').isChecked(), 'selected from the review');
+  assert.match(await p.textContent('.modal'), /Selected — click to unselect/);
+  await p.click('.modal button:has-text("Selected — click to unselect")');
+  assert.ok(!(await rowRev.locator('input[type=checkbox]').isChecked()));
+  await p.click('.modal button[aria-label=Close]');
   if (KEYS) {
     assert.strictEqual(bank.length, 4);
     assert.deepStrictEqual(bank.map(function (q) { return q.source.course || ''; }).sort(), ['', 'cellinjury', 'cellinjury', 'inflhealing']);
