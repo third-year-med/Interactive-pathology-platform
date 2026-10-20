@@ -27,10 +27,16 @@ process.chdir(HERE);
     await p.waitForSelector('.nav-btn[data-view="quiz"]', { timeout: 20000 });
     await p.evaluate(() => { location.hash = '#/quiz'; }); await p.waitForSelector('#view-quiz .assess-pwnote, #view-quiz .card.empty', { timeout: 15000 });
     const inputs = await p.$$eval('#view-quiz input', x => x.length), txt = await p.textContent('#view-quiz');
+    // Presentation → 🖨 Print / PDF: every slide shown is laid out as one print page, then the screen is restored
+    await p.evaluate(() => { location.hash = '#/present'; window.print = () => { window.__ppPrinted = { pages: document.querySelectorAll('#pp-root .pp-page').length, on: document.documentElement.classList.contains('pp-on') }; }; });
+    await p.click('[data-a=print-slides]'); await p.click('.modal-foot button:has-text("Print")');
+    await p.waitForFunction(() => window.__ppPrinted, null, { timeout: 30000 }); await p.waitForTimeout(700);
+    const pp = await p.evaluate(() => ({ n: Views.present.list().length, got: window.__ppPrinted, after: document.querySelectorAll('#pp-root .pp-page').length + (document.documentElement.classList.contains('pp-on') ? 1 : 0) }));
+    const printOk = pp.got.pages === pp.n && pp.got.on && pp.after === 0;
     locked = true; await p.evaluate(() => window.PlatformLearnLock.check()); await p.waitForTimeout(800);
     await p.evaluate(() => { location.hash = '#/explain'; }); await p.waitForTimeout(400);
     const hash = await p.evaluate(() => location.hash), cls = await p.evaluate(() => document.body.classList.contains('pf-ll'));
-    console.log(repo, '| inputs:', inputs, '| no gate:', !/Assessment password/.test(txt) && /Student One · Student ID s1/.test(txt), '| locked→', hash, cls, '| errors:', errs.length ? errs : 'none');
+    console.log(repo, '| print slides:', printOk ? pp.n + '/' + pp.n + ' ✓' : 'FAILED ' + JSON.stringify(pp), '| inputs:', inputs, '| no gate:', !/Assessment password/.test(txt) && /Student One · Student ID s1/.test(txt), '| locked→', hash, cls, '| errors:', errs.length ? errs : 'none');
     await p.close();
   }
   await b.close();

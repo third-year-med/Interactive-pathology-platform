@@ -241,6 +241,13 @@ chapter position (HANDBOOK §5 step 5) — that position is its place on every g
 - **Quick access panel (2026-10-17, module patch only, user's request):** the Learn home's "All topics · Glossary ·
   Presentation mode" links are a yellow `.ux-quick` panel with three `.ux-qa` tiles (icon, title, hint; one column on
   phones). Same links; the learning lock still hides `.ux-quick`. Patch: `quick-panel.py`.
+- **🖨 Print / PDF of the slides (2026-10-20, module patch only, user's request):** Presentation toolbar → 🖨 Print / PDF →
+  dialog (the slides shown = whole deck or the topic chosen in the menu; From/To slide; answers on question slides on/off) →
+  every slide is rendered by `renderSlide` into its own `.pres-stage` (1122×630 px = one 297×167 mm landscape page) in an
+  off-screen `#pp-root`, pictures loaded + decoded, each slide auto-fitted like on screen, then `window.print()` with
+  `html.pp-on` (print CSS shows only `#pp-root`) and a temporary `@page{size:297mm 167mm;margin:0}`; afterwards the screen
+  is restored. “Save as PDF” = the PDF. Whole Neoplasia deck: 199 slides → 199 pages. Patch `slide-print.py`; the smoke
+  test checks it in every module (`window.__ppHold` lets a test keep the print layout while it makes a PDF).
 - **🖼 Import pictures (2026-10-17, module patch only, user's request):** Teacher Portal → 💾 Backup → 🖼 Import pictures
   reads a picture-import file `{format: 'neo-picture-import', version: 1, module: <moduleKey>, items: [{key, section, caption,
   credit, filename, image: data-URL}]}`. Each picture goes the "+ Picture" way: `Backend.uploadImage` (Drive picture folder)
