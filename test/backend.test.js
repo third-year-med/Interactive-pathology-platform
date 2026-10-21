@@ -2242,6 +2242,51 @@ test('learning lock: automatic during a scheduled assessment (only its students,
   assert.strictEqual(status(tb1).reason, 'manual');
 });
 
+/* ---------------- 2.25: Present / Late / Excused in the module's own attendance report ---------------- */
+test('2.25 module attendance marks: ✓ Present / Late / Excused (also after closing), undo, refusals; the report, Results & attendance and Overall Pathology Attendance use them', function () {
+  const S = tsSetup(), CI = 'cellinjury-razi-a-26', X = S.b.ctx;
+  const tok = S.call({ module: CI, action: 'login', password: 'teacher-' + CI }).token;
+  const m = modSession(S, CI, 'Cell injury L2');
+  modCheckIn(S, CI, 'b1', STU_PW.b1, m.code);   // b1 checks in; ahmed and b2 do not
+  m.close();
+  const mark = function (id, mk, t) { return S.call({ module: CI, action: 'attMark', token: t === undefined ? tok : t, sessionId: m.id, studentId: id, mark: mk }); };
+  const recs = function () { return X.readAll_(X.SHEETS.ATT_RECORDS).filter(function (r) { return r.sessionId === m.id; }); };
+  // ahmed forgot to check in → ✓ Present after closing: a real record (made by the teacher)
+  let r = mark('ahmed', 'present'); assert.ok(r.ok, JSON.stringify(r));
+  assert.deepStrictEqual(r.session.marks, { ahmed: 'present' }); assert.strictEqual(r.records.length, 2);
+  const made = recs().filter(function (q) { return q.studentId === 'ahmed'; })[0]; assert.deepStrictEqual([made.participantId, made.status], ['teacher:ahmed', 'present']);
+  // b1 came late; b2 excused; excusing someone who checked in is refused
+  assert.ok(mark('b1', 'late').ok); assert.strictEqual(recs().filter(function (q) { return q.studentId === 'b1'; })[0].status, 'late');
+  assert.ok(mark('b2', 'excused').ok);
+  assert.strictEqual(mark('b1', 'excused').code, 'checkedin');
+  // the report (View) carries the marks
+  const rep = S.call({ module: CI, action: 'getAttendanceSessionReport', token: tok, sessionId: m.id });
+  assert.deepStrictEqual([rep.session.marks, rep.session.tsSession], [{ ahmed: 'present', b1: 'late', b2: 'excused' }, false]);
+  // Overall Pathology Attendance: ahmed present, b1 late (attended), b2 excused (not counted, not absent)
+  let o = S.ts('attOverall', { groupId: S.ra.groupId }); assert.ok(o.ok, JSON.stringify(o));
+  assert.deepStrictEqual(pick(stuOf(o, 'ahmed')), [1, 0, 0, 0, 1, 100, false]);
+  assert.deepStrictEqual(pick(stuOf(o, 'b1')), [1, 1, 0, 0, 1, 100, false]);
+  assert.deepStrictEqual(pick(stuOf(o, 'b2')), [0, 0, 1, 0, 0, null, false]);
+  // Results & attendance (per student status of this session)
+  const rd = S.ts('reportDelivery', { deliveryId: S.ci.deliveryId });
+  if (rd && rd.ok && rd.students) { const st = function (id) { const x = rd.students.filter(function (y) { return y.studentId === id; })[0]; return x && x.attendance && x.attendance.statuses ? x.attendance.statuses[0] : null; }; if (st('b2')) assert.strictEqual(st('b2'), 'excused'); }
+  // undo: the teacher-made record goes, the student's own record stays (status back to present)
+  assert.ok(mark('ahmed', 'clear').ok); assert.strictEqual(recs().filter(function (q) { return q.studentId === 'ahmed'; }).length, 0);
+  assert.ok(mark('b1', 'clear').ok); assert.deepStrictEqual(recs().filter(function (q) { return q.studentId === 'b1'; }).map(function (q) { return q.status; }), ['present']);
+  o = S.ts('attOverall', { groupId: S.ra.groupId });
+  assert.deepStrictEqual(pick(stuOf(o, 'ahmed')), [0, 0, 0, 1, 1, 0, true], 'absent again');
+  // refusals: no teacher token, a student session, an unknown student, an unknown mark, another module's session
+  assert.strictEqual(mark('ahmed', 'present', '').ok, false);
+  assert.strictEqual(S.call({ module: CI, action: 'attMark', stoken: login(S, CI, 'b1', STU_PW.b1).token, sessionId: m.id, studentId: 'b1', mark: 'present' }).ok, false);
+  assert.strictEqual(mark('nobody', 'present').code, 'nostudent');
+  assert.strictEqual(mark('ahmed', 'sick').ok, false);
+  const itok = S.call({ module: 'inflhealing-razi-a-26', action: 'login', password: 'teacher-inflhealing-razi-a-26' }).token;
+  assert.strictEqual(S.call({ module: 'inflhealing-razi-a-26', action: 'attMark', token: itok, sessionId: m.id, studentId: 'ahmed', mark: 'present' }).code, 'notfound');
+  // a lecture run as a Teaching Session keeps its marks there
+  const ts = S.ts('tsStart', { session: S.lect({ title: 'TS lecture', startAt: Date.now() }) });
+  assert.strictEqual(S.call({ module: CI, action: 'attMark', token: tok, sessionId: ts.session.attSessionId || X.tsRows_().filter(function (t) { return t.tsId === ts.session.tsId; })[0].attSessionId, studentId: 'ahmed', mark: 'present' }).code, 'tssession');
+});
+
 /* ---------------- 2.24: a student added inside a group's module joins the group's student list ---------------- */
 test('2.24 Teacher Portal → Students in a group module: the new student joins the group list, gets the other modules, signs in on the group page; bulk too; outside a group unchanged', function () {
   const S = tsSetup(), CI = 'cellinjury-razi-a-26', IH = 'inflhealing-razi-a-26', X = S.b.ctx;

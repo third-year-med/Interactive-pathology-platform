@@ -194,7 +194,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.24';
+var PORTAL_VERSION = '2.25';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -226,6 +226,7 @@ function portalHook_(module, p) {
     var ll = learnLockHook_(String(module), act, p); if (ll) return ll;   // 2.18: Learning module locked during assessments (students)
     var ap = assessPwHook_(String(module), act, p); if (ap) return ap;   // 2.19: one password per assessment (asked only to start it)
     if (act === 'aeCopyTargets' || act === 'aeCopyTo') return aeCopyHook_(String(module), act, p);   // 2.21: copy an assessment to other groups
+    if (act === 'attMark' || act === 'getAttendanceSessionReport') return attMarkHook_(String(module), act, p);   // 2.25: Present / Late / Excused in the module report
     // 2.5 speed: the frequent "anything new?" check is answered from memory when nothing changed for this storage
     if (act === 'getAllContent') { var fast = cvFastUnchanged_(String(module), p); if (fast) return fast; }
     else if (!CV_NO_CONTENT_WRITE[act]) cvMarkWrite_(String(module));
@@ -1001,6 +1002,79 @@ function rosterJoinFromModule_(groupId, storage, ids) {
     out.joined.push(id);
   });
   return out;
+}
+
+/* ======================================================================
+ * Attendance marks in the module's own attendance (2.25) — Teacher Portal → Attendance → View (any session started in the
+ * module, open or closed): the teacher marks a registered student ✓ Present, Late or Excused, and can undo it.
+ *   attMark {sessionId, studentId, mark: present | late | excused | clear}   module teacher token
+ *   - present / late: a student without a check-in gets a real AttendanceRecords row (participantId "teacher:<id>",
+ *     the time of the mark) so every existing count, the CSV and the Drive copy include them; the record's status says
+ *     present / late. Undo removes that row again (never a row the student made).
+ *   - excused: only for a student WITHOUT a check-in — not counted as absent (as in Teaching Sessions).
+ *   Marks: Settings "attmk:<storage>|<sessionId>" = { <studentId>: { m, at, by, created } }, written under the script lock.
+ *   getAttendanceSessionReport answers as Code.gs does, plus session.marks {studentId: mark} and session.tsSession (a
+ *   lecture run as a Teaching Session keeps its marks there — attMark refuses it). Overall Pathology Attendance and
+ *   Results & attendance read the same marks (tsRegister_ / statusOf). A closed session already on Drive is re-synced.
+ * ====================================================================== */
+var ATT_MARKS = { present: 1, late: 1, excused: 1, clear: 1 };
+function attMarkKey_(storage, sid) { return 'attmk:' + storage + '|' + sid; }
+function attMarksGet_(storage, sid) { return tsJson_(getSetting_(attMarkKey_(storage, sid)), {}) || {}; }
+function attMarksPlain_(m) { var o = {}; Object.keys(m || {}).forEach(function (id) { if (m[id] && m[id].m) o[id] = String(m[id].m); }); return o; }
+/** Every module session's marks at once (one read): "<storage>|<sessionId>" → {studentId: mark}. */
+function attMarksAll_() {
+  var o = {};
+  readAll_(SHEETS.SETTINGS).forEach(function (r) { var k = String(r.key || ''); if (k.indexOf('attmk:') === 0) o[k.slice(6)] = attMarksPlain_(tsJson_(r.value, {})); });
+  return o;
+}
+function attIsTsSession_(storage, sid) { return tsRows_().some(function (t) { return t.backendModule === storage && String(t.attSessionId) === String(sid); }); }
+function attMarkHook_(storage, act, p) {
+  return authed_(storage, p, function () {
+    if (act === 'getAttendanceSessionReport') {
+      var rep = actionGetAttendanceSessionReport_(storage, p);
+      if (rep && rep.ok && rep.session) { rep.session.marks = attMarksPlain_(attMarksGet_(storage, rep.session.sessionId)); rep.session.tsSession = attIsTsSession_(storage, rep.session.sessionId); }
+      return rep;
+    }
+    var sid = String(p.sessionId || ''), id = normUser_(p.studentId), mk = String(p.mark || '');
+    if (!ATT_MARKS[mk]) return { ok: false, error: 'Unknown attendance mark.' };
+    var row = findModuleAttSession_(storage, sid); if (!row) return { ok: false, code: 'notfound', error: 'This attendance session was not found.' };
+    if (attIsTsSession_(storage, sid)) return { ok: false, code: 'tssession', error: 'This lecture was run as a Teaching Session — change its attendance in Teacher Dashboard → 🎓 Teaching Sessions.' };
+    var acc = findStudent_(storage, id); if (!acc) return { ok: false, code: 'nostudent', error: 'This student is not on the module’s student list.' };
+    var lock = LockService.getScriptLock(), now = Date.now(), changed = false, M; lock.waitLock(20000);
+    try {
+      M = attMarksGet_(storage, sid);
+      var mine = readAll_(SHEETS.ATT_RECORDS).filter(function (r) { return r.sessionId === sid && (normUser_(r.studentId) === id || r.participantId === 'acct:' + id || r.participantId === 'teacher:' + id); })[0] || null;
+      var cur = M[id] || null;
+      if (mk === 'clear') {
+        if (mine && mine.participantId === 'teacher:' + id && cur && cur.created) { deleteRow_(SHEETS.ATT_RECORDS, mine._row); changed = true; }
+        else if (mine && mine.status !== 'present') { mine.status = 'present'; updateRow_(SHEETS.ATT_RECORDS, mine._row, mine); changed = true; }
+        delete M[id];
+      } else {
+        if (mk === 'excused' && mine) return { ok: false, code: 'checkedin', error: String(acc.name || id) + ' has a check-in for this session — remove it first (🗑 Delete) if the student should be excused.' };
+        var created = !!(cur && cur.created);
+        if (mk === 'present' || mk === 'late') {
+          if (!mine) {
+            appendRow_(SHEETS.ATT_RECORDS, { sessionId: sid, recordId: Utilities.getUuid(), participantId: 'teacher:' + id, studentName: acc.name, studentId: acc.username, email: acc.email || '', status: mk, scannedAt: now, createdAt: now });
+            created = true; changed = true;
+          } else if (mine.status !== mk) { mine.status = mk; updateRow_(SHEETS.ATT_RECORDS, mine._row, mine); changed = true; }
+        }
+        M[id] = { m: mk, at: now, by: String(p.by || '').slice(0, 60), created: created };
+      }
+      setSetting_(attMarkKey_(storage, sid), JSON.stringify(M));
+    } finally { lock.releaseLock(); }
+    console.log('attendance mark · ' + storage + ' · ' + sid + ' · ' + id + ' → ' + mk);
+    var out = actionGetAttendanceSessionReport_(storage, { sessionId: sid });
+    if (out && out.ok) { out.session.marks = attMarksPlain_(M); out.session.tsSession = false; }
+    if (changed && row.status !== 'active' && row.driveUrl && typeof trySyncAttendanceToDrive_ === 'function') {
+      try {
+        var fresh = findModuleAttSession_(storage, sid) || row, all = readAll_(SHEETS.ATT_RECORDS).filter(function (r) { return r.sessionId === sid; });
+        var sync = trySyncAttendanceToDrive_(fresh, all);
+        fresh.driveStatus = sync.status; fresh.driveUrl = sync.url || fresh.driveUrl || ''; fresh.driveError = sync.error || '';
+        saveAttSession_(fresh); if (out && out.session) { out.session.driveStatus = fresh.driveStatus; out.session.driveError = fresh.driveError; }
+      } catch (e) { console.log('attendance mark · Drive re-sync failed: ' + e); }
+    }
+    return out;
+  });
 }
 
 /* ---------------- one password across the group's modules ---------------- */
@@ -1813,8 +1887,9 @@ function reportDelivery_(p) {
   // 2.10: with Teaching Sessions, each student has a status per lecture — present / late / excused / absent (an open
   // session: "waiting", not counted yet). Excused lectures do not count against the student.
   var tsBy = {}; tsRows_().forEach(function (t) { if (t.backendModule === d.storage && t.attSessionId) tsBy[t.attSessionId] = t; });
+  var MK = attMarksAll_();   // 2.25: marks of sessions run inside the module
   function statusOf(r, s) {
-    var t = tsBy[s.sessionId], q = r.att[s.sessionId], mk = t ? tsJson_(t.marksJson, {})[r.studentId] : '';
+    var t = tsBy[s.sessionId], q = r.att[s.sessionId], mk = t ? tsJson_(t.marksJson, {})[r.studentId] : ((MK[d.storage + '|' + s.sessionId] || {})[r.studentId] || '');
     if (q) {
       if (mk === 'present' || mk === 'late') return mk;
       var late = t ? (Number(t.lateAfterMin) || 0) * 60000 : 0, ref = t ? Math.max(Number(t.startAt) || 0, Number(t.startedAt) || 0) : 0;
@@ -2825,13 +2900,13 @@ function attOverallCompute_(g, mods, members, set, data) {
     per[m.studentId] = { studentId: m.studentId, name: m.name, total: attZero_(), byMod: {}, reg: {} };
     order.push(m.studentId);
   });
-  var seen = {}, sessions = [], others = {};
+  var seen = {}, sessions = [], others = {}, MKS = data.marks || attMarksAll_();
   (data.att || rpRows_(SHEETS.ATT_SESSIONS)).forEach(function (a) {
     var m = want[a.module], key = a.module + '|' + a.sessionId;
     if (!m || seen[key]) return; seen[key] = 1;
     var t = tsBy[key] || null, st = t ? tsStatus_(t, a) : (a.status === 'active' ? 'live' : 'ended');
     if (st !== 'live' && st !== 'ended') return;   // a cancelled / scheduled Teaching Session never counts
-    var reg = tsRegister_(t || { marksJson: '', startAt: 0, startedAt: 0, lateAfterMin: 0 }, members, recs[a.sessionId] || [], st === 'ended');
+    var reg = tsRegister_(t || { marksJson: JSON.stringify(MKS[key] || {}), startAt: 0, startedAt: 0, lateAfterMin: 0 }, members, recs[a.sessionId] || [], st === 'ended');   // 2.25: module marks
     var z = { id: key, storage: a.module, deliveryId: m.deliveryId, moduleId: m.moduleId, module: m.title, icon: m.icon,
       title: String((t && t.title) || a.sessionTitle || a.chapter || 'Attendance session'), chapter: String((t && t.chapter) || a.chapter || ''), teacher: String((t && t.teacher) || a.teacher || ''),
       at: t ? (Number(t.startedAt) || Number(t.startAt) || Number(a.createdAt) || 0) : Number(a.createdAt) || 0,

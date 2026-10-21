@@ -581,6 +581,15 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   already on the list is left unchanged; normal-link / non-group storages are untouched. Patch `stu-group-join` says so
   in the message. Backend test "2.24 Teacher Portal → Students…"; older module-only accounts still need the import.
 
+- **Module attendance marks (2026-10-21, user's request):** the module report could only delete a check-in. Portal.gs
+  2.25 `attMarkHook_`: `attMark` (module teacher token) — present / late give a student without a check-in a real
+  AttendanceRecords row (participantId `teacher:<id>`, status present/late) so every old count, CSV and Drive copy include
+  it; excused only without a check-in (not counted); clear = undo (removes only the teacher-made row). Marks live in
+  Settings `attmk:<storage>|<sessionId>`; `getAttendanceSessionReport` adds `session.marks` + `session.tsSession`;
+  attOverallCompute_ passes them to tsRegister_ (same rules as Teaching Sessions) and reportDelivery_'s statusOf reads
+  them. Teaching Session lectures keep their own marks (attMark → `tssession`). Patch `att-mark`. Tests: backend "2.25
+  module attendance marks…", e2e "Attendance tab for a teacher…" (Present / Late / Excused / Undo after closing).
+
 ## 9. How to work with the user
 
 - Keep the agreed plan order; finish one step, report, and wait for "continue" before the next.
@@ -615,7 +624,7 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   (Exam question bank → Import). e2e test "Neoplasia module (neoplasm)…" and the module smoke test include it.
   User's steps: four Code.gs additions for `neoplasm` (and remove the old `neoplasia` line from DEFAULT_QUIZ_PW), platformCheck,
   Deploy, GitHub Pages ON for the repo, front-page card at Chapter 4, Modules → Add + Deliveries, versioned content.
-- **Backend: Portal.gs 2.24 in the repo** (2.24 = a student added in a group module's Teacher Portal → Students joins the group's student list + gets the group's other modules (`rosterModuleAdd_`); 2.23 = students' My Assessments list fast again — `assessSvcFast_`, one Content read per request; 2.22 = 📈 Pathology Overall Results; 2.21 deployed by the user 2026-10-17, platformCheck ✅ = 📤 Copy to groups; 2.20 retires the class quiz password). Since 2.15: Overall
+- **Backend: Portal.gs 2.25 in the repo** (2.25 = ✓ Present / Late / Excused in the module's attendance report — `attMark`, marks in Settings `attmk:<storage>|<sessionId>`, used by Overall Pathology Attendance and Results & attendance; 2.24 = a student added in a group module's Teacher Portal → Students joins the group's student list + gets the group's other modules (`rosterModuleAdd_`); 2.23 = students' My Assessments list fast again — `assessSvcFast_`, one Content read per request; 2.22 = 📈 Pathology Overall Results; 2.21 deployed by the user 2026-10-17, platformCheck ✅ = 📤 Copy to groups; 2.20 retires the class quiz password). Since 2.15: Overall
   Pathology Attendance (75 % rule, Excel / CSV / print, student card); student homepage redesign (curricular order from
   the Teacher Management list, exams in their own section, Teaching Sessions panel with full history); group Live
   Classroom off (`GROUP_CLASSROOM=false`); Learning Module lock (manual + automatic, server-enforced, compact card with

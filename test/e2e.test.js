@@ -3962,7 +3962,7 @@ test('Attendance tab for a teacher: the short Teacher Portal version — start a
     assert.ok(await t.$('#view-attendance button:has-text("Close attendance")'), 'still open');
     assert.match(await t.textContent('#view-attendance .att-live-note'), /Live — new check-ins appear automatically/);
     // a second student → the list and the count keep growing; a duplicate check-in adds nobody
-    main.addStudents(ST, [{ username: 'b1', name: 'Student Basma', password: PW, mustChange: false }]);
+    main.addStudents(ST, [{ username: 'b1', name: 'Student Basma', password: PW, mustChange: false }, { username: 'c1', name: 'Student Carim', password: PW, mustChange: false }, { username: 'd1', name: 'Student Dina', password: PW, mustChange: false }]);
     const ses2 = main.call({ module: ST, action: 'studentLogin', username: 'b1', password: PW });
     assert.ok(main.call({ module: ST, action: 'submitAttendanceByCode', stoken: ses2.token, code: sess.code }).ok);
     assert.strictEqual(main.call({ module: ST, action: 'submitAttendanceByCode', stoken: ses1.token, code: sess.code }).alreadyRecorded, true);
@@ -3978,6 +3978,28 @@ test('Attendance tab for a teacher: the short Teacher Portal version — start a
     await t.click('.modal button:has-text("Close attendance")');
     await t.waitForFunction(function () { return /Start attendance for a new teaching session/.test(document.querySelector('#view-attendance').textContent) && /Short-view lecture/.test(document.querySelector('#view-attendance').textContent); }, null, { timeout: 15000 });
     assert.strictEqual(main.ctx.rpRows_('AttendanceSessions').filter(function (r) { return r.sessionId === sess.sessionId; })[0].status, 'closed');
+    // 2.25: in the report AFTER closing, the teacher marks ✓ Present / Late / Excused and can undo (saved on the server)
+    const row = function (name) { return '#view-attendance .att-register tr:has-text("' + name + '")'; };
+    await t.waitForSelector(row('Student Carim') + ' button[data-mark=present]', { timeout: 20000 });
+    assert.match(await t.textContent(row('Student Carim')), /Absent/);
+    await t.click(row('Student Carim') + ' button[data-mark=present]');
+    await t.waitForFunction(function () { var r = Array.prototype.filter.call(document.querySelectorAll('#view-attendance .att-register tr'), function (x) { return /Student Carim/.test(x.textContent); })[0]; return r && /Present · teacher/.test(r.textContent); }, null, { timeout: 15000 });
+    const recC = main.ctx.rpRows_('AttendanceRecords').filter(function (r) { return r.sessionId === sess.sessionId && r.studentId === 'c1'; });
+    assert.deepStrictEqual(recC.map(function (r) { return [r.participantId, r.status]; }), [['teacher:c1', 'present']], 'a real record, made by the teacher');
+    await t.click(row('Student Ahmed') + ' button[data-mark=late]');
+    await t.waitForFunction(function () { var r = Array.prototype.filter.call(document.querySelectorAll('#view-attendance .att-register tr'), function (x) { return /Student Ahmed/.test(x.textContent); })[0]; return r && /Late/.test(r.textContent); }, null, { timeout: 15000 });
+    await t.click(row('Student Dina') + ' button[data-mark=excused]');
+    await t.waitForFunction(function () { var r = Array.prototype.filter.call(document.querySelectorAll('#view-attendance .att-register tr'), function (x) { return /Student Dina/.test(x.textContent); })[0]; var b = r && r.querySelector('.badge'); return b && b.textContent === 'Excused'; }, null, { timeout: 15000 });
+    const stats = await t.evaluate(function () { var o = {}; document.querySelectorAll('#view-attendance .stat').forEach(function (x) { o[x.querySelector('.k').textContent] = x.querySelector('.v').textContent; }); return o; });
+    const NR = main.call({ module: ST, action: 'listStudents', token: tok }).students.filter(function (x) { return x.active !== false; }).length;   // other tests may add students here
+    assert.deepStrictEqual([stats['Registered'], stats['Present'], stats['of them late'], stats['Excused'], stats['Absent'], stats['Attendance']],
+      [String(NR), '3', '1', '1', String(NR - 4), Math.round(3 / (NR - 1) * 100) + '%'], 'excused not counted: ' + JSON.stringify(stats));
+    assert.deepStrictEqual(main.call({ module: ST, action: 'getAttendanceSessionReport', token: tok, sessionId: sess.sessionId }).session.marks, { c1: 'present', ahmed: 'late', d1: 'excused' });
+    // undo Carim's mark → the teacher-made record goes, Absent again
+    await t.click(row('Student Carim') + ' button[data-mark=clear]');
+    await t.waitForFunction(function () { var r = Array.prototype.filter.call(document.querySelectorAll('#view-attendance .att-register tr'), function (x) { return /Student Carim/.test(x.textContent); })[0]; return r && /Absent/.test(r.textContent); }, null, { timeout: 15000 });
+    assert.strictEqual(main.ctx.rpRows_('AttendanceRecords').filter(function (r) { return r.sessionId === sess.sessionId && r.studentId === 'c1'; }).length, 0);
+    if (process.env.SHOTS) await t.screenshot({ path: path.join(process.env.SHOTS, 'att-marks.png'), fullPage: true });
     assert.strictEqual(errors.filter(function (e) { return !/ERR_TUNNEL|net::/.test(e); }).length, 0, errors.join('\n'));
     await t.context().close();
   } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }

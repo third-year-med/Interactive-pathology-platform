@@ -522,3 +522,9 @@ whenever it opens a module, so this should no longer happen.
    Then **Ctrl+Shift+R**, sign in to the Teacher Dashboard again and **Open module →**.
 3. Clearing removes only this browser's saved sign-ins and its local copy of the modules (re-downloaded automatically);
    assessments, students, results and content stay on the class server.
+
+### Correcting attendance (Portal.gs 2.25)
+
+Teacher Portal → Attendance → **View** on a session (open or closed): each registered student has **✓ Present**, **Late**
+and **Excused** (Undo removes the mark). Excused students are not counted as absent. A lecture run as a Teaching Session is
+corrected in Teacher Dashboard → 🎓 Teaching Sessions.
