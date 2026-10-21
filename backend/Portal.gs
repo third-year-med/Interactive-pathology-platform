@@ -194,7 +194,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.26';
+var PORTAL_VERSION = '2.27';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -1033,7 +1033,12 @@ function attMarksAll_() {
 /** Same shape as Code.gs's attRecordPublic_ (what the module report reads), built here so Portal.gs depends on no other Code.gs internals. */
 function attRecPub_(r) { return { recordId: String(r.recordId || ''), name: r.studentName, studentId: r.studentId, email: r.email, scannedAt: r.scannedAt, status: r.status || 'present' }; }
 function attRecsOf_(sid) { return readAll_(SHEETS.ATT_RECORDS).filter(function (r) { return r.sessionId === sid; }).sort(function (a, b) { return Number(a.scannedAt) - Number(b.scannedAt); }).map(attRecPub_); }
-function attIsTsSession_(storage, sid) { return tsRows_().some(function (t) { return t.backendModule === storage && String(t.attSessionId) === String(sid); }); }
+/** 2.27: in a MODULE request the directory sheets' columns are not registered yet (each Apps Script request starts fresh) —
+    dirReadable_() registers them first; without it readAll_ failed: "Cannot read properties of undefined (reading 'length')". */
+function attIsTsSession_(storage, sid) {
+  try { if (!dirReadable_()) return false; } catch (e) { return false; }
+  return tsRows_().some(function (t) { return t.backendModule === storage && String(t.attSessionId) === String(sid); });
+}
 function attMarkHook_(storage, act, p) {
   return authed_(storage, p, function () {
     if (act === 'attMarks') {

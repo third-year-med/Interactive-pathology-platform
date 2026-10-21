@@ -2249,7 +2249,10 @@ test('2.25 module attendance marks: ✓ Present / Late / Excused (also after clo
   const m = modSession(S, CI, 'Cell injury L2');
   modCheckIn(S, CI, 'b1', STU_PW.b1, m.code);   // b1 checks in; ahmed and b2 do not
   m.close();
-  const mark = function (id, mk, t) { return S.call({ module: CI, action: 'attMark', token: t === undefined ? tok : t, sessionId: m.id, studentId: id, mark: mk }); };
+  // Apps Script starts EVERY request fresh: the directory sheets' columns are not registered in a module request (the
+  // harness keeps them between calls, which hid the "reading 'length'" crash of 2.25/2.26) → unregister before each call
+  const fresh = function () { Object.keys(X.DIR_HEADERS).forEach(function (n) { delete X.HEADERS[n]; if (X.TEXT_COLS) delete X.TEXT_COLS[n]; }); };
+  const mark = function (id, mk, t) { fresh(); return S.call({ module: CI, action: 'attMark', token: t === undefined ? tok : t, sessionId: m.id, studentId: id, mark: mk }); };
   const recs = function () { return X.readAll_(X.SHEETS.ATT_RECORDS).filter(function (r) { return r.sessionId === m.id; }); };
   // ahmed forgot to check in → ✓ Present after closing: a real record (made by the teacher)
   let r = mark('ahmed', 'present'); assert.ok(r.ok, JSON.stringify(r));
@@ -2263,7 +2266,7 @@ test('2.25 module attendance marks: ✓ Present / Late / Excused (also after clo
   // the report (View) is Code.gs's own (2.26: Portal.gs never takes it over); the marks come from attMarks
   assert.strictEqual(X.portalHook_(CI, { action: 'getAttendanceSessionReport', token: tok, sessionId: m.id }), null, 'Code.gs answers the report');
   assert.ok(S.call({ module: CI, action: 'getAttendanceSessionReport', token: tok, sessionId: m.id }).ok);
-  const mks = S.call({ module: CI, action: 'attMarks', token: tok, sessionId: m.id });
+  fresh(); const mks = S.call({ module: CI, action: 'attMarks', token: tok, sessionId: m.id });
   assert.deepStrictEqual([mks.ok, mks.marks, mks.tsSession], [true, { ahmed: 'present', b1: 'late', b2: 'excused' }, false]);
   assert.strictEqual(S.call({ module: CI, action: 'attMarks', sessionId: m.id }).ok, false, 'teachers only');
   // Overall Pathology Attendance: ahmed present, b1 late (attended), b2 excused (not counted, not absent)
@@ -2288,7 +2291,11 @@ test('2.25 module attendance marks: ✓ Present / Late / Excused (also after clo
   assert.strictEqual(S.call({ module: 'inflhealing-razi-a-26', action: 'attMark', token: itok, sessionId: m.id, studentId: 'ahmed', mark: 'present' }).code, 'notfound');
   // a lecture run as a Teaching Session keeps its marks there
   const ts = S.ts('tsStart', { session: S.lect({ title: 'TS lecture', startAt: Date.now() }) });
-  assert.strictEqual(S.call({ module: CI, action: 'attMark', token: tok, sessionId: ts.session.attSessionId || X.tsRows_().filter(function (t) { return t.tsId === ts.session.tsId; })[0].attSessionId, studentId: 'ahmed', mark: 'present' }).code, 'tssession');
+  const tsSid = ts.session.attSessionId || X.tsRows_().filter(function (t) { return t.tsId === ts.session.tsId; })[0].attSessionId;
+  fresh(); assert.strictEqual(S.call({ module: CI, action: 'attMark', token: tok, sessionId: tsSid, studentId: 'ahmed', mark: 'present' }).code, 'tssession');
+  // with Teaching Sessions lectures on the sheet (as on the real backend), a FRESH module request still works (2.27 fix)
+  fresh(); const m2 = S.call({ module: CI, action: 'attMarks', token: tok, sessionId: m.id }); assert.ok(m2.ok, JSON.stringify(m2)); assert.strictEqual(m2.tsSession, false);
+  assert.ok(mark('ahmed', 'present').ok, 'attMark in a fresh request');
 });
 
 /* ---------------- 2.24: a student added inside a group's module joins the group's student list ---------------- */
