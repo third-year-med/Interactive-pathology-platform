@@ -4277,6 +4277,66 @@ test('Assessment passwords (2.19/2.20): Assessments open without a password; eac
 /* ---------------- Inflammation & Healing — Condensed: the REAL page with its REAL course ----------------
    Registered as the four Code.gs additions and the front-page card register it (HANDBOOK §5), then every learning view
    is opened as a student and every slide of the generated deck as the teacher. Needs IC_CONTENT_KEY (env only). */
+test('🧑‍🎓 Checked-in only (2.29): the teacher switches it on in 🔑 Passwords; a student not checked in to today\'s lecture is refused with the reason, after checking in the quiz starts', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+  groupFixture();
+  const ST = 'cellinjury-tr-a', mod = syntheticModule(CI_PAGE), keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  try {
+    main.call({ module: ST, action: 'setup', password: 'teacher-' + ST + '-1' });
+    const tok = main.call({ module: ST, action: 'login', password: 'teacher-' + ST + '-1' }).token;
+    const up = function (c, id, data) { const r = main.call({ module: ST, action: 'upsert', token: tok, collection: c, id: id, data: data }); assert.ok(r.ok, JSON.stringify(r)); };
+    const q = { id: 'x1', type: 'tf', stem: 'Necrosis is always irreversible.', answer: true, explanation: 'x' };
+    up('assessments', 'aq1', { id: 'aq1', title: 'Lecture quiz — Necrosis', status: 'published', publishedVersion: 1 });
+    up('assessmentversions', 'aq1@1', { assessmentId: 'aq1', version: 1, title: 'Lecture quiz — Necrosis', mode: 'fixed', questionIds: ['x1'], settings: { showScore: true }, questions: { x1: q } });
+    main.ctx.assessStore_(ST).put('assignment', 'asg-aq1', { id: 'asg-aq1', assessmentId: 'aq1', assessmentTitle: 'Lecture quiz — Necrosis', targetType: 'all', emails: [], status: 'active', availableFrom: null, dueAt: null });
+    assert.ok(main.call({ module: ST, action: 'aePwSet', token: tok, assessmentId: 'aq1', password: 'Necro-26' }).ok);
+    // earlier tests ran attendance in this group today: move those sessions to yesterday (they must not count)
+    main.ctx.readAll_(main.ctx.SHEETS.ATT_SESSIONS).forEach(function (r) { if (r.module === ST) { r.createdAt = Date.now() - 20 * 3600000; main.ctx.saveAttSession_(r); } });
+    // ---- teacher: 🔑 Passwords → 🧑‍🎓 Checked-in only ----
+    const t = await page();
+    await t.route('https://third-year-med.github.io/cell-injury-teaching-platform/**', function (route) { return route.fulfill({ status: 200, contentType: 'text/html', body: mod.html }); });
+    const backendUrl = JSON.parse(/window\.NEO_CONFIG\s*=\s*(\{[\s\S]*?\});/.exec(mod.html)[1]).backendUrl;
+    await t.addInitScript(function (o) { try { localStorage.setItem('ci_tr-a_backend_token_v1', JSON.stringify({ token: o.tok, expiresAt: Date.now() + 3600e3, url: o.url })); } catch (e) { } }, { tok: tok, url: backendUrl });
+    await t.goto('https://third-year-med.github.io/cell-injury-teaching-platform/?g=tr-a#/teacher/password');
+    const row = '.apw-tbl tr[data-assessment="aq1"]';
+    await t.waitForSelector(row + ' [data-a=attonly]', { state: 'attached', timeout: 20000 });
+    assert.match(await t.textContent('.apw-card'), /Checked-in only: for a quiz given in the lecture/);
+    assert.strictEqual(await t.isChecked(row + ' [data-a=attonly]'), false);
+    await t.click(row + ' .apw-att');
+    await t.waitForFunction(function () { return /only students checked in to today’s lecture attendance can start it/.test(document.body.innerText); });
+    assert.deepStrictEqual(Object.keys(main.call({ module: ST, action: 'aePwList', token: tok }).attOnly), ['aq1']);
+    if (process.env.SHOTS) await (await t.$('.apw-card')).screenshot({ path: path.join(process.env.SHOTS, 'checked-in-only.png') });
+    await t.goto('about:blank'); await t.goto('https://third-year-med.github.io/cell-injury-teaching-platform/?g=tr-a#/teacher/password'); await t.waitForSelector(row + ' [data-a=attonly]', { state: 'attached', timeout: 20000 });
+    assert.strictEqual(await t.isChecked(row + ' [data-a=attonly]'), true, 'stays on after reload');
+    // ---- student (not checked in): the list says so; the right password is refused with the reason ----
+    const s = await page(), none = [];
+    await openSyntheticModule(s, mod, none, { stubAssess: false });
+    await s.evaluate(function () { location.hash = '#/quiz'; });
+    const card = '#view-quiz .assess-card:has(h3:text-is("Lecture quiz — Necrosis"))';
+    await s.waitForSelector(card, { timeout: 15000 });
+    assert.match(await s.textContent(card), /🧑‍🎓 Only for students checked in to today’s lecture/);
+    const start = async function () {
+      await s.click(card + ' button.btn-primary');
+      await s.click('.modal button:has-text("Start")');
+      await s.waitForSelector('.modal input[type=password]');
+      await s.fill('.modal input[type=password]', 'Necro-26'); await s.press('.modal input[type=password]', 'Enter');
+    };
+    await start();
+    await s.waitForFunction(function () { return /only for students checked in to today’s lecture, and the lecture’s attendance has not started yet/.test(document.body.innerText); }, null, { timeout: 15000 });
+    assert.strictEqual(await s.$('.quiz-run'), null);
+    // ---- today's lecture attendance: ahmed checks in → the quiz starts ----
+    const at = main.call({ module: ST, action: 'startAttendanceSession', token: tok, sessionTitle: 'L3: Necrosis', course: 'Cell Injury', academicYear: '2026-2027', teacher: 'Dr. Test' }); assert.ok(at.ok, JSON.stringify(at));
+    await s.waitForSelector(card + ' button.btn-primary', { timeout: 15000 });
+    await start();
+    await s.waitForFunction(function () { return /you are not on its attendance/.test(document.body.innerText) && /L3: Necrosis/.test(document.body.innerText); }, null, { timeout: 15000 });
+    const ses = main.call({ module: ST, action: 'studentLogin', username: 'ahmed', password: PW });
+    assert.ok(main.call({ module: ST, action: 'submitAttendanceByCode', stoken: ses.token, code: at.code || (at.session && at.session.code) }).ok);
+    await s.waitForSelector(card + ' button.btn-primary', { timeout: 15000 });
+    await start();
+    await s.waitForSelector('.quiz-run', { timeout: 15000 });
+    await s.context().close(); await t.context().close();
+  } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
+});
+
 test('condensed Inflammation module (inflcondensed): every topic, section, view and slide renders with the real course; student and teacher', { skip: SKIP || ((!fs.existsSync(IC[2]) || !IC[3]) && 'condensed module page or IC_CONTENT_KEY not available') }, async function () {
   main.ctx.STUDENT_AUTH_MODULES.inflcondensed = true; main.ctx.CONTENT_KEYS.inflcondensed = IC[3];
   main.ctx.DEFAULT_QUIZ_PW.inflcondensed = 'INFLCONDENSED-2026'; main.ctx.DEFAULT_LIVE_PW.inflcondensed = 'CLASSROOM-2026';

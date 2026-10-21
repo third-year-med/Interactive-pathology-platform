@@ -2353,7 +2353,7 @@ test('2.23 My Assessments with many assignments (topic quizzes): same list as th
   let l; try { l = S.call({ module: CI, action: 'getMyAssessments', stoken: stu }); } finally { X.readAll_ = ra; }
   assert.ok(l.ok, JSON.stringify(l)); assert.strictEqual(l.items.length, 20);
   assert.strictEqual(reads[X.SHEETS.CONTENT], 1, 'Content sheet read once (was 2 per assignment): ' + JSON.stringify(reads));
-  const ref = X.assessSvc_(CI).getMyAssessments('basma@uni.ly'), strip = function (r) { return r.items.map(function (i) { const o = Object.assign({}, i); delete o.passwordSet; return o; }); };
+  const ref = X.assessSvc_(CI).getMyAssessments('basma@uni.ly'), strip = function (r) { return r.items.map(function (i) { const o = Object.assign({}, i); delete o.passwordSet; delete o.attendanceOnly; return o; }); };
   assert.deepStrictEqual(strip(l), JSON.parse(JSON.stringify(strip(ref))), 'the same answer as the shared engine');
   assert.strictEqual(X.readAll_(X.SHEETS.ASSESS).length, rowsBefore, 'nothing written');
   assert.throws(function () { X.assessSvcFast_(CI).startAttempt('tq1', 'basma@uni.ly', 'B'); }, /read-only/);
@@ -2419,6 +2419,48 @@ test('assessment passwords: no password to open the list or review; THAT assessm
   // a student who must still choose a new password is stopped, as Code.gs does
   const sRow = X.findStudent_(CI, 'b1'); X.updateRow_('Students', sRow._row, Object.assign({}, sRow, { mustChange: true }));
   assert.strictEqual(A(login(S, CI, 'b1', 'basma-pass-1').token, 'getMyAssessments').code, 'mustchange');
+});
+
+test('2.29 attendance-only assessments: only students checked in to this lecture\'s attendance start it (scan or ✓ Present/Late); before the password; resume unaffected', function () {
+  const S = tsSetup(), CI = 'cellinjury-razi-a-26', X = S.b.ctx;
+  const ttok = assessFixture(S, CI);
+  const fresh = function () { Object.keys(X.DIR_HEADERS).forEach(function (n) { delete X.HEADERS[n]; if (X.TEXT_COLS) delete X.TEXT_COLS[n]; }); };
+  const T = function (action, o) { fresh(); return S.call(Object.assign({ module: CI, action: action, token: ttok }, o || {})); };
+  const A = function (tok, action, o) { fresh(); return S.call(Object.assign({ module: CI, action: action, stoken: tok }, o || {})); };
+  const b1 = login(S, CI, 'b1', STU_PW.b1).token, b2 = login(S, CI, 'b2', STU_PW.b2).token, ah = login(S, CI, 'ahmed', PW).token;
+  assert.ok(T('aePwSet', { assessmentId: 'q1', password: 'Necro-26' }).ok); assert.ok(T('aePwSet', { assessmentId: 'q2', password: 'Apop-26' }).ok);
+  // teacher switches it on (q1 only); students cannot
+  assert.strictEqual(A(b1, 'aeAttOnly', { assessmentId: 'q1', on: true }).ok, false);
+  const on = T('aeAttOnly', { assessmentId: 'q1', on: true }); assert.ok(on.ok, JSON.stringify(on)); assert.deepStrictEqual(Object.keys(on.attOnly), ['q1']);
+  assert.deepStrictEqual(Object.keys(T('aePwList').attOnly), ['q1']);
+  const l = A(b1, 'getMyAssessments'); assert.deepStrictEqual(l.items.map(function (i) { return [i.assessment.id, i.attendanceOnly]; }).sort(), [['q1', true], ['q2', false]]);
+  // no attendance started yet → nobody can start q1 (the password alone is not enough); q2 is unaffected
+  assert.strictEqual(A(b1, 'startAttempt', { assignmentId: 'asg1', password: 'Necro-26' }).code, 'noattendance');
+  assert.ok(A(b2, 'startAttempt', { assignmentId: 'asg2', password: 'Apop-26' }).ok);
+  // an old session (yesterday) does not count
+  const old = modSession(S, CI, 'Yesterday'); modCheckIn(S, CI, 'ahmed', PW, old.code); old.close();
+  const orow = X.findModuleAttSession_(CI, old.id); orow.createdAt = Date.now() - 20 * 3600000; X.saveAttSession_(orow);
+  assert.strictEqual(A(ah, 'startAttempt', { assignmentId: 'asg1', password: 'Necro-26' }).code, 'noattendance');
+  // today's lecture: b1 scans in; b2 is absent; ahmed is marked Present by the teacher (after closing)
+  const m = modSession(S, CI, 'Necrosis L3');
+  modCheckIn(S, CI, 'b1', STU_PW.b1, m.code);
+  const nb = A(b2, 'startAttempt', { assignmentId: 'asg1', password: 'Necro-26' }); assert.strictEqual(nb.code, 'notpresent'); assert.match(nb.error, /Necrosis L3/);
+  assert.strictEqual(A(b2, 'startAttempt', { assignmentId: 'asg1', password: 'WRONG' }).code, 'notpresent', 'checked before the password');
+  assert.strictEqual(A(ah, 'startAttempt', { assignmentId: 'asg1', password: 'Necro-26' }).code, 'notpresent', 'yesterday\'s check-in does not count');
+  assert.strictEqual(A(b1, 'startAttempt', { assignmentId: 'asg1', password: 'WRONG' }).code, 'badpw', 'checked in: the password is still needed');
+  const s1 = A(b1, 'startAttempt', { assignmentId: 'asg1', password: 'necro-26' }); assert.ok(s1.ok, JSON.stringify(s1));
+  m.close();
+  fresh(); assert.ok(S.call({ module: CI, action: 'attMark', token: ttok, sessionId: m.id, studentId: 'ahmed', mark: 'late' }).ok);
+  assert.ok(A(ah, 'startAttempt', { assignmentId: 'asg1', password: 'Necro-26' }).ok, 'marked Late by the teacher → may start');
+  fresh(); assert.ok(S.call({ module: CI, action: 'attMark', token: ttok, sessionId: m.id, studentId: 'b2', mark: 'excused' }).ok);
+  assert.strictEqual(A(b2, 'startAttempt', { assignmentId: 'asg1', password: 'Necro-26' }).code, 'notpresent', 'Excused does not count');
+  // the attempt in progress resumes and submits as before; without an account there is no way round
+  const rs = A(b1, 'startAttempt', { assignmentId: 'asg1' }); assert.ok(rs.ok && rs.resumed);
+  assert.ok(A(b1, 'submitAttempt', { attemptId: s1.attempt.id, responses: { x1: true } }).ok);
+  assert.strictEqual(S.call({ module: CI, action: 'startAttempt', assignmentId: 'asg1', email: 'x@uni.ly', name: 'X', password: 'Necro-26' }).ok, false);
+  // switched off → the password alone again
+  assert.deepStrictEqual(T('aeAttOnly', { assessmentId: 'q1', on: false }).attOnly, {});
+  assert.ok(A(b2, 'startAttempt', { assignmentId: 'asg1', password: 'Necro-26' }).ok);
 });
 
 test('copy an assessment to other groups (2.21): only groups of the same module the caller teaches; published + assigned + password; a group with attempts is kept; drafts; never duplicates', function () {

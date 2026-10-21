@@ -68,6 +68,7 @@
  *   (module storages) aePwList / aePwSet {assessmentId, password | random | clear}  2.19: one password per assessment
  *                     (module teacher token); signed-in students: getMyAssessments / submitAttempt need no password,
  *                     startAttempt needs THAT assessment's password (see "Assessment passwords" below)
+ *   (module storages) aeAttOnly {assessmentId, on}  2.29: only students checked in to this lecture's attendance may start it
  *   llList / llSet {deliveryId, locked?, auto?}  2.18: Learning-module lock per group + module (see "Learning lock" below)
  *   resOverall {groupId}  2.22: Pathology Overall Results & Analytics — every student of the group, the ASSESSMENT
  *                         percentage of each teaching module and the overall percentage (equal or weighted); read-only
@@ -194,7 +195,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.28';
+var PORTAL_VERSION = '2.29';
 /** 2.28: the shortest password for teachers AND students on every Portal screen (user, 2026-10-21: 4, was 8). Code.gs checks its own
     (STU_MIN_PW and the module teacher password) — platformCheck warns while they still ask for more. No maximum. */
 var PW_MIN_ = 4;
@@ -3211,10 +3212,48 @@ function apwMap_(storage) { return tsJson_(getSetting_('apw:' + storage), {}) ||
 function apwNorm_(s) { return String(s || '').trim().toUpperCase(); }
 function apwRandom_() { var s = ''; for (var i = 0; i < 6; i++) s += APW_ALPHABET.charAt(Math.floor(Math.random() * APW_ALPHABET.length)); return s; }
 function apwPublic_(m) { var o = {}; Object.keys(m).forEach(function (k) { if (m[k] && m[k].pw) o[k] = { password: m[k].pw, setAt: Number(m[k].at) || 0, setBy: String(m[k].by || '') }; }); return o; }
+/* 2.29 — ATTENDANCE-ONLY assessments (user, 2026-10-21: a quiz given in the lecture must not be answered by students who are not
+ *   there, even if the password reaches them). Teacher Portal → 📝 Assessments → 🔑 Passwords → "🧑‍🎓 Checked-in only" per assessment
+ *   (Settings aatt:<storage> = { <assessmentId>: { on, at, by } }). startAttempt (signed-in student, not resuming) then needs a
+ *   check-in in THIS LECTURE'S attendance: the newest attendance session of the same module storage started in the last
+ *   AATT_WINDOW_H hours — the module's own attendance or a 🎓 Teaching Session lecture (both are AttendanceSessions rows of the
+ *   storage). Present and Late count (a scan, or the teacher's ✓ Present / Late, which adds a record); Excused and absent do not.
+ *   Checked BEFORE the password; an attempt in progress resumes as before. Teachers' own actions are unchanged. */
+var AATT_WINDOW_H = 12;
+function aattMap_(storage) { return tsJson_(getSetting_('aatt:' + storage), {}) || {}; }
+function aattPublic_(m) { var o = {}; Object.keys(m).forEach(function (k) { if (m[k] && m[k].on) o[k] = { setAt: Number(m[k].at) || 0, setBy: String(m[k].by || '') }; }); return o; }
+/** null = may start; otherwise the refusal. */
+function aattCheck_(storage, username, now) {
+  var id = normUser_(username), since = now - AATT_WINDOW_H * 3600000, ses = null;
+  readAll_(SHEETS.ATT_SESSIONS).forEach(function (r) {
+    if (r.module !== storage || r.status === 'cancelled' || !(Number(r.createdAt) >= since)) return;
+    if (!ses || Number(r.createdAt) > Number(ses.createdAt)) ses = r;
+  });
+  if (!ses) return { ok: false, code: 'noattendance', error: 'This assessment is only for students checked in to today’s lecture, and the lecture’s attendance has not started yet. Please wait for your teacher.' };
+  var sid = String(ses.sessionId);
+  var rec = readAll_(SHEETS.ATT_RECORDS).some(function (r) {
+    return r.sessionId === sid && String(r.status || 'present') !== 'excused' && (normUser_(r.studentId) === id || r.participantId === 'acct:' + id || r.participantId === 'teacher:' + id);
+  });
+  if (rec) return null;
+  return { ok: false, code: 'notpresent', error: 'This assessment is only for students checked in to today’s lecture' + (ses.sessionTitle ? ' (“' + String(ses.sessionTitle) + '”)' : '') + ', and you are not on its attendance. If you are in the lecture, check in first (📋 Attendance), then try again — or ask your teacher.' };
+}
 function assessPwHook_(storage, act, p) {
+  if (act === 'aeAttOnly') {   // 2.29: "only students checked in to this lecture's attendance can start it"
+    return authed_(storage, p, function () {
+      var id = String(p.assessmentId || '').trim().slice(0, 120); if (!id) return { ok: false, error: 'Choose an assessment.' };
+      var lock = LockService.getScriptLock(); lock.waitLock(20000);
+      try {
+        var m = aattMap_(storage), on = p.on === true || p.on === 'true';
+        if (on) m[id] = { on: 1, at: Date.now(), by: String(p.by || '').slice(0, 60) }; else delete m[id];
+        setSetting_('aatt:' + storage, JSON.stringify(m));
+        console.log('assessment attendance-only · ' + storage + ' · ' + id + ' · ' + (on ? 'on' : 'off'));
+        return { ok: true, attOnly: aattPublic_(m) };
+      } finally { lock.releaseLock(); }
+    });
+  }
   if (act === 'aePwList' || act === 'aePwSet') {
     return authed_(storage, p, function () {
-      if (act === 'aePwList') return { ok: true, passwords: apwPublic_(apwMap_(storage)) };
+      if (act === 'aePwList') return { ok: true, passwords: apwPublic_(apwMap_(storage)), attOnly: aattPublic_(aattMap_(storage)) };
       var id = String(p.assessmentId || '').trim().slice(0, 120); if (!id) return { ok: false, error: 'Choose an assessment.' };
       var lock = LockService.getScriptLock(); lock.waitLock(20000);
       try {
@@ -3232,6 +3271,10 @@ function assessPwHook_(storage, act, p) {
     });
   }
   if (act !== 'getMyAssessments' && act !== 'startAttempt' && act !== 'submitAttempt') return null;
+  if (act === 'startAttempt' && !p.token && !p.stoken && typeof assessStore_ === 'function') {   // 2.29: no way round the check without an account
+    var a0 = assessStore_(storage).get('assignment', String(p.assignmentId || ''));
+    if (a0 && aattMap_(storage)[a0.assessmentId]) return { ok: false, code: 'needlogin', error: 'Please sign in with your student account to start this assessment.' };
+  }
   if (!p.stoken || p.token || typeof assessSvc_ !== 'function' || typeof assessStore_ !== 'function') return null;
   var st = studentFromSession_(storage, String(p.stoken)); if (!st) return null;   // Code.gs answers "session ended" itself
   if (st.mustChange) return { ok: false, code: 'mustchange', error: 'Please set a new password before continuing.' };   // as Code.gs gateRequest_
@@ -3242,7 +3285,8 @@ function assessPwHook_(storage, act, p) {
     if (r && r.ok) {
       r.perAssessmentPasswords = true;
       var pm = apwMap_(storage);   // 2.20: whether each assessment HAS a password (never the password itself)
-      (r.items || []).forEach(function (it) { it.passwordSet = !!(it.assessment && pm[it.assessment.id] && pm[it.assessment.id].pw); });
+      var am = aattMap_(storage);   // 2.29: attendance-only assessments (the student sees the rule before trying)
+      (r.items || []).forEach(function (it) { it.passwordSet = !!(it.assessment && pm[it.assessment.id] && pm[it.assessment.id].pw); it.attendanceOnly = !!(it.assessment && am[it.assessment.id]); });
     }
     return r;
   }
@@ -3256,6 +3300,7 @@ function assessPwHook_(storage, act, p) {
   var e = llNorm_(email), now = Date.now();
   var resume = store.list('attempt').some(function (t) { return t.assignmentId === a.id && llNorm_(t.email) === e && t.status === 'in_progress' && !(t.deadlineAt && now > Number(t.deadlineAt) + 15 * 60000); });
   var own = apwMap_(storage)[a.assessmentId];
+  if (!resume && aattMap_(storage)[a.assessmentId]) { var ao = aattCheck_(storage, st.username, now); if (ao) return ao; }   // 2.29: before the password
   if (!resume) {
     // 2.20: the class quiz password is retired — an assessment without its own password cannot be started
     if (!own || !own.pw) return { ok: false, code: 'nopw', error: '“' + String(a.assessmentTitle || 'This assessment') + '” is not open yet — your teacher has not given it a password.' };

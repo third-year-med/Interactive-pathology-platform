@@ -464,6 +464,19 @@ changes. Teacher Dashboard → **📊 Overall Pathology Attendance** → choose 
   **Deploy → Manage deployments → ✏️ Edit → New version → Deploy**. No Code.gs change. Until then the card says "Update
   Portal.gs (2.15)" and everything else works as before.
 
+## A quiz only for the students in the lecture (Portal.gs 2.29, 2026-10-21)
+
+Teacher Portal → 📝 Assessments → **🔑 Passwords** → tick **🧑‍🎓 Checked-in only** on the quiz. Then a student can start it
+only if they are checked in to **today's lecture attendance** — they scanned / typed the attendance code, or you marked
+them ✓ Present or Late. Excused or absent students are refused with the reason, even with the right password.
+
+1. Start the lecture's attendance (📋 Attendance, Teacher Portal → Attendance, or a 🎓 Teaching Session).
+2. Students check in; then show the quiz's password.
+3. After the lecture: ✕ Remove password (closes the quiz; results stay).
+
+"Today's lecture" = the newest attendance session of that module and group started in the last 12 hours. Students who
+already started can always finish. The password is still needed.
+
 ## Password length (Portal.gs 2.28, 2026-10-21)
 
 Teachers and students choose passwords of **at least 4 characters** (no maximum). Portal.gs and the module pages
