@@ -3867,7 +3867,7 @@ test('Presentation slide editor: B (and Ctrl+B) bolds / un-bolds the selected wo
 test('Assessment tab for a teacher: the published quizzes with covered passwords (Show / Copy / 🔑), in the students\' order (others first, then Topic 1 … N); the library uses the same order', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
   groupFixture();
   const ST = 'cellinjury-tr-a', mod = syntheticModule(CI_PAGE), keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
-  const ids = ['tb2', 'tb1', 'tbm', 'tbd'];
+  const ids = ['tb2', 'tb1', 'tbm', 'tbd', 'tb10'];
   try {
     main.call({ module: ST, action: 'setup', password: 'teacher-' + ST + '-1' });
     const tok = main.call({ module: ST, action: 'login', password: 'teacher-' + ST + '-1' }).token;
@@ -3876,6 +3876,7 @@ test('Assessment tab for a teacher: the published quizzes with covered passwords
     up('assessments', 'tb2', { id: 'tb2', title: 'Topic 2 quiz — Necrosis', status: 'published', publishedVersion: 1, publishedAt: now - 1000, updatedAt: now - 1000, mode: 'pool', poolCount: 5, questionIds: ['a', 'b', 'c', 'd', 'e', 'f'], settings: { timeLimitMin: 5, attemptsAllowed: 1 } });
     up('assessments', 'tb1', { id: 'tb1', title: 'Topic 1 quiz — Adaptations', status: 'published', publishedVersion: 1, publishedAt: now - 3000, updatedAt: now - 3000, mode: 'pool', poolCount: 5, questionIds: ['a', 'b', 'c', 'd', 'e'], settings: { timeLimitMin: 5, attemptsAllowed: 1 } });
     up('assessments', 'tbm', { id: 'tbm', title: 'Midterm practice', status: 'published', publishedVersion: 1, publishedAt: now - 5000, updatedAt: now - 5000, mode: 'fixed', questionIds: ['a', 'b'], settings: {} });
+    up('assessments', 'tb10', { id: 'tb10', title: 'Topic 10 quiz — Ageing', status: 'published', publishedVersion: 1, publishedAt: now - 500, updatedAt: now - 500, mode: 'fixed', questionIds: ['a'], settings: {} });
     up('assessments', 'tbd', { id: 'tbd', title: 'A draft', status: 'draft', publishedVersion: 0, updatedAt: now, questionIds: [], settings: {} });
     assert.ok(main.call({ module: ST, action: 'aePwSet', token: tok, assessmentId: 'tb1', password: 'ADAPT1' }).ok);
     assert.ok(main.call({ module: ST, action: 'aePwSet', token: tok, assessmentId: 'tb2', password: 'NECRO2' }).ok);
@@ -3908,6 +3909,12 @@ test('Assessment tab for a teacher: the published quizzes with covered passwords
     const lib = await t.$$eval('.data-table tbody tr a b', function (x) { return x.map(function (b) { return b.textContent; }); });
     const pos = function (s) { return lib.indexOf(s); };
     assert.ok(pos('Midterm practice') < pos('Topic 1 quiz — Adaptations') && pos('Topic 1 quiz — Adaptations') < pos('Topic 2 quiz — Necrosis'), lib.join(' | '));
+    assert.ok(pos('Topic 2 quiz — Necrosis') < pos('Topic 10 quiz — Ageing'), 'Topic 10 after Topic 2: ' + lib.join(' | '));
+    // 🔑 Passwords: the same order (was alphabetical: Topic 1, Topic 10, Topic 2)
+    await t.click('.sub-tabs .chip:has-text("Passwords")');
+    await t.waitForSelector('.apw-tbl tr[data-assessment="tb10"]', { timeout: 15000 });
+    const pw = await t.$$eval('.apw-tbl tbody tr', function (x) { return x.map(function (r) { return r.getAttribute('data-assessment'); }); });
+    assert.deepStrictEqual(pw.filter(function (id) { return /^tb[m12]|^tb10$/.test(id); }), ['tbm', 'tb1', 'tb2', 'tb10'], pw.join(' | '));
     assert.strictEqual(errors.filter(function (e) { return !/ERR_TUNNEL|net::/.test(e); }).length, 0, errors.join('\n'));
     await t.context().close();
   } finally {
