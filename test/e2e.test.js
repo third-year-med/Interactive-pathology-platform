@@ -4000,6 +4000,26 @@ test('Attendance tab for a teacher: the short Teacher Portal version — start a
     await t.waitForFunction(function () { var r = Array.prototype.filter.call(document.querySelectorAll('#view-attendance .att-register tr'), function (x) { return /Student Carim/.test(x.textContent); })[0]; return r && /Absent/.test(r.textContent); }, null, { timeout: 15000 });
     assert.strictEqual(main.ctx.rpRows_('AttendanceRecords').filter(function (r) { return r.sessionId === sess.sessionId && r.studentId === 'c1'; }).length, 0);
     if (process.env.SHOTS) await t.screenshot({ path: path.join(process.env.SHOTS, 'att-marks.png'), fullPage: true });
+    // a FRESH page opens View from the history: the student list and the marks load at the same time — the marks answer
+    // comes LAST (held back 1.5 s), which is how the user saw a report without any mark buttons (fixed 2026-10-21)
+    await t.route('https://script.google.com/**', async function (route) {
+      let q = {}; try { q = JSON.parse(route.request().postData() || '{}'); } catch (e) { }
+      if (q.action === 'attMarks') await new Promise(function (r) { setTimeout(r, 1500); });
+      return route.fallback();
+    });
+    await t.goto('https://third-year-med.github.io/cell-injury-teaching-platform/?g=tr-a#/teacher/attendance');
+    await t.reload();
+    const view = 'tr:has-text("Short-view lecture") button:has-text("View")';
+    await t.waitForSelector(view, { timeout: 20000 }); await t.click(view);
+    await t.waitForSelector('.modal ' + row('Student Dina').replace('#view-attendance ', '') + ' button[data-mark=clear]', { timeout: 20000 });
+    const mt = await t.textContent('.modal');
+    assert.ok(!/Loading the registered student list|Loading the Present/.test(mt), 'both loaded and drawn');
+    assert.match(mt, /You can mark a student/);
+    assert.ok(await t.$('.modal ' + row('Student Carim').replace('#view-attendance ', '') + ' button[data-mark=present]'), 'mark buttons for an absent student');
+    assert.ok(await t.$('.modal ' + row('Student Ahmed').replace('#view-attendance ', '') + ' button[data-mark=clear]'), 'Undo for the late mark');
+    // and marking works from this View too
+    await t.click('.modal ' + row('Student Carim').replace('#view-attendance ', '') + ' button[data-mark=excused]');
+    await t.waitForFunction(function () { var r = Array.prototype.filter.call(document.querySelectorAll('.modal .att-register tr'), function (x) { return /Student Carim/.test(x.textContent); })[0]; var b = r && r.querySelector('.badge'); return b && b.textContent === 'Excused'; }, null, { timeout: 15000 });
     assert.strictEqual(errors.filter(function (e) { return !/ERR_TUNNEL|net::/.test(e); }).length, 0, errors.join('\n'));
     await t.context().close();
   } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }

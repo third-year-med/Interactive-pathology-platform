@@ -598,6 +598,15 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   (they are proven on the real backend); anything else is rebuilt in Portal.gs from the sheets.** Backend test asserts
   `portalHook_` returns null for getAttendanceSessionReport.
 
+- **Mark buttons missing in View (2026-10-21, after 2.26):** the report opens before the student list and the marks are
+  loaded; each loader redrew "its" card. When the list arrived first, its redraw replaced the card and the marks
+  answer then found its card gone → no buttons (or the list stuck on "Loading…" in the other order). The e2e test had a
+  cached list, so it passed. Fix (patch att-mark): `s._card` = the report on screen; every async redraw replaces that;
+  a failed marks request shows the reason + ↻ Try again. e2e opens View on a FRESH page with attMarks held back 1.5 s
+  (fails on the old page, passes now). The patch now has BASE rules (anchor → current) + UPGRADE rules (older patch
+  text → current); a page with no / 2.25 / 2.26 version of it ends byte-identical. **Lesson: when two async loads redraw
+  the same view, redraw the CURRENT element; and test with the slow answer arriving last.**
+
 ## 9. How to work with the user
 
 - Keep the agreed plan order; finish one step, report, and wait for "continue" before the next.
