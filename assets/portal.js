@@ -367,14 +367,14 @@
   /** Group page, first sign-in with a temporary password: the student chooses a password, set in all of the group's modules. */
   function choosePassword(f, u, oldPw, remember, code, after) {
     code = code || GINFO.group.linkCode; after = after || afterSignIn;
-    f.innerHTML = '<h2>Choose your own password</h2><p class="small muted">For your security, choose a new password before you continue (at least 8 characters, not your Student ID). It will be used for all your modules.</p>' +
+    f.innerHTML = '<h2>Choose your own password</h2><p class="small muted">For your security, choose a new password before you continue (at least 4 characters, not your Student ID). It will be used for all your modules.</p>' +
       '<label>New password<input id="p-n1" type="password" autocomplete="new-password"></label><label>Repeat new password<input id="p-n2" type="password" autocomplete="new-password"></label><p class="err" role="alert"></p><button class="btn primary full" type="submit">Save and continue</button>';
     var err = $('.err', f), btn = $('button', f);
     setTimeout(function () { var i = $('#p-n1', f); if (i) i.focus(); }, 30);
     f.onsubmit = function (e) {
       e.preventDefault();
       var n1 = $('#p-n1', f).value, n2 = $('#p-n2', f).value;
-      if (n1.length < 8) { err.textContent = 'The new password must be at least 8 characters.'; return; }
+      if (n1.length < 4) { err.textContent = 'The new password must be at least 4 characters.'; return; }
       if (n1 !== n2) { err.textContent = 'The two passwords are different.'; return; }
       btn.disabled = true; err.textContent = '';
       post(CFG.backendUrl, { module: 'portal', action: 'portalGroupSetPassword', g: code, username: u, password: oldPw, newPassword: n1 }).then(function (r) {
@@ -680,7 +680,7 @@
   function teacherLogin() {
     var setup = INFO && !INFO.hasTeacher;
     var f = h('<form class="card t-login" style="max-width:440px" novalidate><h2 style="margin-top:0;color:var(--navy);font-size:18px">' + (setup ? 'Create the teacher password' : 'Teacher sign-in') + '</h2><p class="small muted">' +
-      (setup ? 'No teacher account exists yet. Choose the platform teacher password (at least 8 characters).' : 'Teachers: your username and password. Administrator: leave the username empty.') + '</p>' +
+      (setup ? 'No teacher account exists yet. Choose the platform teacher password (at least 4 characters).' : 'Teachers: your username and password. Administrator: leave the username empty.') + '</p>' +
       (setup ? '' : '<label>Username<input id="t-u" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="e.g. dr.ahmed (empty for the Administrator)"></label>') +
       '<label>Password<input id="t-p" type="password" autocomplete="' + (setup ? 'new-password' : 'current-password') + '"></label>' + (setup ? '<label>Repeat it<input id="t-p2" type="password" autocomplete="new-password"></label>' : '') +
       '<p class="err" role="alert"></p><button class="btn primary full" type="submit">' + (setup ? 'Create password' : 'Sign in') + '</button>' +
@@ -689,7 +689,7 @@
       e.preventDefault();
       var pw = $('#t-p', f).value, err = $('.err', f), btn = $('button[type=submit]', f);
       if (setup) {
-        if (pw.length < 8) { err.textContent = 'Use at least 8 characters.'; return; }
+        if (pw.length < 4) { err.textContent = 'Use at least 4 characters.'; return; }
         if (pw !== $('#t-p2', f).value) { err.textContent = 'The two passwords are different.'; return; }
         btn.disabled = true;
         return post(CFG.backendUrl, { module: 'portal', action: 'setup', password: pw }).then(function (r) { if (!r.ok) { btn.disabled = false; err.textContent = r.error; return; } INFO.hasTeacher = true; login(); });
@@ -803,14 +803,14 @@
     box.innerHTML = '';
     if (box.id === 't-pwbox' && DASH && DASH.cur) location.hash = '#/teacher';
     var f = h('<form class="card t-login" style="max-width:440px" novalidate><h2 style="margin-top:0;color:var(--navy);font-size:18px">' + (forced ? 'Choose your own password' : 'Change my password') + '</h2>' +
-      (forced ? '<p class="small muted">You signed in with a temporary password. Choose your own (at least 8 characters) to continue.</p>' : '') +
+      (forced ? '<p class="small muted">You signed in with a temporary password. Choose your own (at least 4 characters) to continue.</p>' : '') +
       '<label>Current password<input id="tp-o" type="password" autocomplete="current-password"></label><label>New password<input id="tp-n1" type="password" autocomplete="new-password"></label><label>Repeat new password<input id="tp-n2" type="password" autocomplete="new-password"></label>' +
       '<p class="err" role="alert"></p><button class="btn primary full" type="submit">Save new password</button>' + (forced ? '' : '<button class="btn full" type="button" data-a="cancel" style="margin-top:8px">Cancel</button>') + '</form>');
     var c = $('[data-a=cancel]', f); if (c) c.onclick = function () { if (box.id === 't-pwbox') box.innerHTML = ''; else { main.innerHTML = ''; route(); } };
     f.onsubmit = function (e) {
       e.preventDefault();
       var err = $('.err', f), n1 = $('#tp-n1', f).value;
-      if (n1.length < 8) { err.textContent = 'The new password must be at least 8 characters.'; return; }
+      if (n1.length < 4) { err.textContent = 'The new password must be at least 4 characters.'; return; }
       if (n1 !== $('#tp-n2', f).value) { err.textContent = 'The two passwords are different.'; return; }
       var b = $('button[type=submit]', f); b.disabled = true;
       post(CFG.backendUrl, { module: 'portal', action: 'teacherChangePassword', ttoken: t.ttoken, oldPassword: $('#tp-o', f).value, newPassword: n1 }).then(function (r) {
@@ -2069,10 +2069,10 @@
           mods.map(function (x) { var a = ACC[m.accounts[x.moduleId]] || ACC.missing; return '<td title="' + esc(a[1]) + '">' + esc(a[0]) + '</td>'; }).join('') +
           '<td><div class="roster-btns"><button class="btn" type="button" data-a="pw">Reset password</button><button class="btn" type="button" data-a="ed">Edit</button><button class="btn' + (m.active ? ' danger' : '') + '" type="button" data-a="act">' + (m.active ? 'Deactivate' : 'Activate') + '</button></div></td></tr>');
         $('[data-a=pw]', tr).onclick = function () {
-          var typed = window.prompt('New temporary password for ' + m.studentId + ' (all of this group\'s modules).\nType one (at least 8 characters), or leave empty to generate one. Their current password stops working.', '');
+          var typed = window.prompt('New temporary password for ' + m.studentId + ' (all of this group\'s modules).\nType one (at least 4 characters), or leave empty to generate one. Their current password stops working.', '');
           if (typed == null) return;
           typed = typed.trim();
-          if (typed && typed.length < 8) return toast('The password must be at least 8 characters.');
+          if (typed && typed.length < 4) return toast('The password must be at least 4 characters.');
           rosterCall('rosterResetPassword', { studentId: m.studentId, password: typed }).then(function (x) { if (!x.ok) return toast(x.error); lastAdded = [{ ok: true, studentId: m.studentId, name: m.name, tempPassword: x.tempPassword || typed, reset: true }]; draw(); });
         };
         $('[data-a=ed]', tr).onclick = function () {
@@ -2096,7 +2096,7 @@
       var f = h('<form class="roster-bulk" novalidate><h3>Temporary passwords for many students</h3>' +
         '<div class="opt"><label class="chk"><input type="radio" name="bs" value="temp" checked> Students who have not chosen their own password yet (<b>' + temp + '</b>)</label>' +
         '<label class="chk"><input type="radio" name="bs" value="all"> All active students in this group (<b>' + all + '</b>) — their current passwords stop working</label></div>' +
-        '<div class="opt"><label class="chk"><input type="radio" name="bp" value="same" checked> The same password for all of them: <input type="text" data-k="shared" placeholder="at least 8 characters" autocomplete="off" spellcheck="false"></label>' +
+        '<div class="opt"><label class="chk"><input type="radio" name="bp" value="same" checked> The same password for all of them: <input type="text" data-k="shared" placeholder="at least 4 characters" autocomplete="off" spellcheck="false"></label>' +
         '<label class="chk"><input type="radio" name="bp" value="each"> A different password for each student</label></div>' +
         '<p class="small muted">Each student must choose their own password at the next sign-in. With one shared password, a student could open a classmate\'s account until that classmate has signed in once — so ask students to sign in and choose their own password soon.</p>' +
         '<div class="dir-act"><button class="btn primary" type="submit">Create temporary passwords</button></div></form>');
@@ -2107,7 +2107,7 @@
         var scope = $('input[name=bs]:checked', f).value, same = $('input[name=bp]:checked', f).value === 'same', pw = same ? sharedInp.value.trim() : '';
         var n = scope === 'all' ? all : temp;
         if (!n) return toast('No student to reset.');
-        if (same && pw.length < 8) return toast('Type the shared password (at least 8 characters).');
+        if (same && pw.length < 4) return toast('Type the shared password (at least 4 characters).');
         if (!window.confirm('Create a new temporary password for ' + n + ' student(s)' + (same ? ' (the same for all)' : '') + '? Their current passwords stop working and they choose their own at the next sign-in.')) return;
         var b = $('button[type=submit]', f); b.disabled = true; b.textContent = 'Working…';
         rosterCall('rosterResetMany', { scope: scope, password: pw }).then(function (x) {
@@ -2183,8 +2183,8 @@
           '<div class="dir-btns"><button class="btn primary" type="button" data-a="asg">Assignments</button><button class="btn" type="button" data-a="pw">Reset password</button><button class="btn" type="button" data-a="ed">Edit</button><button class="btn' + (t.active ? ' danger' : '') + '" type="button" data-a="act">' + (t.active ? 'Deactivate' : 'Activate') + '</button></div></div>');
         $('[data-a=asg]', r).onclick = function () { openAssign = openAssign === t.userId ? '' : t.userId; draw(); };
         $('[data-a=pw]', r).onclick = function () {
-          var typed = window.prompt('New temporary password for ' + t.username + '.\nType one (at least 8 characters), or leave empty to generate one. They are signed out and must choose their own at the next sign-in.', '');
-          if (typed == null) return; typed = typed.trim(); if (typed && typed.length < 8) return toast('At least 8 characters.');
+          var typed = window.prompt('New temporary password for ' + t.username + '.\nType one (at least 4 characters), or leave empty to generate one. They are signed out and must choose their own at the next sign-in.', '');
+          if (typed == null) return; typed = typed.trim(); if (typed && typed.length < 4) return toast('At least 4 characters.');
           dirCall('teacherResetPassword', { userId: t.userId, password: typed }).then(function (x) { if (!x.ok) return toast(x.error); teacherOut = { username: t.username, name: t.name, password: x.tempPassword }; draw(); });
         };
         $('[data-a=ed]', r).onclick = function () {

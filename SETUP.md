@@ -464,6 +464,20 @@ changes. Teacher Dashboard → **📊 Overall Pathology Attendance** → choose 
   **Deploy → Manage deployments → ✏️ Edit → New version → Deploy**. No Code.gs change. Until then the card says "Update
   Portal.gs (2.15)" and everything else works as before.
 
+## Password length (Portal.gs 2.28, 2026-10-21)
+
+Teachers and students choose passwords of **at least 4 characters** (no maximum). Portal.gs and the module pages
+already use 4. Code.gs has its own three checks — change them once (Apps Script → Code.gs, **Ctrl+F** to find each):
+
+1. `var STU_MIN_PW = 8;` → `var STU_MIN_PW = 4;`
+2. In `function actionSetup_`: `if (pw.length < 8) return { ok: false, error: 'Password must be at least 8 characters.' };`
+   → change both 8s to 4.
+3. In `function actionChangePassword_`: `if (String(p.newPassword || '').length < 8) return { ok: false, error: 'New password must be at least 8 characters.' };`
+   → change both 8s to 4.
+
+Do NOT change `var T_MAX_FAILS = 8` (that is the number of wrong sign-ins before a 15-minute lock). platformCheck warns
+while Code.gs still asks for more than 4.
+
 ## Before every Deploy: run the self-check
 
 Apps Script → at the top, choose the function **platformCheck** → **▶ Run** → open the **Execution log**.

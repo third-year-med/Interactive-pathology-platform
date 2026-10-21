@@ -343,7 +343,7 @@ var T_MAX_FAILS = 8, T_LOCK_S = 900;
 function actionSetup_(module, p) {
   if (getTeacherCreds_(module).hash) return { ok: false, error: 'A teacher password already exists for this module. Sign in, or use Teacher Portal → Account to change it.' };
   var pw = String(p.password || '');
-  if (pw.length < 8) return { ok: false, error: 'Password must be at least 8 characters.' };
+  if (pw.length < 4) return { ok: false, error: 'Password must be at least 4 characters.' };
   setTeacherPw_(module, pw);
   return { ok: true };
 }
@@ -371,7 +371,7 @@ function actionLogout_(p) {
 function actionChangePassword_(module, p) {
   var creds = getTeacherCreds_(module);
   if (!teacherPwOk_(creds, String(p.oldPassword || ''))) return { ok: false, error: 'Current password is incorrect.' };
-  if (String(p.newPassword || '').length < 8) return { ok: false, error: 'New password must be at least 8 characters.' };
+  if (String(p.newPassword || '').length < 4) return { ok: false, error: 'New password must be at least 4 characters.' };
   setTeacherPw_(module, String(p.newPassword));
   return { ok: true };
 }
@@ -402,7 +402,7 @@ var CONTENT_KEYS = {
 var STU_TTL_MS = 12 * 3600 * 1000;
 var STU_REMEMBER_TTL_MS = 30 * 24 * 3600 * 1000;
 var STU_MAX_FAILS = 5, STU_LOCK_MS = 15 * 60 * 1000;
-var STU_MIN_PW = 8;
+var STU_MIN_PW = 4;
 var STUDENT_PUBLIC_ACTIONS = { ping: 1, setup: 1, login: 1, logout: 1, studentLogin: 1, studentLogout: 1 };
 
 function baseModule_(module) { return String(module || '').split('-')[0]; }

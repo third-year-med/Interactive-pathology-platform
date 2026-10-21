@@ -194,7 +194,10 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.27';
+var PORTAL_VERSION = '2.28';
+/** 2.28: the shortest password for teachers AND students on every Portal screen (user, 2026-10-21: 4, was 8). Code.gs checks its own
+    (STU_MIN_PW and the module teacher password) — platformCheck warns while they still ask for more. No maximum. */
+var PW_MIN_ = 4;
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -861,7 +864,7 @@ function rosterAdd_(p) {
     var c = rosterCleanStudent_(it || {}); if (c.error) { out.push({ ok: false, input: String((it && (it.studentId || it.username)) || ''), error: c.error }); return; }
     if (rosterMember_(g.groupId, c.studentId)) { out.push({ ok: false, studentId: c.studentId, error: c.studentId + ' is already in this group.' }); return; }
     var given = String(it.password || '');
-    if (given && given.length < STU_MIN_PW) { out.push({ ok: false, studentId: c.studentId, error: 'The password for ' + c.studentId + ' must be at least ' + STU_MIN_PW + ' characters.' }); return; }
+    if (given && given.length < PW_MIN_) { out.push({ ok: false, studentId: c.studentId, error: 'The password for ' + c.studentId + ' must be at least ' + PW_MIN_ + ' characters.' }); return; }
     var plain = given || genTempPassword_(), pw = rosterPw_(plain, given ? mustChange : true);
     var m = { membershipId: dirNewId_('MEM', DIR.MEMB, 'membershipId'), groupId: g.groupId, studentId: c.studentId, name: c.name, email: c.email, active: true, createdAt: now, updatedAt: now,
       pwSalt: pw.salt, pwHash: pw.hash, pwIter: pw.iter, mustChange: !!pw.mustChange };
@@ -907,7 +910,7 @@ function rosterResetPassword_(p) {
   var g = rosterGroupOr_(p.groupId); if (!g) return dirErr_('Choose a group.');
   var cur = rosterMember_(g.groupId, normUser_(p.studentId)); if (!cur) return dirErr_('This student is not in the group.');
   var given = String(p.password || '');
-  if (given && given.length < STU_MIN_PW) return dirErr_('The password must be at least ' + STU_MIN_PW + ' characters.');
+  if (given && given.length < PW_MIN_) return dirErr_('The password must be at least ' + PW_MIN_ + ' characters.');
   var plain = given || genTempPassword_();
   rosterApplyPw_(g.groupId, cur, rosterPw_(plain, true), null, null);
   return { ok: true, studentId: cur.studentId, tempPassword: given ? '' : plain };
@@ -1088,7 +1091,7 @@ function attMarkHook_(storage, act, p) {
 
 /* ---------------- one password across the group's modules ---------------- */
 function rosterPwRules_(np, username, old) {
-  if (np.length < STU_MIN_PW) return 'The new password must be at least ' + STU_MIN_PW + ' characters.';
+  if (np.length < PW_MIN_) return 'The new password must be at least ' + PW_MIN_ + ' characters.';
   if (normUser_(np) === username) return 'The new password must not be your student ID.';
   if (np === old) return 'Choose a password different from the current one.';
   return null;
@@ -1122,7 +1125,7 @@ function rosterModulePassword_(module, p) {
   var m = rosterMember_(d.groupId, st.username, true); if (!m) return null;
   var xl = typeof exTeachingLock_ === 'function' ? exTeachingLock_(module, st.username) : null; if (xl) return xl;
   var np = String(p.newPassword || '');
-  if (np.length < STU_MIN_PW) return { ok: false, error: 'The new password must be at least ' + STU_MIN_PW + ' characters.' };
+  if (np.length < PW_MIN_) return { ok: false, error: 'The new password must be at least ' + PW_MIN_ + ' characters.' };
   if (normUser_(np) === st.username) return { ok: false, error: 'The new password must not be your student ID.' };
   var lock = LockService.getScriptLock(); lock.waitLock(20000);
   try {
@@ -1140,7 +1143,7 @@ function rosterModulePassword_(module, p) {
 function rosterResetMany_(p) {
   var g = rosterGroupOr_(p.groupId); if (!g) return dirErr_('Choose a group.');
   var scope = p.scope === 'all' ? 'all' : 'temp', shared = String(p.password || '');
-  if (shared && shared.length < STU_MIN_PW) return dirErr_('The password must be at least ' + STU_MIN_PW + ' characters.');
+  if (shared && shared.length < PW_MIN_) return dirErr_('The password must be at least ' + PW_MIN_ + ' characters.');
   var st = rosterStorages_(g.groupId), idx = rosterAccounts_(), now = Date.now();
   var members = dirAll_(DIR.MEMB).filter(function (m) {
     if (m.groupId !== g.groupId || !m.active) return false;
@@ -1304,7 +1307,7 @@ function teacherLogout_(p) {
   return { ok: true };
 }
 function tPwRule_(np, username, old) {
-  if (np.length < 8) return 'The new password must be at least 8 characters.';
+  if (np.length < PW_MIN_) return 'The new password must be at least ' + PW_MIN_ + ' characters.';
   if (normUser_(np) === username) return 'The new password must not be your username.';
   if (old != null && np === old) return 'Choose a password different from the current one.';
   return null;
@@ -1341,7 +1344,7 @@ function teacherSave_(p) {
     var username = normUser_(rec.username);
     if (!validUser_(username) || username === 'admin') return dirErr_('Choose a username of 2–64 letters, digits, dot, dash or underscore (not “admin”), e.g. dr.ahmed');
     if (tUsers_().some(function (u) { return u.username === username; })) return dirErr_('This username is already taken.');
-    var given = String(rec.password || ''); if (given && given.length < 8) return dirErr_('The password must be at least 8 characters.');
+    var given = String(rec.password || ''); if (given && given.length < PW_MIN_) return dirErr_('The password must be at least ' + PW_MIN_ + ' characters.');
     var plain = given || genTempPassword_(), salt = randomHex_(16);
     var u = { userId: dirNewId_('USR', DIR.USERS, 'userId'), role: 'teacher', username: username, name: name, email: email, pwSalt: salt, pwHash: hashIter_(plain, salt, PW_ITER), pwIter: PW_ITER,
       active: true, mustChange: true, failed: 0, lockedUntil: '', createdAt: now, updatedAt: now, lastLogin: '' };
@@ -1361,7 +1364,7 @@ function teacherSetActive_(p) {
 }
 function teacherResetPassword_(p) {
   var cur = dirFind_(DIR.USERS, 'userId', String(p.userId || '')); if (!cur || cur.role !== 'teacher') return dirErr_('This teacher no longer exists — reload.');
-  var given = String(p.password || ''); if (given && given.length < 8) return dirErr_('The password must be at least 8 characters.');
+  var given = String(p.password || ''); if (given && given.length < PW_MIN_) return dirErr_('The password must be at least ' + PW_MIN_ + ' characters.');
   var plain = given || genTempPassword_(), salt = randomHex_(16), r = dirPublic_(cur);
   r.pwSalt = salt; r.pwIter = PW_ITER; r.pwHash = hashIter_(plain, salt, PW_ITER); r.mustChange = true; r.failed = 0; r.lockedUntil = ''; r.updatedAt = Date.now();
   updateRow_(DIR.USERS, cur._row, r);
@@ -3533,6 +3536,14 @@ function platformCheck() {
     else okLines.push('Module "' + m + '": student sign-in on, content key valid.');
   });
   Object.keys(ck).forEach(function (m) { if (!sam[m] && keyOk(ck[m])) warnings.push('Module "' + m + '" has a content key but is not in STUDENT_AUTH_MODULES — its students cannot sign in yet.'); });
+  // 3b. 2.28: Code.gs asks for the same shortest password as Portal.gs (4) — students (STU_MIN_PW) and module teachers
+  var pwMore = [];
+  if (typeof STU_MIN_PW === 'number' && STU_MIN_PW > PW_MIN_) pwMore.push('var STU_MIN_PW = ' + STU_MIN_PW + ';  →  var STU_MIN_PW = ' + PW_MIN_ + ';');
+  [['actionSetup_', typeof actionSetup_ === 'function' ? actionSetup_ : null], ['actionChangePassword_', typeof actionChangePassword_ === 'function' ? actionChangePassword_ : null]].forEach(function (f) {
+    var m = /length\s*<\s*(\d+)/.exec(src(f[1])); if (m && Number(m[1]) > PW_MIN_) pwMore.push(f[0] + ': "length < ' + m[1] + '" and "at least ' + m[1] + ' characters"  →  ' + PW_MIN_);
+  });
+  if (pwMore.length) warnings.push('Code.gs still asks for longer passwords than ' + PW_MIN_ + ' characters (SETUP.md → "Password length"). Change in Code.gs:\n    ' + pwMore.join('\n    '));
+  else okLines.push('Passwords: at least ' + PW_MIN_ + ' characters for teachers and students.');
   // 4. the front-page list and the platform directory only name modules the backend knows
   try {
     portalRegistry_().forEach(function (m) {

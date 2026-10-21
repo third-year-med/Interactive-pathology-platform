@@ -511,12 +511,17 @@ test('student password change on the group page: current password required, new 
   const S = groupsSetup();
   const call = function (o) { return S.call(Object.assign({ module: 'portal', action: 'portalGroupSetPassword', g: 'razi-a-26', username: 'ahmed' }, o)); };
   assert.strictEqual(call({ password: 'wrong', newPassword: 'new-pass-123' }).ok, false);
-  assert.match(call({ password: PW, newPassword: 'short' }).error, /at least/);
+  assert.match(call({ password: PW, newPassword: 'abc' }).error, /at least 4/);
   assert.match(call({ password: PW, newPassword: 'ahmed' + '' }).error, /at least|student ID/);
   assert.strictEqual(S.call({ module: 'portal', action: 'portalGroupSetPassword', g: 'misrata-a-26', username: 'ahmed', password: PW, newPassword: 'new-pass-123' }).ok, false, 'not a member there');
   assert.ok(call({ password: PW, newPassword: 'new-pass-123' }).ok);
   RA.forEach(function (st) { assert.strictEqual(login(S, st, 'ahmed', PW).ok, false); const a = login(S, st, 'ahmed', 'new-pass-123'); assert.ok(a.ok && !a.mustChange, st); });
   assert.ok(S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: 'ahmed', password: 'new-pass-123' }).ok);
+  // 2.28: 4 characters are enough (teachers and students; was 8)
+  assert.ok(call({ password: 'new-pass-123', newPassword: 'k9x4' }).ok, '4 characters accepted');
+  RA.forEach(function (st) { assert.ok(login(S, st, 'ahmed', 'k9x4').ok, st); });
+  const pc = S.b.eval('platformCheck()'); assert.ok(!/longer passwords/.test(pc.warnings.join(' ')), pc.warnings.join(' | '));
+  S.b.eval('STU_MIN_PW = 8'); assert.match(S.b.eval('platformCheck()').warnings.join(' '), /STU_MIN_PW = 8;  →  var STU_MIN_PW = 4;/); S.b.eval('STU_MIN_PW = 4');
 });
 
 test('student password change INSIDE a module of the group is applied to the group\'s other modules (Code.gs behaviour otherwise)', function () {
@@ -614,7 +619,7 @@ test('bulk temporary passwords: only students still on a temporary password, or 
   assert.ok(login(S, 'cellinjury-razi-a-26', 'ahmed', PW).ok, 'ahmed untouched');
   assert.strictEqual(S.call({ module: 'cellinjury-razi-a-26', action: 'studentSession', stoken: sesAhmed }).role, 'student', 'his session untouched');
   // 2) all active students, one shared password typed by the Admin
-  assert.strictEqual(S.dir('rosterResetMany', { groupId: S.ra.groupId, scope: 'all', password: 'short' }).ok, false);
+  assert.strictEqual(S.dir('rosterResetMany', { groupId: S.ra.groupId, scope: 'all', password: 'abc' }).ok, false);
   const all = S.dir('rosterResetMany', { groupId: S.ra.groupId, scope: 'all', password: 'Welcome-2026' });
   assert.strictEqual(all.count, 3); assert.ok(all.shared); assert.ok(all.results.every(function (x) { return x.tempPassword === ''; }), 'the shared password is not sent back');
   ['ahmed', 'b1', 'b2'].forEach(function (id) { assert.ok(S.call({ module: 'portal', action: 'portalGroupCheck', g: 'razi-a-26', username: id, password: 'Welcome-2026' }).ok, id); });
