@@ -18,7 +18,7 @@ R = [
             el('button', { class: 'btn btn-sm', 'data-a': 'set', onclick: () => edit(a) }, own ? '✏ Change' : '＋ Set password'),"""),
 ("""      list.appendChild(el('table', { class: 'data-table apw-tbl' }, el('thead', null, el('tr', null, el('th', null, 'Assessment'), el('th', null, 'Status'), el('th', null, 'Password'), el('th', null, ''))), tb));""",
 """      list.appendChild(el('p', { class: 'small muted apw-att-note' }, '🧑‍🎓 ', el('b', null, 'Checked-in only'), ': for a quiz given in the lecture — only students checked in to today’s lecture attendance (they scanned the code, or you marked them ✓ Present / Late) can start it, even if the password reaches others. Start the lecture’s attendance first.'));
-      list.appendChild(el('table', { class: 'data-table apw-tbl' }, el('thead', null, el('tr', null, el('th', null, 'Assessment'), el('th', null, 'Status'), el('th', null, 'Password'), el('th', null, 'Who can start'), el('th', null, ''))), tb));"""),
+      list.appendChild(el('table', { class: 'data-table apw-tbl' }, el('thead', null, el('tr', null, el('th', null, 'Assessment'), el('th', null, 'Status'), el('th', null, 'Password'), el('th', null, 'Who can start'), el('th', null, ''))), tb));""", "apw-att-note"),   # done-marker: att-only-all changes this heading later
 ("""    const save = async (a, o) => {
       const r = await Backend.authedPost(Object.assign({ action: 'aePwSet', assessmentId: a.id }, o));""",
 """    const attOnly = async (a, cb) => {
@@ -45,7 +45,8 @@ R = [
 ]
 for path in sys.argv[1:]:
     s = open(path, encoding='utf-8').read(); n = 0
-    for a, b in R:
-        if b in s: continue
+    for r in R:
+        a, b = r[0], r[1]
+        if b in s or (len(r) > 2 and r[2] in s): continue
         assert s.count(a) == 1, (path, a[:70]); s = s.replace(a, b); n += 1
     open(path, 'w', encoding='utf-8').write(s); print(path, 'changes:', n)

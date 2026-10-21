@@ -2458,6 +2458,10 @@ test('2.29 attendance-only assessments: only students checked in to this lecture
   const rs = A(b1, 'startAttempt', { assignmentId: 'asg1' }); assert.ok(rs.ok && rs.resumed);
   assert.ok(A(b1, 'submitAttempt', { attemptId: s1.attempt.id, responses: { x1: true } }).ok);
   assert.strictEqual(S.call({ module: CI, action: 'startAttempt', assignmentId: 'asg1', email: 'x@uni.ly', name: 'X', password: 'Necro-26' }).ok, false);
+  // 2.30: several at once ("Select all" / "Clear all")
+  assert.deepStrictEqual(Object.keys(T('aeAttOnly', { assessmentIds: ['q1', 'q2'], on: true }).attOnly).sort(), ['q1', 'q2']);
+  assert.strictEqual(T('aeAttOnly', { assessmentIds: [], on: true }).ok, false);
+  assert.deepStrictEqual(T('aeAttOnly', { assessmentIds: ['q2'], on: false }).attOnly && Object.keys(T('aePwList').attOnly), ['q1']);
   // switched off → the password alone again
   assert.deepStrictEqual(T('aeAttOnly', { assessmentId: 'q1', on: false }).attOnly, {});
   assert.ok(A(b2, 'startAttempt', { assignmentId: 'asg1', password: 'Necro-26' }).ok);

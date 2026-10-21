@@ -4307,6 +4307,21 @@ test('🧑‍🎓 Checked-in only (2.29): the teacher switches it on in 🔑 Pas
     if (process.env.SHOTS) await (await t.$('.apw-card')).screenshot({ path: path.join(process.env.SHOTS, 'checked-in-only.png') });
     await t.goto('about:blank'); await t.goto('https://third-year-med.github.io/cell-injury-teaching-platform/?g=tr-a#/teacher/password'); await t.waitForSelector(row + ' [data-a=attonly]', { state: 'attached', timeout: 20000 });
     assert.strictEqual(await t.isChecked(row + ' [data-a=attonly]'), true, 'stays on after reload');
+    // ☑ Select all beside "Who can start": every assessment on in one click (one request), then ☐ Clear all
+    const boxes = function () { return t.$$eval('.apw-tbl [data-a=attonly]', function (x) { return x.map(function (c) { return c.checked; }); }); };
+    assert.match(await t.textContent('.apw-tbl th [data-a=attonly-all]'), /☑ Select all/);
+    await t.click('.apw-tbl th [data-a=attonly-all]');
+    await t.waitForFunction(function () { var b = document.querySelector('.apw-tbl th [data-a=attonly-all]'); return b && /Clear all/.test(b.textContent); });
+    assert.ok((await boxes()).every(Boolean) && (await boxes()).length >= 2, 'all ticked');
+    assert.strictEqual(Object.keys(main.call({ module: ST, action: 'aePwList', token: tok }).attOnly).length, (await boxes()).length);
+    if (process.env.SHOTS) await (await t.$('.apw-card')).screenshot({ path: path.join(process.env.SHOTS, 'checked-in-only-all.png') });
+    await t.click('.apw-tbl th [data-a=attonly-all]');
+    await t.waitForFunction(function () { var b = document.querySelector('.apw-tbl th [data-a=attonly-all]'); return b && /Select all/.test(b.textContent); });
+    assert.ok((await boxes()).every(function (x) { return !x; }), 'all cleared');
+    assert.deepStrictEqual(main.call({ module: ST, action: 'aePwList', token: tok }).attOnly, {});
+    await t.click(row + ' .apw-att');
+    await t.waitForFunction(function () { return Object.keys(window).length && document.querySelector('.apw-tbl tr[data-assessment="aq1"] [data-a=attonly]').checked; });
+    assert.deepStrictEqual(Object.keys(main.call({ module: ST, action: 'aePwList', token: tok }).attOnly), ['aq1']);
     // ---- student (not checked in): the list says so; the right password is refused with the reason ----
     const s = await page(), none = [];
     await openSyntheticModule(s, mod, none, { stubAssess: false });

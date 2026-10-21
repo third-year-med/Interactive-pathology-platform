@@ -68,7 +68,7 @@
  *   (module storages) aePwList / aePwSet {assessmentId, password | random | clear}  2.19: one password per assessment
  *                     (module teacher token); signed-in students: getMyAssessments / submitAttempt need no password,
  *                     startAttempt needs THAT assessment's password (see "Assessment passwords" below)
- *   (module storages) aeAttOnly {assessmentId, on}  2.29: only students checked in to this lecture's attendance may start it
+ *   (module storages) aeAttOnly {assessmentId | assessmentIds (2.30), on}  2.29: only students checked in to this lecture's attendance may start it
  *   llList / llSet {deliveryId, locked?, auto?}  2.18: Learning-module lock per group + module (see "Learning lock" below)
  *   resOverall {groupId}  2.22: Pathology Overall Results & Analytics — every student of the group, the ASSESSMENT
  *                         percentage of each teaching module and the overall percentage (equal or weighted); read-only
@@ -195,7 +195,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.29';
+var PORTAL_VERSION = '2.30';
 /** 2.28: the shortest password for teachers AND students on every Portal screen (user, 2026-10-21: 4, was 8). Code.gs checks its own
     (STU_MIN_PW and the module teacher password) — platformCheck warns while they still ask for more. No maximum. */
 var PW_MIN_ = 4;
@@ -3240,13 +3240,15 @@ function aattCheck_(storage, username, now) {
 function assessPwHook_(storage, act, p) {
   if (act === 'aeAttOnly') {   // 2.29: "only students checked in to this lecture's attendance can start it"
     return authed_(storage, p, function () {
-      var id = String(p.assessmentId || '').trim().slice(0, 120); if (!id) return { ok: false, error: 'Choose an assessment.' };
+      // 2.30: assessmentIds = several at once ("Select all" / "Clear all" in 🔑 Passwords), one request
+      var ids = (Array.isArray(p.assessmentIds) ? p.assessmentIds : [p.assessmentId]).map(function (x) { return String(x || '').trim().slice(0, 120); }).filter(Boolean).slice(0, 500);
+      if (!ids.length) return { ok: false, error: 'Choose an assessment.' };
       var lock = LockService.getScriptLock(); lock.waitLock(20000);
       try {
-        var m = aattMap_(storage), on = p.on === true || p.on === 'true';
-        if (on) m[id] = { on: 1, at: Date.now(), by: String(p.by || '').slice(0, 60) }; else delete m[id];
+        var m = aattMap_(storage), on = p.on === true || p.on === 'true', now = Date.now();
+        ids.forEach(function (id) { if (on) m[id] = { on: 1, at: now, by: String(p.by || '').slice(0, 60) }; else delete m[id]; });
         setSetting_('aatt:' + storage, JSON.stringify(m));
-        console.log('assessment attendance-only · ' + storage + ' · ' + id + ' · ' + (on ? 'on' : 'off'));
+        console.log('assessment attendance-only · ' + storage + ' · ' + ids.join(',') + ' · ' + (on ? 'on' : 'off'));
         return { ok: true, attOnly: aattPublic_(m) };
       } finally { lock.releaseLock(); }
     });

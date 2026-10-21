@@ -474,6 +474,8 @@ them ✓ Present or Late. Excused or absent students are refused with the reason
 2. Students check in; then show the quiz's password.
 3. After the lecture: ✕ Remove password (closes the quiz; results stay).
 
+**☑ Select all** beside "Who can start" ticks Checked-in only for every assessment in one click (**☐ Clear all** unticks them).
+
 "Today's lecture" = the newest attendance session of that module and group started in the last 12 hours. Students who
 already started can always finish. The password is still needed.
 
