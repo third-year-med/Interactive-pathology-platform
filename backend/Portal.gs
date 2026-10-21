@@ -194,7 +194,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.25';
+var PORTAL_VERSION = '2.26';
 var PORTAL_GROUP_RE = /^[A-Za-z0-9_-]{1,24}$/;   // the same rule the modules use for ?g=
 var PORTAL_STATUSES = { available: 1, ready: 1, soon: 1 };
 var PORTAL_HANDOFF = { neo: 1, vp: 1, link: 1 };
@@ -226,7 +226,7 @@ function portalHook_(module, p) {
     var ll = learnLockHook_(String(module), act, p); if (ll) return ll;   // 2.18: Learning module locked during assessments (students)
     var ap = assessPwHook_(String(module), act, p); if (ap) return ap;   // 2.19: one password per assessment (asked only to start it)
     if (act === 'aeCopyTargets' || act === 'aeCopyTo') return aeCopyHook_(String(module), act, p);   // 2.21: copy an assessment to other groups
-    if (act === 'attMark' || act === 'getAttendanceSessionReport') return attMarkHook_(String(module), act, p);   // 2.25: Present / Late / Excused in the module report
+    if (act === 'attMark' || act === 'attMarks') return attMarkHook_(String(module), act, p);   // 2.25/2.26: Present / Late / Excused in the module report
     // 2.5 speed: the frequent "anything new?" check is answered from memory when nothing changed for this storage
     if (act === 'getAllContent') { var fast = cvFastUnchanged_(String(module), p); if (fast) return fast; }
     else if (!CV_NO_CONTENT_WRITE[act]) cvMarkWrite_(String(module));
@@ -1013,9 +1013,12 @@ function rosterJoinFromModule_(groupId, storage, ids) {
  *     present / late. Undo removes that row again (never a row the student made).
  *   - excused: only for a student WITHOUT a check-in — not counted as absent (as in Teaching Sessions).
  *   Marks: Settings "attmk:<storage>|<sessionId>" = { <studentId>: { m, at, by, created } }, written under the script lock.
- *   getAttendanceSessionReport answers as Code.gs does, plus session.marks {studentId: mark} and session.tsSession (a
- *   lecture run as a Teaching Session keeps its marks there — attMark refuses it). Overall Pathology Attendance and
- *   Results & attendance read the same marks (tsRegister_ / statusOf). A closed session already on Drive is re-synced.
+ *   attMarks {sessionId} → { marks: {studentId: mark}, tsSession } — the report (View) asks for them after Code.gs's own
+ *   getAttendanceSessionReport, which is NOT touched (2.26: 2.25 called Code.gs's report function directly, and the
+ *   user's Code.gs version of it differs from the test copy → "Cannot read properties of undefined (reading 'length')").
+ *   attMark answers with marks, tsSession and the session's records (built here from AttendanceRecords). A lecture run as
+ *   a Teaching Session keeps its marks there — attMark refuses it. Overall Pathology Attendance and Results & attendance
+ *   read the same marks (tsRegister_ / statusOf). A closed session already on Drive is re-synced.
  * ====================================================================== */
 var ATT_MARKS = { present: 1, late: 1, excused: 1, clear: 1 };
 function attMarkKey_(storage, sid) { return 'attmk:' + storage + '|' + sid; }
@@ -1027,13 +1030,15 @@ function attMarksAll_() {
   readAll_(SHEETS.SETTINGS).forEach(function (r) { var k = String(r.key || ''); if (k.indexOf('attmk:') === 0) o[k.slice(6)] = attMarksPlain_(tsJson_(r.value, {})); });
   return o;
 }
+/** Same shape as Code.gs's attRecordPublic_ (what the module report reads), built here so Portal.gs depends on no other Code.gs internals. */
+function attRecPub_(r) { return { recordId: String(r.recordId || ''), name: r.studentName, studentId: r.studentId, email: r.email, scannedAt: r.scannedAt, status: r.status || 'present' }; }
+function attRecsOf_(sid) { return readAll_(SHEETS.ATT_RECORDS).filter(function (r) { return r.sessionId === sid; }).sort(function (a, b) { return Number(a.scannedAt) - Number(b.scannedAt); }).map(attRecPub_); }
 function attIsTsSession_(storage, sid) { return tsRows_().some(function (t) { return t.backendModule === storage && String(t.attSessionId) === String(sid); }); }
 function attMarkHook_(storage, act, p) {
   return authed_(storage, p, function () {
-    if (act === 'getAttendanceSessionReport') {
-      var rep = actionGetAttendanceSessionReport_(storage, p);
-      if (rep && rep.ok && rep.session) { rep.session.marks = attMarksPlain_(attMarksGet_(storage, rep.session.sessionId)); rep.session.tsSession = attIsTsSession_(storage, rep.session.sessionId); }
-      return rep;
+    if (act === 'attMarks') {
+      var s0 = String(p.sessionId || ''); if (!findModuleAttSession_(storage, s0)) return { ok: false, code: 'notfound', error: 'This attendance session was not found.' };
+      return { ok: true, marks: attMarksPlain_(attMarksGet_(storage, s0)), tsSession: attIsTsSession_(storage, s0) };
     }
     var sid = String(p.sessionId || ''), id = normUser_(p.studentId), mk = String(p.mark || '');
     if (!ATT_MARKS[mk]) return { ok: false, error: 'Unknown attendance mark.' };
@@ -1063,14 +1068,13 @@ function attMarkHook_(storage, act, p) {
       setSetting_(attMarkKey_(storage, sid), JSON.stringify(M));
     } finally { lock.releaseLock(); }
     console.log('attendance mark · ' + storage + ' · ' + sid + ' · ' + id + ' → ' + mk);
-    var out = actionGetAttendanceSessionReport_(storage, { sessionId: sid });
-    if (out && out.ok) { out.session.marks = attMarksPlain_(M); out.session.tsSession = false; }
+    var out = { ok: true, marks: attMarksPlain_(M), tsSession: false, records: attRecsOf_(sid) };
     if (changed && row.status !== 'active' && row.driveUrl && typeof trySyncAttendanceToDrive_ === 'function') {
       try {
         var fresh = findModuleAttSession_(storage, sid) || row, all = readAll_(SHEETS.ATT_RECORDS).filter(function (r) { return r.sessionId === sid; });
         var sync = trySyncAttendanceToDrive_(fresh, all);
         fresh.driveStatus = sync.status; fresh.driveUrl = sync.url || fresh.driveUrl || ''; fresh.driveError = sync.error || '';
-        saveAttSession_(fresh); if (out && out.session) { out.session.driveStatus = fresh.driveStatus; out.session.driveError = fresh.driveError; }
+        saveAttSession_(fresh); out.driveStatus = fresh.driveStatus; out.driveError = fresh.driveError;
       } catch (e) { console.log('attendance mark · Drive re-sync failed: ' + e); }
     }
     return out;

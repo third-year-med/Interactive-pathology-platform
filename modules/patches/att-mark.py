@@ -83,10 +83,34 @@ function attStatusText(x) {
   return t + (x.mark && (x.status === 'present' || x.status === 'late') ? ' (marked by teacher)' : '');
 }
 function attTeacherVisible() {"""),
+# --- 2026-10-21 (Portal.gs 2.26): marks come from attMarks after Code.gs's own report; attMark answers {marks, tsSession, records} ---
+("""    const reg = this.attRegister(s, records, roster);
+    const drive = s.driveStatus""",
+"""    if (s.marks === undefined && !s._mkLoading && Backend.isConfigured()) {   // the teacher's marks (Portal.gs 2.26), then redraw
+      s._mkLoading = true;
+      Backend.authedPost({ action: 'attMarks', sessionId: s.sessionId }, { timeout: 30000 }).then(r => {
+        s._mkLoading = false; s.marks = r && r.ok ? (r.marks || {}) : {}; s.tsSession = !!(r && r.ok && r.tsSession); s._mkOff = !(r && r.ok);
+        if (document.body.contains(card)) card.replaceWith(this.reportCard(s, records, dismissable, closeModal));
+      }, () => { s._mkLoading = false; s.marks = {}; s._mkOff = true; });
+    }
+    const reg = this.attRegister(s, records, roster);
+    const drive = s.driveStatus"""),
+("""    const canMark = !!reg && !s.tsSession;""",
+"""    const canMark = !!reg && !s.tsSession && s.marks !== undefined && !s._mkOff;"""),
+("""      Object.assign(s, r.session); records.splice(0, records.length, ...(r.records || []));""",
+"""      s.marks = r.marks || {}; s.tsSession = !!r.tsSession; if (r.driveStatus) { s.driveStatus = r.driveStatus; s.driveError = r.driveError || ''; }
+      records.splice(0, records.length, ...(r.records || []));"""),
+("""'Update Portal.gs on the backend (version 2.25) to mark attendance here.'""", """'Update Portal.gs on the backend (version 2.26) to mark attendance here.'"""),
 ]
+# The 2.26 rules rewrite some 2.25 replacement texts, so an earlier rule may find neither its anchor nor its 2.25 text: that is
+# fine when the page carries the final 2.26 code (checked below); any other page from an unknown template stops.
+FINAL = ["action: 'attMarks'", "const canMark = !!reg && !s.tsSession && s.marks !== undefined && !s._mkOff;", "s.marks = r.marks || {}; s.tsSession = !!r.tsSession;", 'function attStatusText(x) {']
 for path in sys.argv[1:]:
     s = open(path, encoding='utf-8').read(); n = 0
     for a, b in R:
         if b in s: continue
+        if a not in s: continue
         assert s.count(a) == 1, (path, a[:70]); s = s.replace(a, b); n += 1
+    missing = [f for f in FINAL if f not in s]
+    assert not missing, (path, 'att-mark: page from an unknown template', missing)
     open(path, 'w', encoding='utf-8').write(s); print(path, 'changes:', n)

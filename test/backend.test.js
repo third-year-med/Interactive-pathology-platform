@@ -2253,15 +2253,19 @@ test('2.25 module attendance marks: ✓ Present / Late / Excused (also after clo
   const recs = function () { return X.readAll_(X.SHEETS.ATT_RECORDS).filter(function (r) { return r.sessionId === m.id; }); };
   // ahmed forgot to check in → ✓ Present after closing: a real record (made by the teacher)
   let r = mark('ahmed', 'present'); assert.ok(r.ok, JSON.stringify(r));
-  assert.deepStrictEqual(r.session.marks, { ahmed: 'present' }); assert.strictEqual(r.records.length, 2);
+  assert.deepStrictEqual([r.marks, r.tsSession], [{ ahmed: 'present' }, false]); assert.strictEqual(r.records.length, 2);
+  assert.deepStrictEqual(Object.keys(r.records[0]).sort(), ['email', 'name', 'recordId', 'scannedAt', 'status', 'studentId'], 'the record shape the module report reads');
   const made = recs().filter(function (q) { return q.studentId === 'ahmed'; })[0]; assert.deepStrictEqual([made.participantId, made.status], ['teacher:ahmed', 'present']);
   // b1 came late; b2 excused; excusing someone who checked in is refused
   assert.ok(mark('b1', 'late').ok); assert.strictEqual(recs().filter(function (q) { return q.studentId === 'b1'; })[0].status, 'late');
   assert.ok(mark('b2', 'excused').ok);
   assert.strictEqual(mark('b1', 'excused').code, 'checkedin');
-  // the report (View) carries the marks
-  const rep = S.call({ module: CI, action: 'getAttendanceSessionReport', token: tok, sessionId: m.id });
-  assert.deepStrictEqual([rep.session.marks, rep.session.tsSession], [{ ahmed: 'present', b1: 'late', b2: 'excused' }, false]);
+  // the report (View) is Code.gs's own (2.26: Portal.gs never takes it over); the marks come from attMarks
+  assert.strictEqual(X.portalHook_(CI, { action: 'getAttendanceSessionReport', token: tok, sessionId: m.id }), null, 'Code.gs answers the report');
+  assert.ok(S.call({ module: CI, action: 'getAttendanceSessionReport', token: tok, sessionId: m.id }).ok);
+  const mks = S.call({ module: CI, action: 'attMarks', token: tok, sessionId: m.id });
+  assert.deepStrictEqual([mks.ok, mks.marks, mks.tsSession], [true, { ahmed: 'present', b1: 'late', b2: 'excused' }, false]);
+  assert.strictEqual(S.call({ module: CI, action: 'attMarks', sessionId: m.id }).ok, false, 'teachers only');
   // Overall Pathology Attendance: ahmed present, b1 late (attended), b2 excused (not counted, not absent)
   let o = S.ts('attOverall', { groupId: S.ra.groupId }); assert.ok(o.ok, JSON.stringify(o));
   assert.deepStrictEqual(pick(stuOf(o, 'ahmed')), [1, 0, 0, 0, 1, 100, false]);

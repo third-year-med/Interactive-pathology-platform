@@ -3994,7 +3994,7 @@ test('Attendance tab for a teacher: the short Teacher Portal version — start a
     const NR = main.call({ module: ST, action: 'listStudents', token: tok }).students.filter(function (x) { return x.active !== false; }).length;   // other tests may add students here
     assert.deepStrictEqual([stats['Registered'], stats['Present'], stats['of them late'], stats['Excused'], stats['Absent'], stats['Attendance']],
       [String(NR), '3', '1', '1', String(NR - 4), Math.round(3 / (NR - 1) * 100) + '%'], 'excused not counted: ' + JSON.stringify(stats));
-    assert.deepStrictEqual(main.call({ module: ST, action: 'getAttendanceSessionReport', token: tok, sessionId: sess.sessionId }).session.marks, { c1: 'present', ahmed: 'late', d1: 'excused' });
+    assert.deepStrictEqual(main.call({ module: ST, action: 'attMarks', token: tok, sessionId: sess.sessionId }).marks, { c1: 'present', ahmed: 'late', d1: 'excused' });
     // undo Carim's mark → the teacher-made record goes, Absent again
     await t.click(row('Student Carim') + ' button[data-mark=clear]');
     await t.waitForFunction(function () { var r = Array.prototype.filter.call(document.querySelectorAll('#view-attendance .att-register tr'), function (x) { return /Student Carim/.test(x.textContent); })[0]; return r && /Absent/.test(r.textContent); }, null, { timeout: 15000 });
