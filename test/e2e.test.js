@@ -4564,6 +4564,38 @@ test('Neoplasia module (neoplasm): every topic, section, view and slide renders 
         assert.ok(!/undefined|\[object Object\]|\[!(DEF|FLOW|EXAM|RECALL|CONFUSION|HIGHYIELD|PRACTICAL|CLINICAL|REMEMBER|DX|MUSTKNOW)\]/.test(txt), sc.id + ': raw markup or undefined on the page');
       }
     }
+    // ⛶ Full-screen reading (patch learn-fs): only the topic, a centred column, A− / A+, ◀ ▶ keep it, ✕ / Esc / leaving Learn end it
+    const t2 = info.topics[1];
+    await p.evaluate(function (h) { location.hash = h; }, '#/explain/' + t2.id);
+    await p.waitForSelector('#view-explain [data-a=learn-fs]');
+    assert.strictEqual(await p.textContent('#view-explain [data-a=learn-fs]'), '⛶ Full screen');
+    if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'learn-normal.png') });
+    await p.click('#view-explain [data-a=learn-fs]');
+    await p.waitForSelector('#lfs-bar');
+    const vis = function (sel) { return p.evaluate(function (q) { const e = document.querySelector(q); return !!(e && e.offsetParent !== null); }, sel); };
+    assert.deepStrictEqual([await vis('#app-header'), await vis('.ex-sidebar'), await vis('.footer'), await vis('.ex-main')], [false, false, false, true], 'only the topic');
+    assert.strictEqual(await p.textContent('#view-explain [data-a=learn-fs]'), '✕ Exit full screen');
+    const z0 = await p.textContent('#lfs-bar .lfs-z');
+    await p.click('#lfs-bar button[aria-label="Larger text"]');
+    assert.notStrictEqual(await p.textContent('#lfs-bar .lfs-z'), z0, 'A+ makes the text larger');
+    const fsz = function () { return p.evaluate(function () { return parseFloat(getComputedStyle(document.querySelector('#view-explain .sec-title, #view-explain h3, #view-explain .ex-main p') || document.querySelector('.ex-main')).fontSize); }); };
+    const before = await fsz(); await p.click('#lfs-bar button[aria-label="Larger text"]'); assert.ok(await fsz() > before, 'the reading text grows (' + before + ' → ' + await fsz() + ')');
+    await p.click('#lfs-bar button[aria-label="Smaller text"]');
+    await p.waitForTimeout(800);
+    if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'learn-fullscreen.png') });
+    await p.click('#lfs-bar button[aria-label="Smaller text"]');
+    await p.evaluate(function (h) { location.hash = h; }, '#/explain/' + info.topics[2].id);   // the next topic: still full screen
+    await p.waitForFunction(function (h) { return document.querySelector('#view-explain').textContent.indexOf(h) >= 0; }, info.topics[2].title);
+    await p.waitForTimeout(100);
+    assert.ok(!!(await p.$('#lfs-bar')) && !(await vis('#app-header')) && !(await vis('.ex-sidebar')), 'stays on for the next topic');
+    await p.click('#lfs-bar .lfs-x');
+    assert.ok(!(await p.$('#lfs-bar')) && await vis('#app-header') && await vis('.ex-sidebar'), '✕ leaves');
+    await p.click('#view-explain [data-a=learn-fs]'); await p.waitForSelector('#lfs-bar');
+    await p.keyboard.press('Escape');
+    await p.waitForFunction(function () { return !document.getElementById('lfs-bar') && !document.body.classList.contains('learn-fs'); });
+    await p.click('#view-explain [data-a=learn-fs]'); await p.waitForSelector('#lfs-bar');
+    await p.evaluate(function () { location.hash = '#/practise'; });
+    await p.waitForFunction(function () { return !document.getElementById('lfs-bar') && !document.body.classList.contains('learn-fs'); });
     const check = await p.evaluate(function () { return uxValidatePathway(); });
     assert.deepStrictEqual(check.errors, [], 'the learning-unit links (UX_UNITS, UX_FLOW) all point at existing, matching topics and sections');
     const views = ['#/learn', '#/practise', '#/apply', '#/progress', '#/revision', '#/review', '#/review/facts', '#/review/compare', '#/review/morph', '#/review/traps', '#/review/quick',

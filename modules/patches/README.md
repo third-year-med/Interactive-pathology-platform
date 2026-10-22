@@ -50,6 +50,7 @@ patched with `apply.sh`, is byte-identical to the current one.
 | 32 | `att-only-quiz.py` | 🔑 Passwords → **🧑‍🎓 Checked-in only** per assessment: only students checked in to today's lecture attendance (scan, or the teacher's ✓ Present / Late) can start it — the password is still needed; the student's list says so and a refusal gives the reason (Portal.gs 2.29 `aeAttOnly`, `aattCheck_`) | 2.29 |
 | 33 | `att-only-all.py` | 🔑 Passwords → "Who can start": **☑ Select all / ☐ Clear all** beside the heading — Checked-in only on/off for every assessment in one click (one request with Portal.gs 2.30 `assessmentIds`; one by one with 2.29). att-only-quiz has a done-marker for the heading this patch changes | 2.30 |
 | 34 | `apw-order.py` | 🔑 Passwords list in the library's order: other assessments first, then Topic 1, 2 … 10 … by number (was alphabetical: Topic 1, 10, 11 … 2) | — |
+| 35 | `learn-fs.py` | Learn → a topic page → **⛶ Full screen** (beside 🖨 Print): only the topic in one centred column (no header, menus, topic list, footer), A− / A+ text size (remembered on the device), ◀ ▶ topics keep it on, ✕ / Esc / leaving Learn end it; browser full-screen where available. Text size: html font-size (rem) AND the column's em size — the module body text is set in px | — |
 | — | `navblock.py` | Writes `modules/platform-nav.js` into the page's `<script id="platform-nav">` (learning-lock guard, back link, …) | 2.18 for the lock |
 
 Test after applying: `node test/module-smoke/smoke.js` (boots every module with a synthetic course: student sign-in,
