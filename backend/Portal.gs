@@ -196,7 +196,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.31';
+var PORTAL_VERSION = '2.32';
 /** 2.28: the shortest password for teachers AND students on every Portal screen (user, 2026-10-21: 4, was 8). Code.gs checks its own
     (STU_MIN_PW and the module teacher password) — platformCheck warns while they still ask for more. No maximum. */
 var PW_MIN_ = 4;
@@ -3104,7 +3104,8 @@ function resOverall_(who, p) {
 }
 
 /* ======================================================================
- * Annual assessment (2.31, user 2026-10-22) — 30 marks per student for the academic year = topic quizzes /20 + 5 presentations /10.
+ * Annual assessment (2.31, user 2026-10-22) — 30 marks per student for the academic year = topic quizzes /20 + presentations /10.
+ * 2.32 (user, 2026-10-22): TWO presentations per student a year, each 0–5 marks (was five × 0–2) — still 10 marks in all.
  * Teacher Dashboard → 🎓 Annual Assessment. Teachers only (Admin: every group; a personal teacher: the groups they teach in) —
  * students never see it. The quiz part always covers EVERY teaching module of the group (a mark out of 20 for part of the
  * year would be wrong), from the records the platform already keeps; nothing is typed in for quizzes.
@@ -3114,14 +3115,15 @@ function resOverall_(who, p) {
  *     missed        a counted quiz the student did not submit = 0 % (user: "missed quiz counts 0")
  *     excused       the teacher excuses a student for one quiz → left out of THAT student's count (ann:<groupId>.excused)
  *     retakes       several submitted attempts of one quiz → the best one, once (each attempt record read once)
- *   PRESENTATIONS /10 = Σ marks of the 5 slots (sheet Presentations; presId = groupId|studentId|slot): status assigned
- *     (overdue once its date has passed), completed (needs the teacher's mark 0 / 0.5 / 1 / 1.5 / 2 — never automatic; an
- *     optional 4-criterion rubric of 0 / 0.5 each must add up to it), absent (0), notdone (0). Every change of status / mark
+ *   PRESENTATIONS /10 = Σ marks of the ANN_SLOTS (2) slots (sheet Presentations; presId = groupId|studentId|slot): status assigned
+ *     (overdue once its date has passed), completed (needs the teacher's mark 0–ANN_MAX (5) in half marks — never automatic; an
+ *     optional 5-criterion rubric of 0 / 0.5 / 1 each must add up to it), absent (0), notdone (0). Every change of status / mark
  *     keeps the previous value, when and by whom (historyJson). A slot with a result cannot be cleared — set it back first.
  *   TOTAL /30 = quiz mark (rounded to 0.1) + presentation mark.
  * ====================================================================== */
-var ANN_SLOTS = 5, ANN_MARKS = { 0: 1, 0.5: 1, 1: 1, 1.5: 1, 2: 1 }, ANN_STATUS = { assigned: 1, completed: 1, absent: 1, notdone: 1 };
-var ANN_RUBRIC = ['accuracy', 'understanding', 'organisation', 'delivery'];
+var ANN_SLOTS = 2, ANN_MAX = 5, ANN_STATUS = { assigned: 1, completed: 1, absent: 1, notdone: 1 };   // 2 × 5 = 10 marks
+var ANN_RUBRIC = ['accuracy', 'understanding', 'questions', 'organisation', 'delivery'];   // 0 / 0.5 / 1 each → 0–5
+function annMarkOk_(v) { return isFinite(v) && v >= 0 && v <= ANN_MAX && v * 2 === Math.round(v * 2); }
 function annSettings_(groupId) { var v = tsJson_(getSetting_('ann:' + groupId), {}) || {}; return { excluded: v.excluded || {}, excused: v.excused || {} }; }
 /** The caller's group (Admin, or a teacher of at least one of its modules) with ALL its teaching modules. */
 function annGroup_(who, groupId) {
@@ -3230,7 +3232,7 @@ function annCompute_(g, members, set, pres, now) {
 function annOverall_(who, p) {
   var g = annGroup_(who, p.groupId); if (!g) return { ok: false, code: 'forbidden', error: 'Choose one of your groups.' };
   var now = Date.now(), r = annCompute_(g, rpMembers_()[g.groupId] || [], annSettings_(g.groupId), annPresRows_(g.groupId), now);
-  r.ok = true; r.serverTime = now; r.topics = annTopics_(g); r.slots = ANN_SLOTS; r.rubric = ANN_RUBRIC;
+  r.ok = true; r.serverTime = now; r.topics = annTopics_(g); r.slots = ANN_SLOTS; r.maxMark = ANN_MAX; r.rubric = ANN_RUBRIC;
   return r;
 }
 function annMember_(groupId, studentId) { return (rpMembers_()[groupId] || []).filter(function (m) { return m.studentId === studentId; })[0] || null; }
@@ -3261,11 +3263,11 @@ function annPresSave_(who, p) {
   var mark = '', rubric = '';
   if (status === 'completed') {
     var mk = Number(p.mark);
-    if (p.mark === '' || p.mark == null || !ANN_MARKS[mk]) return dirErr_('Choose the mark the student earned: 0, 0.5, 1, 1.5 or 2.');
+    if (p.mark === '' || p.mark == null || !annMarkOk_(mk)) return dirErr_('Choose the mark the student earned: 0 to ' + ANN_MAX + ' (half marks allowed).');
     if (p.rubric && typeof p.rubric === 'object') {
       var rs = 0, rb = {}, bad = false;
-      ANN_RUBRIC.forEach(function (k) { var v = Number(p.rubric[k] || 0); if (v !== 0 && v !== 0.5) bad = true; rb[k] = v; rs += v; });
-      if (bad) return dirErr_('Each rubric point is 0 or 0.5.');
+      ANN_RUBRIC.forEach(function (k) { var v = Number(p.rubric[k] || 0); if (v !== 0 && v !== 0.5 && v !== 1) bad = true; rb[k] = v; rs += v; });
+      if (bad) return dirErr_('Each rubric point is 0, 0.5 or 1.');
       if (rs !== mk) return dirErr_('The rubric adds up to ' + rs + ', but the mark is ' + mk + '.');
       rubric = JSON.stringify(rb);
     }

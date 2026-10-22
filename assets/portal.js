@@ -521,7 +521,7 @@
     sessions: ['🎓', 'Teaching Sessions', 'Schedule or start lectures, live attendance, Live Classroom, history.'],
     overall: ['📊', 'Overall Pathology Attendance', 'All modules together: attendance and absence % per student, module breakdown, below-75% warnings, Excel and print; results of every module.'],
     results: ['📈', 'Pathology Overall Results & Analytics', 'Assessment results of every module together: overall % per student (equal or weighted), module-by-module marks, completion, CSV.'],
-    annual: ['🏅', 'Annual Assessment (30)', 'Topic quizzes /20 + five presentations /10 for every student of the year: one class table, presentation marking, Excel and print.'],
+    annual: ['🏅', 'Annual Assessment (30)', 'Topic quizzes /20 + two presentations /10 for every student of the year: one class table, presentation marking, Excel and print.'],
     exams: ['📝', 'Official Exams', 'Module and combined exams, exam banks, student exam pages, results.'],
     manage: ['🧩', 'Teacher Management', 'Front-page module cards: title, icon, colour, link, status.'],
     directory: ['🏛️', 'Platform Directory', 'Institutions, groups, modules, deliveries, students, teachers, content.']
@@ -1575,11 +1575,13 @@
     start();
     return sec;
   }
-  /* ---------------- Annual Assessment (2.31): topic quizzes /20 + five presentations /10 = /30 per student ----------------
+  /* ---------------- Annual Assessment (2.31; 2.32: two presentations of 0–5): topic quizzes /20 + presentations /10 = /30 ----------------
      The quiz part is calculated on the server from the attempts the modules already keep (nothing typed in); presentations
      are the only thing the teacher records: one slot per presentation (1–5), the mark is always the teacher's. */
   var ANN_ST = { assigned: 'Assigned', completed: 'Completed', absent: 'Absent', notdone: 'Not completed' };
-  var ANN_RUB = { accuracy: 'Scientific accuracy', understanding: 'Understanding (answers to questions)', organisation: 'Organisation and slides', delivery: 'Delivery and time' };
+  var ANN_RUB = { accuracy: 'Scientific accuracy', understanding: 'Understanding of the topic', questions: 'Answers to questions', organisation: 'Organisation and slides', delivery: 'Delivery and time' };
+  function annMax() { return (R0 && R0.maxMark) || 2; }
+  var R0 = null;   // the last annual answer (for the maximum mark of one presentation)
   function annN(v) { return v == null ? '—' : String(v); }
   function annDay(t) { if (!t) return ''; var d = new Date(Number(t)); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
   function annFromDay(s) { if (!s) return ''; var t = new Date(s + 'T12:00:00').getTime(); return isFinite(t) ? t : ''; }
@@ -1605,7 +1607,7 @@
       body.innerHTML = '<p class="muted small">Loading the quizzes and presentations of the year…</p>';
       call('annOverall', { groupId: groupId }).then(function (r) {
         if (!r.ok) { fail(r); if (onSummary && r.code === 'badaction') onSummary({ none: 'Update Portal.gs (2.31)' }); return; }
-        R = r; draw();
+        R = R0 = r; draw();
         if (onSummary) onSummary({ group: r.group.label, students: r.summary.students, quizzes: r.summary.quizzes, presDone: r.summary.presDone, presTotal: r.summary.presTotal, behind: r.summary.behind });
       });
     }
@@ -1646,7 +1648,7 @@
         '<div class="ov-kpi"><span>Class mean</span><b>' + (S.mean == null ? '—' : S.mean + ' / 30') + '</b></div></div>'));
       body.appendChild(h('<p class="small muted an-method"><b>Quizzes /20</b> = 20 × the student’s average over every counted quiz — the best attempt of each quiz, a missed quiz counts 0, an excused one is left out for that student. ' +
         'A quiz counts once a student of this group has taken it (in any module of the group); you can exclude a quiz under 📝 Quizzes. ' +
-        '<b>Presentations /10</b> = the marks you give (0–2 each, five per student; absent or not completed = 0). <b>Total /30</b> = quizzes + presentations. Students do not see these marks.</p>'));
+        '<b>Presentations /10</b> = the marks you give (0–' + annMax() + ' each, ' + R.slots + ' per student; absent or not completed = 0). <b>Total /30</b> = quizzes + presentations. Students do not see these marks.</p>'));
       var tools = h('<div class="roster-tools"><button class="btn primary" type="button" data-a="xlsx">⬇ Excel (.xlsx)</button><button class="btn" type="button" data-a="csv">⬇ CSV</button><button class="btn" type="button" data-a="print">🖨 Print class sheet</button></div>');
       $('[data-a=xlsx]', tools).onclick = excel; $('[data-a=csv]', tools).onclick = csv; $('[data-a=print]', tools).onclick = printClass;
       body.appendChild(tools);
@@ -1714,9 +1716,9 @@
     }
     var detailOpen = null;
     function reloadKeep(id) {
-      call('annOverall', { groupId: groupId }).then(function (r) { if (!r.ok) return fail(r); R = r; draw(); if (id && detailOpen) detailOpen(id); });
+      call('annOverall', { groupId: groupId }).then(function (r) { if (!r.ok) return fail(r); R = R0 = r; draw(); if (id && detailOpen) detailOpen(id); });
     }
-    /* the five slots of one student, each with ✏ Edit */
+    /* the presentation slots of one student, each with ✏ Edit */
     function slotsInto(box, x, also) {
       box.innerHTML = '';
       var t = h('<div class="tbl-wrap"><table class="dir-tbl an-slot-tbl"><thead><tr><th class="n">#</th><th>Topic</th><th>Module</th><th>Planned</th><th>Status</th><th class="n">Mark</th><th>Comment</th><th></th></tr></thead><tbody></tbody></table></div>');
@@ -1742,14 +1744,14 @@
         '<label>Planned date<input type="date" name="dueAt" value="' + esc(annDay(p.dueAt)) + '"></label></div>' +
         '<div class="an-row"><label>Status<select name="status">' + Object.keys(ANN_ST).map(function (k) { return '<option value="' + k + '"' + (k === p.status ? ' selected' : '') + '>' + ANN_ST[k] + '</option>'; }).join('') + '</select></label>' +
         '<label class="an-pon">Presented on<input type="date" name="presentedAt" value="' + esc(annDay(p.presentedAt)) + '"></label></div>' +
-        '<fieldset class="an-mark"><legend>Mark (0–2) — your decision</legend><div class="an-marks">' + [0, 0.5, 1, 1.5, 2].map(function (v) { return '<label class="an-mk"><input type="radio" name="mark" value="' + v + '"' + (p.mark === v ? ' checked' : '') + '> ' + v + '</label>'; }).join('') + '</div>' +
-        '<details class="an-rub"' + (p.rubric ? ' open' : '') + '><summary class="small">Use the rubric (optional): 4 × 0.5</summary>' + Object.keys(ANN_RUB).map(function (k) { return '<label class="small an-rb"><input type="checkbox" data-r="' + k + '"' + (p.rubric && p.rubric[k] ? ' checked' : '') + '> ' + ANN_RUB[k] + ' — 0.5</label>'; }).join('') + '</details></fieldset>' +
+        '<fieldset class="an-mark"><legend>Mark (0–' + annMax() + ') — your decision</legend><div class="an-marks">' + Array.apply(null, Array(annMax() * 2 + 1)).map(function (_, i) { return i / 2; }).map(function (v) { return '<label class="an-mk"><input type="radio" name="mark" value="' + v + '"' + (p.mark === v ? ' checked' : '') + '> ' + v + '</label>'; }).join('') + '</div>' +
+        '<details class="an-rub"' + (p.rubric ? ' open' : '') + '><summary class="small">Use the rubric (optional): ' + R.rubric.length + ' criteria × 1 mark</summary>' + R.rubric.map(function (k) { var cur = p.rubric ? Number(p.rubric[k] || 0) : null; return '<label class="small an-rb"><select data-r="' + k + '"><option value=""' + (cur == null ? ' selected' : '') + '>—</option>' + [0, 0.5, 1].map(function (v) { return '<option value="' + v + '"' + (cur === v ? ' selected' : '') + '>' + v + '</option>'; }).join('') + '</select> ' + esc(ANN_RUB[k] || k) + '</label>'; }).join('') + '</details></fieldset>' +
         '<label>Comment (optional)<textarea name="comment" rows="2" maxlength="500" dir="auto">' + esc(p.comment) + '</textarea></label>' +
         (p.history && p.history.length ? '<details class="small"><summary>Changes (' + p.history.length + ')</summary>' + p.history.map(function (y) { return '<div>' + esc(new Date(y.at).toLocaleString()) + ' · ' + esc(y.by) + ' · was ' + esc(ANN_ST[y.status] || y.status || '—') + (y.mark != null ? ' (' + y.mark + ')' : '') + '</div>'; }).join('') + '</details>' : '') +
         '<p class="small err an-err" role="alert"></p><div class="roster-tools"><button class="btn primary" type="submit">💾 Save</button>' + (x.presentations.some(function (y) { return y.slot === slot; }) && p.status === 'assigned' ? '<button class="btn" type="button" data-a="clr">Remove this slot</button>' : '') + '<button class="btn" type="button" data-a="c">Cancel</button></div></form></div>');
       var f = $('form', m), err = $('.an-err', m);
       function sync() { $('.an-mark', m).hidden = f.status.value !== 'completed'; $('.an-pon', m).hidden = f.status.value === 'assigned'; }
-      function rubric() { var o = {}, any = false; Array.prototype.forEach.call(m.querySelectorAll('[data-r]'), function (c) { o[c.dataset.r] = c.checked ? 0.5 : 0; if (c.checked) any = true; }); return { o: o, any: any, sum: Object.keys(o).reduce(function (a, k) { return a + o[k]; }, 0) }; }
+      function rubric() { var o = {}, any = false; Array.prototype.forEach.call(m.querySelectorAll('[data-r]'), function (c) { o[c.dataset.r] = c.value === '' ? 0 : Number(c.value); if (c.value !== '') any = true; }); return { o: o, any: any, sum: Object.keys(o).reduce(function (a, k) { return a + o[k]; }, 0) }; }
       Array.prototype.forEach.call(m.querySelectorAll('[data-r]'), function (c) { c.onchange = function () { var r = rubric(), v = m.querySelector('input[name=mark][value="' + r.sum + '"]'); if (v) v.checked = true; }; });
       f.status.onchange = sync; sync();
       f.addEventListener('change', function () { err.textContent = ''; });
@@ -1771,7 +1773,7 @@
       f.onsubmit = function (e) {
         e.preventDefault();
         var st = f.status.value, mk = (f.querySelector('input[name=mark]:checked') || {}).value, r = rubric();
-        if (st === 'completed' && mk == null) { err.textContent = 'Choose the mark the student earned (0–2).'; return; }
+        if (st === 'completed' && mk == null) { err.textContent = 'Choose the mark the student earned (0–' + annMax() + ').'; return; }
         save({ topic: f.topic.value.trim(), moduleId: f.moduleId.value, dueAt: annFromDay(f.dueAt.value), presentedAt: st === 'assigned' ? '' : annFromDay(f.presentedAt.value), status: st,
           mark: st === 'completed' ? Number(mk) : '', rubric: st === 'completed' && r.any ? r.o : null, comment: f.comment.value }, $('button[type=submit]', f));
       };
@@ -1868,7 +1870,7 @@
       pr.widths = [13, 30, 4, 40, 18, 12, 12, 14, 7, 40, 40];
       var info = { name: 'Report info', header: 0, widths: [28, 90], styles: { 0: 'title' }, rows: [['Annual Pathology Assessment (30 marks)'], ['Group', R.group.label], ['Generated', new Date().toLocaleString()],
         ['Quizzes counted', C.length + (R.summary.excluded ? ' (' + R.summary.excluded + ' excluded)' : '')], ['Quizzes /20', '20 × average of the best attempt of every counted quiz; a missed quiz counts 0; an excused quiz is left out for that student.'],
-        ['Presentations /10', 'Five presentations, 0–2 marks each, given by the teacher; absent or not completed = 0.'], ['Total /30', 'Quizzes /20 + Presentations /10.']] };
+        ['Presentations /10', R.slots + ' presentations, 0–' + annMax() + ' marks each, given by the teacher; absent or not completed = 0.'], ['Total /30', 'Quizzes /20 + Presentations /10.']] };
       PlatformXlsx.download(fname('xlsx'), [reg, qz, pr, info]);
     }
     function printHead(title) {
@@ -1889,7 +1891,7 @@
         '<h2>Quizzes</h2><table><thead><tr><th>Module</th><th>Quiz</th><th>Given</th><th class="n">Result</th></tr></thead><tbody>' +
         x.quizzes.map(function (z) { var Q = quizOf(z.key) || {}; return '<tr><td>' + esc(Q.module || '') + '</td><td>' + esc(Q.title || '') + '</td><td>' + esc(annDay(Q.at)) + '</td><td class="n">' + (z.state === 'done' ? z.pct + '%' : z.state === 'excused' ? 'Excused' : 'Missed (0%)') + '</td></tr>'; }).join('') + '</tbody></table>' +
         '<h2>Presentations</h2><table><thead><tr><th>#</th><th>Topic</th><th>Module</th><th>Presented</th><th>Status</th><th class="n">Mark</th><th>Comment</th></tr></thead><tbody>' +
-        [1, 2, 3, 4, 5].slice(0, R.slots).map(function (s) { var p = x.presentations.filter(function (y) { return y.slot === s; })[0]; return p ? '<tr><td class="n">' + s + '</td><td dir="auto">' + esc(p.topic) + '</td><td>' + esc(modTitle(p.moduleId)) + '</td><td>' + esc(annDay(p.presentedAt)) + '</td><td>' + esc(ANN_ST[p.status]) + '</td><td class="n">' + (p.status === 'completed' ? p.mark : p.status === 'assigned' ? '' : '0') + '</td><td dir="auto">' + esc(p.comment) + '</td></tr>' : '<tr><td class="n">' + s + '</td><td colspan="6">Not assigned yet</td></tr>'; }).join('') +
+        Array.apply(null, Array(R.slots)).map(function (_, i) { return i + 1; }).map(function (s) { var p = x.presentations.filter(function (y) { return y.slot === s; })[0]; return p ? '<tr><td class="n">' + s + '</td><td dir="auto">' + esc(p.topic) + '</td><td>' + esc(modTitle(p.moduleId)) + '</td><td>' + esc(annDay(p.presentedAt)) + '</td><td>' + esc(ANN_ST[p.status]) + '</td><td class="n">' + (p.status === 'completed' ? p.mark : p.status === 'assigned' ? '' : '0') + '</td><td dir="auto">' + esc(p.comment) + '</td></tr>' : '<tr><td class="n">' + s + '</td><td colspan="6">Not assigned yet</td></tr>'; }).join('') +
         '</tbody></table>' + NOTE + SIG);
     }
     start();

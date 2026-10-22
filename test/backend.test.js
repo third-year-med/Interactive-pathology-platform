@@ -2467,7 +2467,7 @@ test('2.29 attendance-only assessments: only students checked in to this lecture
   assert.ok(A(b2, 'startAttempt', { assignmentId: 'asg1', password: 'Necro-26' }).ok);
 });
 
-test('2.31 annual assessment: quizzes /20 (best attempt, missed = 0, excused, excluded, given = taken by someone), presentations /10 (5 slots, teacher mark, rubric, history), total /30; actions, permissions, duplicates, fresh request', function () {
+test('2.31/2.32 annual assessment: quizzes /20 (best attempt, missed = 0, excused, excluded, given = taken by someone), presentations /10 (2 slots of 0–5, teacher mark, rubric, history), total /30; actions, permissions, duplicates, fresh request', function () {
   const S = tsSetup(), X = S.b.ctx;
   // ---- the calculation (pure): two modules, five counted quizzes ----
   const M = [{ deliveryId: 'd-a', moduleId: 'moda', title: 'Cell Injury', icon: '📘', storage: 'moda-tg', active: true }, { deliveryId: 'd-b', moduleId: 'modb', title: 'Neoplasia', icon: '🧬', storage: 'modb-tg', active: true }];
@@ -2488,22 +2488,24 @@ test('2.31 annual assessment: quizzes /20 (best attempt, missed = 0, excused, ex
   const dup = att('moda-tg', 's2', 'q1', 100); X.appendRow_('AssessRecords', Object.assign({}, X.rpRows_('AssessRecords').filter(function (r) { return r.id === dup; })[0]));
   const P = function (sid, slot, status, mark, extra) { return Object.assign({ presId: 'g-ann|' + sid + '|' + slot, groupId: 'g-ann', studentId: sid, slot: slot, topic: 'T' + slot, moduleId: 'moda', dueAt: '', presentedAt: '', status: status, mark: mark == null ? '' : mark, rubricJson: '', comment: '', historyJson: '[]' }, extra || {}); };
   const now = Date.now();
-  const pres = [P('s1', 1, 'completed', 2), P('s1', 2, 'completed', 2), P('s1', 3, 'completed', 1.5), P('s1', 4, 'completed', 1), P('s1', 5, 'completed', 2),
-    P('s2', 1, 'completed', 2), P('s2', 2, 'completed', 1.5), P('s2', 3, 'completed', 1), P('s2', 4, 'completed', 2), P('s2', 5, 'absent'),
-    P('s3', 1, 'completed', 2), P('s3', 2, 'completed', 2), P('s3', 3, 'completed', 2), P('s3', 4, 'assigned', null, { dueAt: now - 864e5 }), P('s3', 5, 'assigned', null, { dueAt: now + 864e5 })];
+  // 2.32: two presentations of 0–5 each; a row of an old slot 3 (five-slot era) is not counted
+  const pres = [P('s1', 1, 'completed', 5), P('s1', 2, 'completed', 3.5), P('s1', 3, 'completed', 2),
+    P('s2', 1, 'completed', 4.5), P('s2', 2, 'absent'),
+    P('s3', 1, 'completed', 4), P('s3', 2, 'assigned', null, { dueAt: now - 864e5 })];
   const R = X.annCompute_(g, members, { excluded: { 'modb-tg|q7': 1 }, excused: { s2: { 'modb-tg|q5': 1 } } }, pres, now);
   const by = function (id) { return R.students.filter(function (x) { return x.studentId === id; })[0]; };
   assert.deepStrictEqual(R.quizzes.map(function (q) { return [q.key, q.excluded, q.taken]; }), [['moda-tg|q1', false, 3], ['moda-tg|q2', false, 3], ['moda-tg|q3', false, 3], ['modb-tg|q4', false, 2], ['modb-tg|q5', false, 2], ['modb-tg|q7', true, 1]], 'given quizzes; q6 (stranger only) is not');
   const s1 = by('s1'), s2 = by('s2'), s3 = by('s3'), s4 = by('s4');
-  assert.deepStrictEqual([s1.quiz, s1.pres.mark, s1.total, s1.quizCounted, s1.quizDone, s1.pres.done], [16, 8.5, 24.5, 5, 5, 5], 'the 16 + 8.5 = 24.5 example');
-  assert.deepStrictEqual([s2.quiz, s2.quizCounted, s2.quizMissed, s2.quizExcused, s2.pres.mark, s2.pres.missed, s2.total], [15, 4, 1, 1, 6.5, 1, 21.5], 'missed = 0, excused left out, absent = 0');
+  assert.deepStrictEqual([s1.quiz, s1.pres.mark, s1.total, s1.quizCounted, s1.quizDone, s1.pres.done], [16, 8.5, 24.5, 5, 5, 2], 'the 16 + 8.5 = 24.5 example (5 + 3.5)');
+  assert.deepStrictEqual([s2.quiz, s2.quizCounted, s2.quizMissed, s2.quizExcused, s2.pres.mark, s2.pres.missed, s2.total], [15, 4, 1, 1, 4.5, 1, 19.5], 'missed = 0, excused left out, absent = 0');
   assert.deepStrictEqual(s2.quizzes.map(function (q) { return q.state; }), ['done', 'done', 'done', 'missed', 'excused']);
-  assert.deepStrictEqual([s3.quiz, s3.quizzes[0].pct, s3.quizzes[0].attempts, s3.pres.mark, s3.pres.done, s3.pres.overdue, s3.pres.remaining, s3.total, s3.behind], [11.2, 80, 2, 6, 3, 1, 2, 17.2, true], 'retake: the best once; overdue flagged');
+  assert.deepStrictEqual([s3.quiz, s3.quizzes[0].pct, s3.quizzes[0].attempts, s3.pres.mark, s3.pres.done, s3.pres.overdue, s3.pres.remaining, s3.total, s3.behind], [11.2, 80, 2, 4, 1, 1, 1, 15.2, true], 'retake: the best once; overdue flagged');
   assert.deepStrictEqual([s1.behind, s2.behind], [false, true]);
   assert.strictEqual(s4.active, false); assert.strictEqual(R.summary.students, 3); assert.strictEqual(R.summary.quizzes, 5); assert.strictEqual(R.summary.excluded, 1);
   assert.strictEqual(R.unmatched, 1, 'the stranger');
   // never above 20 / 10 / 30, even with odd data
-  const big = X.annCompute_(g, [{ studentId: 's1', name: 'One', active: true }], { excluded: {}, excused: {} }, pres.slice(0, 5).concat([P('s1', 5, 'completed', 2)]), now);
+  const big = X.annCompute_(g, [{ studentId: 's1', name: 'One', active: true }], { excluded: {}, excused: {} }, [P('s1', 1, 'completed', 5), P('s1', 2, 'completed', 5), P('s1', 2, 'completed', 5)], now);
+  assert.strictEqual(big.students[0].pres.mark, 10, 'a duplicated row never pushes the mark above 10');
   assert.ok(big.students[0].quiz <= 20 && big.students[0].pres.mark <= 10 && big.students[0].total <= 30);
   const none = X.annCompute_(g, members.concat([{ studentId: 'zz', name: 'Nobody', active: true }]), { excluded: { 'modb-tg|q7': 1 }, excused: {} }, [], now);
   const zz = none.students.filter(function (x) { return x.studentId === 'zz'; })[0];
@@ -2519,7 +2521,7 @@ test('2.31 annual assessment: quizzes /20 (best attempt, missed = 0, excused, ex
   X.assessStore_('cellinjury-razi-a-26').put('attempt', 'rb1', { id: 'rb1', assessmentId: 'tq2', assessmentTitle: 'Topic 2 quiz — Necrosis', email: 'basma@uni.ly', name: 'Basma One', status: 'submitted', percent: 75, submittedAt: now - 1000 });
   const o = A('annOverall'); assert.ok(o.ok, JSON.stringify(o).slice(0, 300));
   assert.deepStrictEqual(o.topics.map(function (t) { return [t.moduleId, t.n, t.topic]; }), [['cellinjury', 2, 'Necrosis']]);
-  assert.deepStrictEqual([o.slots, o.summary.quizzes, o.rubric.length], [5, 1, 4]);
+  assert.deepStrictEqual([o.slots, o.maxMark, o.summary.quizzes, o.rubric.length], [2, 5, 1, 5]);
   const ob = o.students.filter(function (x) { return x.studentId === 'b1'; })[0], oa = o.students.filter(function (x) { return x.studentId === 'ahmed'; })[0];
   assert.deepStrictEqual([ob.quiz, oa.quiz, oa.quizMissed], [15, 0, 1], 'b1 75 % → 15 / 20; ahmed missed it → 0');
   // permissions: the group's teacher yes; another teacher, a student, nobody: no
@@ -2532,28 +2534,29 @@ test('2.31 annual assessment: quizzes /20 (best attempt, missed = 0, excused, ex
   const pr = function (o2) { return A('annPres', Object.assign({ studentId: 'b1', slot: 1, topic: 'Necrosis', moduleId: 'cellinjury' }, o2)); };
   let r = pr({ status: 'assigned', dueAt: now + 864e5 }); assert.ok(r.ok, JSON.stringify(r)); assert.deepStrictEqual([r.pres.assigned, r.pres.mark], [1, 0]);
   assert.strictEqual(pr({ status: 'completed' }).ok, false, 'completed needs a mark — never automatic');
-  assert.strictEqual(pr({ status: 'completed', mark: 3 }).ok, false); assert.strictEqual(pr({ status: 'completed', mark: 1.25 }).ok, false);
-  assert.strictEqual(pr({ status: 'completed', mark: 2, rubric: { accuracy: 0.5, understanding: 0.5, organisation: 0.5, delivery: 0 } }).ok, false, 'rubric 1.5 ≠ 2');
-  r = pr({ status: 'completed', mark: 1.5, rubric: { accuracy: 0.5, understanding: 0.5, organisation: 0.5, delivery: 0 }, comment: 'Good slides' }); assert.ok(r.ok, JSON.stringify(r));
-  assert.deepStrictEqual([r.pres.mark, r.pres.done, r.presentations[0].comment, r.presentations[0].rubric.delivery, !!r.presentations[0].presentedAt], [1.5, 1, 'Good slides', 0, true]);
-  assert.strictEqual(A('annPres', { studentId: 'b1', slot: 6, topic: 'X', status: 'assigned' }).ok, false);
+  assert.strictEqual(pr({ status: 'completed', mark: 5.5 }).ok, false); assert.strictEqual(pr({ status: 'completed', mark: 1.25 }).ok, false); assert.strictEqual(pr({ status: 'completed', mark: -1 }).ok, false);
+  assert.strictEqual(pr({ status: 'completed', mark: 4, rubric: { accuracy: 1, understanding: 1, questions: 0.5, organisation: 0.5, delivery: 0.5 } }).ok, false, 'rubric 3.5 ≠ 4');
+  assert.strictEqual(pr({ status: 'completed', mark: 4, rubric: { accuracy: 2, understanding: 1, questions: 1, organisation: 0, delivery: 0 } }).ok, false, 'a rubric point is at most 1');
+  r = pr({ status: 'completed', mark: 3.5, rubric: { accuracy: 1, understanding: 1, questions: 0.5, organisation: 0.5, delivery: 0.5 }, comment: 'Good slides' }); assert.ok(r.ok, JSON.stringify(r));
+  assert.deepStrictEqual([r.pres.mark, r.pres.done, r.presentations[0].comment, r.presentations[0].rubric.questions, !!r.presentations[0].presentedAt], [3.5, 1, 'Good slides', 0.5, true]);
+  assert.strictEqual(A('annPres', { studentId: 'b1', slot: 3, topic: 'X', status: 'assigned' }).ok, false, 'two presentations a year (2.32)');
   assert.strictEqual(A('annPres', { studentId: 'nobody', slot: 2, topic: 'X', status: 'assigned' }).ok, false);
   assert.strictEqual(A('annPres', { studentId: 'b1', slot: 2, topic: '', status: 'assigned' }).ok, false);
   assert.strictEqual(A('annPres', { studentId: 'b1', slot: 2, topic: 'X', moduleId: 'nomodule', status: 'assigned' }).ok, false);
   // a correction: 1.5 → 2 by the group's teacher; the history keeps both earlier states; never two rows for one slot
-  r = T(S.ahmed.tok, 'annPres', { studentId: 'b1', slot: 1, topic: 'Necrosis', moduleId: 'cellinjury', status: 'completed', mark: 2 }); assert.ok(r.ok, JSON.stringify(r));
-  const h = r.presentations[0].history; assert.deepStrictEqual(h.map(function (x) { return [x.status, x.mark]; }), [['assigned', null], ['completed', 1.5]]); assert.match(h[1].by, /^teacher:/);
+  r = T(S.ahmed.tok, 'annPres', { studentId: 'b1', slot: 1, topic: 'Necrosis', moduleId: 'cellinjury', status: 'completed', mark: 4 }); assert.ok(r.ok, JSON.stringify(r));
+  const h = r.presentations[0].history; assert.deepStrictEqual(h.map(function (x) { return [x.status, x.mark]; }), [['assigned', null], ['completed', 3.5]]); assert.match(h[1].by, /^teacher:/);
   assert.strictEqual(X.dirAll_('Presentations').filter(function (x) { return x.presId === S.ra.groupId + '|b1|1'; }).length, 1);
   assert.strictEqual(A('annPres', { studentId: 'b1', slot: 1, clear: true }).ok, false, 'a marked slot cannot be cleared');
   // ⚙ auto-assign: only empty slots, balanced, no topic twice for one student while others are left
   const topics = ['A', 'B', 'C', 'D', 'E', 'F'].map(function (x) { return { topic: 'Topic ' + x, moduleId: 'cellinjury' }; });
-  const au = A('annAuto', { topics: topics }); assert.ok(au.ok, JSON.stringify(au)); assert.strictEqual(au.created, 14, '3 students × 5 − the 1 existing');
+  const au = A('annAuto', { topics: topics }); assert.ok(au.ok, JSON.stringify(au)); assert.strictEqual(au.created, 5, '3 students × 2 − the 1 existing');
   assert.strictEqual(A('annAuto', { topics: topics }).created, 0, 'a second run changes nothing');
   const rows = X.dirAll_('Presentations').filter(function (x) { return x.groupId === S.ra.groupId; });
-  assert.strictEqual(rows.length, 15);
-  ['ahmed', 'b1', 'b2'].forEach(function (sid) { const t = rows.filter(function (x) { return x.studentId === sid; }).map(function (x) { return x.topic; }); assert.strictEqual(new Set(t).size, 5, sid + ': ' + t); });
+  assert.strictEqual(rows.length, 6);
+  ['ahmed', 'b1', 'b2'].forEach(function (sid) { const t = rows.filter(function (x) { return x.studentId === sid; }).map(function (x) { return x.topic; }); assert.strictEqual(new Set(t).size, 2, sid + ': ' + t); });
   const use = {}; rows.filter(function (x) { return /^Topic /.test(x.topic); }).forEach(function (x) { use[x.topic] = (use[x.topic] || 0) + 1; });
-  assert.ok(Object.keys(use).every(function (k) { return use[k] >= 2 && use[k] <= 3; }), JSON.stringify(use));
+  assert.ok(Object.keys(use).length === 5 && Object.keys(use).every(function (k) { return use[k] === 1; }), 'spread over the topics: ' + JSON.stringify(use));
   assert.strictEqual(A('annAuto', { topics: [] }).ok, false);
   // exclude / excuse: validated, reversible, used by the calculation (in a fresh request)
   assert.strictEqual(A('annSet', { quiz: 'othermodule-x|tq2', on: true }).ok, false);
@@ -2565,7 +2568,7 @@ test('2.31 annual assessment: quizzes /20 (best attempt, missed = 0, excused, ex
   o2 = A('annOverall'); assert.deepStrictEqual([o2.summary.quizzes, o2.summary.excluded], [0, 1]);
   assert.ok(A('annSet', { quiz: 'cellinjury-razi-a-26|tq2', on: false }).ok); assert.ok(A('annSet', { quiz: 'cellinjury-razi-a-26|tq2', studentId: 'ahmed', on: false }).ok);
   o2 = A('annOverall'); const ob2 = o2.students.filter(function (x) { return x.studentId === 'b1'; })[0];
-  assert.deepStrictEqual([o2.summary.quizzes, ob2.quiz, ob2.pres.mark, ob2.total], [1, 15, 2, 17]);
+  assert.deepStrictEqual([o2.summary.quizzes, ob2.quiz, ob2.pres.mark, ob2.total], [1, 15, 4, 19]);
   // nothing of this reaches students: the actions are not module actions
   assert.strictEqual(X.portalHook_('cellinjury-razi-a-26', { action: 'annOverall', groupId: S.ra.groupId }), null);
 });

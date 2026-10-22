@@ -3232,7 +3232,7 @@ test('module Live Classroom: a signed-in registered student goes straight in (no
 test('no JavaScript errors', { skip: SKIP }, function () { assert.deepStrictEqual(errors, []); });
 
 /* ---------------- Overall Pathology Attendance (2.15) ---------------- */
-test('🏅 Annual Assessment (2.31): quizzes /20 from the modules\' attempts (missed = 0), auto-assign + mark presentations (rubric), excuse, exclude, total /30, CSV / Excel / print', { skip: SKIP }, async function () {
+test('🏅 Annual Assessment (2.31/2.32): quizzes /20 from the modules\' attempts (missed = 0), auto-assign + mark two presentations of 0–5 (rubric), excuse, exclude, total /30, CSV / Excel / print', { skip: SKIP }, async function () {
   main.call({ module: 'portal', action: 'setup', password: TPW });
   const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
   const A = function (action, o) { const r = main.call(Object.assign({ module: 'portal', action: action, token: t }, o || {})); assert.ok(r.ok, action + ' ' + JSON.stringify(r)); return r; };
@@ -3257,20 +3257,20 @@ test('🏅 Annual Assessment (2.31): quizzes /20 from the modules\' attempts (mi
   await p.selectOption('#t-annual .an-g', g.groupId);
   await p.waitForFunction(function () { return document.querySelectorAll('#t-annual .an-tbl tbody tr[data-student]').length === 2; }, null, { timeout: 15000 });
   const cells = function (id) { return p.$eval('#t-annual .an-tbl tr[data-student="' + id + '"]', function (tr) { return Array.prototype.map.call(tr.cells, function (c) { return c.textContent.trim(); }); }); };
-  assert.deepStrictEqual((await cells('28010001')).slice(0, 7), ['28010001', 'Huda First', '2 / 2', '14', '0 / 5', '0', '14']);
-  assert.deepStrictEqual((await cells('28010002')).slice(0, 7), ['28010002', 'Imad Second', '1 / 2 · 1 missed', '10', '0 / 5', '0', '10'], 'missed quiz counts 0');
-  assert.match((await cells('28010002'))[7], /1 quiz missed[\s\S]*5 presentations not assigned/);
-  assert.match(await p.textContent('#t-annual .ov-kpis'), /Students2[\s\S]*Quizzes counted2[\s\S]*Presentations marked0 \/ 10[\s\S]*Behind⚠ 2/);
+  assert.deepStrictEqual((await cells('28010001')).slice(0, 7), ['28010001', 'Huda First', '2 / 2', '14', '0 / 2', '0', '14']);
+  assert.deepStrictEqual((await cells('28010002')).slice(0, 7), ['28010002', 'Imad Second', '1 / 2 · 1 missed', '10', '0 / 2', '0', '10'], 'missed quiz counts 0');
+  assert.match((await cells('28010002'))[7], /1 quiz missed[\s\S]*2 presentations not assigned/);
+  assert.match(await p.textContent('#t-annual .ov-kpis'), /Students2[\s\S]*Quizzes counted2[\s\S]*Presentations marked0 \/ 4[\s\S]*Behind⚠ 2/);
   // 🎤 Presentations → ⚙ Auto-assign (topics from the topic quizzes) → mark one with the rubric
   await p.click('#t-annual .an-tab[data-t=pres]');
   await p.click('#t-annual [data-a=auto]');
   await p.waitForSelector('.an-modal .an-tpi');
-  assert.match(await p.textContent('.an-modal'), /Fills the 10 empty slot[\s\S]*Topic 1 — Adaptations[\s\S]*Topic 3 — Apoptosis/);
+  assert.match(await p.textContent('.an-modal'), /Fills the 4 empty slot[\s\S]*Topic 1 — Adaptations[\s\S]*Topic 3 — Apoptosis/);
   await p.fill('.an-modal .an-more', 'Hyperplasia\nMetaplasia');
   await p.click('.an-modal button[type=submit]');
-  await p.waitForFunction(function () { return !document.querySelector('.an-modal') && document.querySelectorAll('#t-annual .an-ptbl tbody tr[data-slot]').length === 10 && !/Not assigned yet/.test(document.querySelector('#t-annual .an-ptbl').textContent); }, null, { timeout: 15000 });
+  await p.waitForFunction(function () { return !document.querySelector('.an-modal') && document.querySelectorAll('#t-annual .an-ptbl tbody tr[data-slot]').length === 4 && !/Not assigned yet/.test(document.querySelector('#t-annual .an-ptbl').textContent); }, null, { timeout: 15000 });
   const topics = await p.$$eval('#t-annual .an-ptbl tr[data-student="28010001"] td:nth-child(3)', function (c) { return c.map(function (x) { return x.textContent; }); });
-  assert.strictEqual(new Set(topics).size, 5, 'five different topics: ' + topics);
+  assert.strictEqual(new Set(topics).size, 2, 'two different topics: ' + topics);
   if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'annual-presentations.png'), fullPage: true });
   await p.click('#t-annual .an-ptbl tr[data-student="28010001"][data-slot="1"] button');
   await p.waitForSelector('.an-modal form');
@@ -3279,44 +3279,46 @@ test('🏅 Annual Assessment (2.31): quizzes /20 from the modules\' attempts (mi
   await p.click('.an-modal button[type=submit]');
   assert.match(await p.textContent('.an-modal .an-err'), /Choose the mark/, 'never a mark without the teacher choosing it');
   await p.click('.an-modal .an-rub summary');
-  for (const k of ['accuracy', 'understanding', 'organisation']) await p.check('.an-modal [data-r=' + k + ']');
-  assert.strictEqual(await p.$eval('.an-modal input[name=mark]:checked', function (i) { return i.value; }), '1.5', 'the rubric sets the mark');
-  await p.check('.an-modal [data-r=delivery]');
+  assert.strictEqual(await p.$$eval('.an-modal input[name=mark]', function (x) { return x.map(function (i) { return i.value; }).join(' '); }), '0 0.5 1 1.5 2 2.5 3 3.5 4 4.5 5', 'a presentation is marked 0–5');
+  for (const k of ['accuracy', 'understanding', 'questions']) await p.selectOption('.an-modal select[data-r=' + k + ']', '1');
+  await p.selectOption('.an-modal select[data-r=organisation]', '0.5');
+  assert.strictEqual(await p.$eval('.an-modal input[name=mark]:checked', function (i) { return i.value; }), '3.5', 'the rubric sets the mark');
+  await p.selectOption('.an-modal select[data-r=delivery]', '0.5');
   await p.fill('.an-modal textarea[name=comment]', 'Clear and accurate');
   if (process.env.SHOTS) await (await p.$('.an-modal form')).screenshot({ path: path.join(process.env.SHOTS, 'annual-mark.png') });
   await p.click('.an-modal button[type=submit]');
   await p.waitForFunction(function () { var r = document.querySelector('#t-annual .an-ptbl tr[data-student="28010001"][data-slot="1"]'); return !document.querySelector('.an-modal') && r && /Completed/.test(r.textContent) && /Clear and accurate/.test(r.textContent); });
-  // 📋 Class: Huda 14 + 2 = 16; Imad excused from tq1 → 100 % of 1 quiz → 20
+  // 📋 Class: Huda 14 + 4 = 18; Imad excused from tq1 → 100 % of 1 quiz → 20
   await p.click('#t-annual .an-tab[data-t=class]');
   await p.waitForSelector('#t-annual .an-tbl');
-  assert.deepStrictEqual((await cells('28010001')).slice(2, 7), ['2 / 2', '14', '1 / 5', '2', '16']);
+  assert.deepStrictEqual((await cells('28010001')).slice(2, 7), ['2 / 2', '14', '1 / 2', '4', '18']);
   await p.click('#t-annual .an-tbl tr[data-student="28010002"] button');
   await p.waitForSelector('#t-annual .an-stu [data-ex="1"]');
   await p.click('#t-annual .an-stu [data-ex="1"]');
   await p.waitForFunction(function () { var r = document.querySelector('#t-annual .an-tbl tr[data-student="28010002"]'); return r && /20/.test(r.cells[3].textContent) && document.querySelector('#t-annual .an-stu'); }, null, { timeout: 15000 });
   assert.match(await p.textContent('#t-annual .an-stu'), /Excused/);
-  // 📝 Quizzes: exclude tq2 → Huda 80 % → 16 + 2 = 18
+  // 📝 Quizzes: exclude tq2 → Huda 80 % → 16 + 4 = 20
   await p.click('#t-annual .an-tab[data-t=quiz]');
   await p.uncheck('#t-annual .an-quiz tr[data-q="' + IH + '|tq2"] input');
   await p.waitForFunction(function () { return /Quizzes counted1[\s\S]*1 excluded/.test(document.querySelector('#t-annual .ov-kpis').textContent); }, null, { timeout: 15000 });
   await p.click('#t-annual .an-tab[data-t=class]');
-  assert.deepStrictEqual((await cells('28010001')).slice(2, 7), ['1 / 1', '16', '1 / 5', '2', '18']);
+  assert.deepStrictEqual((await cells('28010001')).slice(2, 7), ['1 / 1', '16', '1 / 2', '4', '20']);
   if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'annual-class.png'), fullPage: true });
   // exports: CSV = the table; Excel has the four sheets; the printed class sheet
   const dl = function (sel) { return Promise.all([p.waitForEvent('download'), p.click(sel)]).then(function (x) { return x[0].path(); }); };
   const csv = fs.readFileSync(await dl('#t-annual [data-a=csv]'), 'utf8').replace(/^﻿/, '').split(/\r\n/);
   assert.match(csv[0], /^Student ID,Name,Status,Quizzes counted,Quizzes taken,Missed,Excused,Quizzes \/20,Presentations completed,Presentations \/10,Total \/30,Outstanding$/);
-  assert.match(csv[1], /^28010001,Huda First,active,1,1,0,0,16,1,2,18,/);
+  assert.match(csv[1], /^28010001,Huda First,active,1,1,0,0,16,1,4,20,/);
   assert.match(csv[2], /^28010002,Imad Second,active,0,0,0,1,,0,0,,/, 'excused from the only counted quiz → no quiz mark yet');
   const xp = await dl('#t-annual [data-a=xlsx]');
   const wb = require('child_process').execFileSync('unzip', ['-p', xp, 'xl/workbook.xml']).toString();
   assert.match(wb, /name="Annual register"[\s\S]*name="Quizzes"[\s\S]*name="Presentations"[\s\S]*name="Report info"/);
   await p.click('#t-annual [data-a=print]');
   await p.waitForFunction(function () { var f = document.querySelector('iframe.ov-print'); return f && f.contentDocument && /Annual Pathology Assessment — Class Sheet/.test(f.contentDocument.body.textContent); });
-  assert.match(await p.evaluate(function () { return document.querySelector('iframe.ov-print').contentDocument.body.textContent; }), /Huda First[\s\S]*16[\s\S]*18/);
+  assert.match(await p.evaluate(function () { return document.querySelector('iframe.ov-print').contentDocument.body.textContent; }), /Huda First[\s\S]*16[\s\S]*20/);
   // the marks persist on the server (a fresh read), with the correction history
   const srv = A('annOverall', { groupId: g.groupId }), hu = srv.students.filter(function (x) { return x.studentId === '28010001'; })[0];
-  assert.deepStrictEqual([hu.quiz, hu.pres.mark, hu.total, hu.presentations[0].mark, hu.presentations[0].rubric.delivery], [16, 2, 18, 2, 0.5]);
+  assert.deepStrictEqual([hu.quiz, hu.pres.mark, hu.total, hu.presentations[0].mark, hu.presentations[0].rubric.delivery], [16, 4, 20, 4, 0.5]);
   assert.strictEqual(errors.filter(function (e) { return !/ERR_TUNNEL|net::/.test(e); }).length, 0, errors.join('\n'));
   await p.context().close();
 });
