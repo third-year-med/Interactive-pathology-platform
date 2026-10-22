@@ -464,6 +464,23 @@ changes. Teacher Dashboard → **📊 Overall Pathology Attendance** → choose 
   **Deploy → Manage deployments → ✏️ Edit → New version → Deploy**. No Code.gs change. Until then the card says "Update
   Portal.gs (2.15)" and everything else works as before.
 
+## 🏅 Annual Assessment — 30 marks per student (Portal.gs 2.31, 2026-10-22)
+
+Teacher Dashboard → **🏅 Annual Assessment (30)** → choose the group. Teachers only — students never see these marks.
+
+- **Quizzes /20 — automatic.** 20 × the student's average over every counted quiz of the group's modules (the best attempt of
+  each quiz). A quiz counts once any student of the group has taken it. **A missed quiz counts 0.** In a student's panel
+  (**Open →**) you can **Excuse** them from one quiz (then it is left out for that student). Tab **📝 Quizzes**: untick a quiz
+  to leave it out for everyone (for example a trial quiz).
+- **Presentations /10 — your marks.** Five per student, 0 / 0.5 / 1 / 1.5 / 2 each. Tab **🎤 Presentations** →
+  **⚙ Auto-assign topics…** fills every empty slot from your topic quizzes' topics (and any you type), each topic used about
+  equally. Then for each presentation: **✓ Mark / ✏ Edit** → Status *Completed* → choose the mark (or tick the 4-point rubric:
+  accuracy, understanding, organisation, delivery — 0.5 each) → 💾 Save. *Absent* or *Not completed* = 0; to give another chance
+  set it back to *Assigned* with a new date. Every change is kept (who, when, the old value).
+- **Total /30** = quizzes + presentations. Tab **📋 Class**: the whole class in one table, ⚠ for students behind (missed
+  quizzes, overdue / absent presentations, presentations not yet assigned). **⬇ Excel** (register, every quiz, every
+  presentation), **⬇ CSV**, **🖨 Print class sheet**, and in a student's panel **🖨 Print this student's report**.
+
 ## A quiz only for the students in the lecture (Portal.gs 2.29, 2026-10-21)
 
 Teacher Portal → 📝 Assessments → **🔑 Passwords** → tick **🧑‍🎓 Checked-in only** on the quiz. Then a student can start it

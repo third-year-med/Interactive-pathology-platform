@@ -73,6 +73,7 @@
  *   resOverall {groupId}  2.22: Pathology Overall Results & Analytics — every student of the group, the ASSESSMENT
  *                         percentage of each teaching module and the overall percentage (equal or weighted); read-only
  *   resSettings {method:'equal'|'weighted', weights:{moduleId:number}}  Admin: how the overall percentage is calculated
+ *   annOverall / annPres / annAuto / annSet {groupId, …}  2.31: Annual assessment — quizzes /20 + 5 presentations /10 = /30 (teachers only)
  *   attOverall {groupId}  2.15: Overall Pathology Attendance — every student of the group over EVERY teaching module
  *                     (sessions taken inside the modules and Teaching Sessions alike, each counted once), same % and warning
  *   Sheet TeachingSessions (created on first use). Attendance itself stays in AttendanceSessions/AttendanceRecords.
@@ -195,7 +196,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.30';
+var PORTAL_VERSION = '2.31';
 /** 2.28: the shortest password for teachers AND students on every Portal screen (user, 2026-10-21: 4, was 8). Code.gs checks its own
     (STU_MIN_PW and the module teacher password) — platformCheck warns while they still ask for more. No maximum. */
 var PW_MIN_ = 4;
@@ -506,7 +507,7 @@ function portalTeacherClose_(p) {
 var DIR = {
   INST: 'Institutions', GROUP: 'Groups', MOD: 'Modules', DELIV: 'Deliveries',
   ASSIGN: 'TeacherAssignments', ROLES: 'ModuleContentRoles', MEMB: 'StudentMemberships',
-  USERS: 'PortalUsers', PSES: 'PortalSessions', GRANTS: 'PortalGrants', CVER: 'ContentVersions', TSES: 'TeachingSessions'
+  USERS: 'PortalUsers', PSES: 'PortalSessions', GRANTS: 'PortalGrants', CVER: 'ContentVersions', TSES: 'TeachingSessions', PRES: 'Presentations'
 };
 var DIR_HEADERS = {
   Institutions: ['institutionId', 'name', 'shortName', 'active', 'sortOrder', 'createdAt', 'updatedAt'],
@@ -524,7 +525,10 @@ var DIR_HEADERS = {
   ContentVersions: ['moduleId', 'version', 'label', 'build', 'publishedAt', 'publishedBy', 'notes', 'fingerprint', 'itemCount', 'status'],
   TeachingSessions: ['tsId', 'groupId', 'deliveryId', 'moduleId', 'backendModule', 'title', 'chapter', 'academicYear', 'startAt', 'durationMin', 'lateAfterMin', 'rotate',
     'materialsUrl', 'teacher', 'status', 'attSessionId', 'startedAt', 'endedAt', 'marksJson', 'codeAt', 'createdBy', 'createdAt', 'updatedAt',
-    'prevCode', 'prevCodeUntil']
+    'prevCode', 'prevCodeUntil'],
+  // 2.31 Annual assessment: one row per presentation SLOT (presId = groupId|studentId|slot 1–5 → never a duplicate)
+  Presentations: ['presId', 'groupId', 'studentId', 'slot', 'topic', 'moduleId', 'dueAt', 'presentedAt', 'status', 'mark', 'rubricJson', 'comment',
+    'historyJson', 'createdAt', 'updatedAt', 'updatedBy']
 };
 var DIR_TEXT = {
   Institutions: ['institutionId', 'name', 'shortName'],
@@ -538,7 +542,8 @@ var DIR_TEXT = {
   PortalSessions: ['tokenHash', 'userId', 'role'],
   PortalGrants: ['userId', 'deliveryId', 'backendModule', 'tokenHash', 'sessionHash'],
   ContentVersions: ['moduleId', 'label', 'build', 'publishedBy', 'notes', 'fingerprint', 'status'],
-  TeachingSessions: ['tsId', 'groupId', 'deliveryId', 'moduleId', 'backendModule', 'title', 'chapter', 'academicYear', 'materialsUrl', 'teacher', 'status', 'attSessionId', 'marksJson', 'createdBy', 'prevCode']
+  TeachingSessions: ['tsId', 'groupId', 'deliveryId', 'moduleId', 'backendModule', 'title', 'chapter', 'academicYear', 'materialsUrl', 'teacher', 'status', 'attSessionId', 'marksJson', 'createdBy', 'prevCode'],
+  Presentations: ['presId', 'groupId', 'studentId', 'topic', 'moduleId', 'status', 'mark', 'rubricJson', 'comment', 'historyJson', 'updatedBy']
 };
 var DIR_KINDS = {
   institution: { sheet: 'Institutions', key: 'institutionId', prefix: 'INS' },
@@ -2458,7 +2463,8 @@ var TS_GRACE_MS = 20000;                        // …and the code it replaced i
 var TS_FAIL_MAX = 10, TS_FAIL_WINDOW_S = 600;  // per student and group: 10 wrong codes → wait 10 minutes
 var TS_STATUSES = { scheduled: 1, live: 1, ended: 1, cancelled: 1 };
 var TS_MARKS = { present: 1, late: 1, excused: 1 };
-var TS_ACTIONS = { tsGroups: 1, tsList: 1, tsSave: 1, tsStart: 1, tsState: 1, tsClose: 1, tsCancel: 1, tsDelete: 1, tsMark: 1, tsSettings: 1, attOverall: 1, llList: 1, llSet: 1, resOverall: 1, resSettings: 1 };
+var TS_ACTIONS = { tsGroups: 1, tsList: 1, tsSave: 1, tsStart: 1, tsState: 1, tsClose: 1, tsCancel: 1, tsDelete: 1, tsMark: 1, tsSettings: 1, attOverall: 1, llList: 1, llSet: 1, resOverall: 1, resSettings: 1,
+  annOverall: 1, annPres: 1, annAuto: 1, annSet: 1 };   // 2.31 Annual assessment
 
 function tsRoute_(p) {
   if (p.ttoken) return tAuthed_(p, function (u) {
@@ -2484,6 +2490,10 @@ function tsDo_(p, who) {
     case 'tsMark': return tsMark_(who, p);
     case 'attOverall': return attOverall_(who, p);
     case 'resOverall': return resOverall_(who, p);   // 2.22: Pathology Overall Results & Analytics
+    case 'annOverall': return annOverall_(who, p);   // 2.31: Annual assessment (quizzes /20 + presentations /10 = /30)
+    case 'annPres': return rosterWrite_(function () { return annPresSave_(who, p); });
+    case 'annAuto': return rosterWrite_(function () { return annAuto_(who, p); });
+    case 'annSet': return rosterWrite_(function () { return annSet_(who, p); });
     case 'resSettings': return who.admin ? rosterWrite_(function () { return resSettingsSave_(p); }) : { ok: false, code: 'forbidden', error: 'Only the platform administrator can change the calculation method.' };
     case 'llList': return llList_(who);
     case 'llSet': return rosterWrite_(function () { return llSet_(who, p); });
@@ -3091,6 +3101,225 @@ function resOverall_(who, p) {
   r.partial = !!(all && all.modules.length > g.modules.length);
   r.groupModules = all ? all.modules.length : g.modules.length;
   return r;
+}
+
+/* ======================================================================
+ * Annual assessment (2.31, user 2026-10-22) — 30 marks per student for the academic year = topic quizzes /20 + 5 presentations /10.
+ * Teacher Dashboard → 🎓 Annual Assessment. Teachers only (Admin: every group; a personal teacher: the groups they teach in) —
+ * students never see it. The quiz part always covers EVERY teaching module of the group (a mark out of 20 for part of the
+ * year would be wrong), from the records the platform already keeps; nothing is typed in for quizzes.
+ *   QUIZZES /20 = 20 × Σ(the student's best % on each counted quiz) ÷ (100 × number of counted quizzes)
+ *     counted quiz  an assessment of a module of the group that at least one student of the group has SUBMITTED (it was given)
+ *                   and that the teacher has not excluded (setting ann:<groupId>.excluded["<storage>|<assessmentId>"])
+ *     missed        a counted quiz the student did not submit = 0 % (user: "missed quiz counts 0")
+ *     excused       the teacher excuses a student for one quiz → left out of THAT student's count (ann:<groupId>.excused)
+ *     retakes       several submitted attempts of one quiz → the best one, once (each attempt record read once)
+ *   PRESENTATIONS /10 = Σ marks of the 5 slots (sheet Presentations; presId = groupId|studentId|slot): status assigned
+ *     (overdue once its date has passed), completed (needs the teacher's mark 0 / 0.5 / 1 / 1.5 / 2 — never automatic; an
+ *     optional 4-criterion rubric of 0 / 0.5 each must add up to it), absent (0), notdone (0). Every change of status / mark
+ *     keeps the previous value, when and by whom (historyJson). A slot with a result cannot be cleared — set it back first.
+ *   TOTAL /30 = quiz mark (rounded to 0.1) + presentation mark.
+ * ====================================================================== */
+var ANN_SLOTS = 5, ANN_MARKS = { 0: 1, 0.5: 1, 1: 1, 1.5: 1, 2: 1 }, ANN_STATUS = { assigned: 1, completed: 1, absent: 1, notdone: 1 };
+var ANN_RUBRIC = ['accuracy', 'understanding', 'organisation', 'delivery'];
+function annSettings_(groupId) { var v = tsJson_(getSetting_('ann:' + groupId), {}) || {}; return { excluded: v.excluded || {}, excused: v.excused || {} }; }
+/** The caller's group (Admin, or a teacher of at least one of its modules) with ALL its teaching modules. */
+function annGroup_(who, groupId) {
+  if (!dirReadable_()) return null;
+  if (!tsGroupOf_(who, groupId)) return null;
+  return tsPlaces_({ ids: null }).filter(function (g) { return g.groupId === String(groupId || ''); })[0] || null;
+}
+function annPresRows_(groupId) { var sh = getSS_().getSheetByName(DIR.PRES); return sh && sh.getLastRow() > 1 ? dirAll_(DIR.PRES).filter(function (r) { return r.groupId === groupId; }) : []; }
+function annPresPub_(r, now) {
+  var st = ANN_STATUS[r.status] ? String(r.status) : 'assigned', mark = st === 'completed' && r.mark !== '' && r.mark != null ? Number(r.mark) : null;
+  return { presId: String(r.presId), studentId: String(r.studentId), slot: Number(r.slot), topic: String(r.topic || ''), moduleId: String(r.moduleId || ''),
+    dueAt: Number(r.dueAt) || null, presentedAt: Number(r.presentedAt) || null, status: st, overdue: st === 'assigned' && Number(r.dueAt) > 0 && Number(r.dueAt) < now,
+    mark: mark, rubric: tsJson_(r.rubricJson, null), comment: String(r.comment || ''), history: tsJson_(r.historyJson, null) || [], updatedAt: Number(r.updatedAt) || 0, updatedBy: String(r.updatedBy || '') };
+}
+/** One student's presentation part from their slots: marks of completed (absent / not done = 0), never above 10. */
+function annPresSum_(list) {
+  var done = 0, marked = 0, sum = 0, missed = 0, overdue = 0;
+  list.forEach(function (x) {
+    if (x.status === 'completed' && x.mark != null) { done++; marked++; sum += x.mark; }
+    else if (x.status === 'absent' || x.status === 'notdone') { marked++; missed++; }
+    else if (x.overdue) overdue++;
+  });
+  return { assigned: list.length, done: done, marked: marked, missed: missed, overdue: overdue, remaining: ANN_SLOTS - marked, mark: Math.min(10, Math.round(sum * 10) / 10) };
+}
+/** Topic quiz titles "Topic N quiz — Title" of the group's modules: the topic list for presentations. */
+function annTopics_(g) {
+  var want = {}; g.modules.forEach(function (m) { want[m.storage] = m; });
+  var out = [], seen = {};
+  rpRows_(SHEETS.CONTENT).forEach(function (r) {
+    if (!want[r.module] || r.collection !== 'assessments' || isTrue_(r.deleted)) return;
+    var x = unpackJson_(r), mm = x && /^Topic (\d+) quiz\s+[—–-]\s+(.+)$/.exec(String(x.title || '')); if (!mm) return;
+    var m = want[r.module], k = m.moduleId + '|' + mm[1]; if (seen[k]) return; seen[k] = 1;
+    out.push({ moduleId: m.moduleId, module: m.title, n: Number(mm[1]), topic: mm[2].trim() });
+  });
+  var order = {}; g.modules.forEach(function (m, i) { order[m.moduleId] = i; });
+  return out.sort(function (a, b) { return order[a.moduleId] - order[b.moduleId] || a.n - b.n; });
+}
+/** g = the group with all its modules, members = its roster, set = annSettings_, pres = its Presentations rows. */
+function annCompute_(g, members, set, pres, now) {
+  var want = {}; g.modules.forEach(function (m) { want[m.storage] = m; });
+  var acc = {}, seenAtt = {}, att = [];
+  g.modules.forEach(function (m) { acc[m.storage] = {}; });
+  rpRows_(SHEETS.STUDENTS).forEach(function (r) { if (want[r.module]) acc[r.module][normUser_(r.username)] = r; });
+  rpRows_(SHEETS.ASSESS).forEach(function (r) {
+    if (!want[r.module] || r.kind !== 'attempt' || r.status === '__deleted') return;
+    var key = r.module + '|' + r.id; if (seenAtt[key]) return; seenAtt[key] = 1;   // each attempt once
+    var x = unpackJson_(r); if (!x || x.status !== 'submitted') return;
+    var pc = Number(x.percent); if (!isFinite(pc)) return;
+    att.push({ storage: r.module, ref: String(x.assessmentId || ''), title: String(x.assessmentTitle || x.assessmentId || ''), email: String(x.email || '').trim().toLowerCase(),
+      name: String(x.name || ''), percent: Math.max(0, Math.min(100, pc)), at: Number(x.submittedAt) || 0 });
+  });
+  var list = members.slice().sort(function (a, b) { return String(a.studentId).localeCompare(String(b.studentId)); });
+  var nameCount = {}; list.forEach(function (m) { var k = String(m.name || '').trim().toLowerCase(); if (k) nameCount[k] = (nameCount[k] || 0) + 1; });
+  var rows = list.map(function (m) { return { studentId: String(m.studentId), name: String(m.name || ''), active: !!m.active, email: String(m.email || '').trim().toLowerCase(), best: {} }; });
+  // attempts → roster rows (Student ID → email incl. <id>@student.local → a unique name), as Pathology Overall Results does
+  var idx = {};
+  g.modules.forEach(function (m) {
+    var ix = idx[m.storage] = {};
+    rows.forEach(function (row) {
+      var a = acc[m.storage][normUser_(row.studentId)];
+      ix['id:' + normUser_(row.studentId)] = row;
+      [row.email, a && a.email, String(row.studentId).toLowerCase().replace(/[^a-z0-9._-]/g, '') + '@student.local'].forEach(function (e) { e = String(e || '').trim().toLowerCase(); if (e && !ix['em:' + e]) ix['em:' + e] = row; });
+      var nk = row.name.trim().toLowerCase(); if (nk && nameCount[nk] === 1) ix['nm:' + nk] = row;
+    });
+  });
+  var quizzes = {}, unmatched = 0;
+  att.forEach(function (q) {
+    var ix = idx[q.storage], row = (q.email && ix['em:' + q.email]) || (q.email && /@student\.local$/.test(q.email) && ix['id:' + q.email.replace(/@student\.local$/, '')]) || (q.name && ix['nm:' + q.name.trim().toLowerCase()]) || null;
+    if (!row) { unmatched++; return; }
+    var key = q.storage + '|' + q.ref, m = want[q.storage];
+    var Q = quizzes[key] || (quizzes[key] = { key: key, storage: q.storage, moduleId: m.moduleId, module: m.title, icon: m.icon, id: q.ref, title: q.title, at: q.at, students: {} });
+    if (q.at && (!Q.at || q.at < Q.at)) Q.at = q.at;
+    Q.students[row.studentId] = 1;
+    var b = row.best[key]; if (!b) b = row.best[key] = { pct: q.percent, attempts: 0, at: q.at };
+    b.attempts++; if (q.percent > b.pct) { b.pct = q.percent; b.at = q.at; }
+  });
+  var order = {}; g.modules.forEach(function (m, i) { order[m.moduleId] = i; });
+  var all = Object.keys(quizzes).map(function (k) { var Q = quizzes[k]; Q.excluded = !!set.excluded[k]; Q.taken = Object.keys(Q.students).length; delete Q.students; return Q; })
+    .sort(function (a, b) { return order[a.moduleId] - order[b.moduleId] || (a.at || 0) - (b.at || 0) || a.title.localeCompare(b.title); });
+  var counted = all.filter(function (Q) { return !Q.excluded; });
+  var byStu = {}; pres.forEach(function (r) { var x = annPresPub_(r, now); if (x.slot >= 1 && x.slot <= ANN_SLOTS) (byStu[x.studentId] = byStu[x.studentId] || []).push(x); });
+  var students = rows.map(function (row) {
+    var exc = set.excused[row.studentId] || {}, sum = 0, n = 0, done = 0, missed = 0, excused = 0;
+    var qs = counted.map(function (Q) {
+      var b = row.best[Q.key];
+      if (!b && exc[Q.key]) { excused++; return { key: Q.key, state: 'excused', pct: null }; }
+      n++;
+      if (b) { done++; sum += b.pct; return { key: Q.key, state: 'done', pct: Math.round(b.pct * 10) / 10, attempts: b.attempts, at: b.at }; }
+      missed++; return { key: Q.key, state: 'missed', pct: 0 };
+    });
+    var quiz = n ? Math.min(20, Math.round(20 * sum / (100 * n) * 10) / 10) : null;
+    var pl = (byStu[row.studentId] || []).sort(function (a, b) { return a.slot - b.slot; }), P = annPresSum_(pl);
+    var total = quiz == null && !P.marked ? null : Math.round(((quiz || 0) + P.mark) * 10) / 10;
+    var behind = row.active && (missed > 0 || P.overdue > 0 || P.missed > 0 || P.assigned < ANN_SLOTS);
+    return { studentId: row.studentId, name: row.name, active: row.active, quiz: quiz, quizCounted: n, quizDone: done, quizMissed: missed, quizExcused: excused, quizzes: qs,
+      pres: P, presentations: pl, total: total, behind: behind };
+  });
+  var act = students.filter(function (x) { return x.active; }), tot = act.filter(function (x) { return x.total != null; }).map(function (x) { return x.total; });
+  return { group: { groupId: g.groupId, label: g.label, linkCode: g.linkCode, academicYear: g.academicYear },
+    modules: g.modules.map(function (m) { return { moduleId: m.moduleId, title: m.title, icon: m.icon, quizzes: counted.filter(function (Q) { return Q.moduleId === m.moduleId; }).length }; }),
+    quizzes: all, students: students, unmatched: unmatched,
+    summary: { students: act.length, inactive: students.length - act.length, quizzes: counted.length, excluded: all.length - counted.length, behind: act.filter(function (x) { return x.behind; }).length,
+      presDone: act.reduce(function (a, x) { return a + x.pres.done; }, 0), presTotal: act.length * ANN_SLOTS,
+      mean: tot.length ? Math.round(tot.reduce(function (a, b) { return a + b; }, 0) / tot.length * 10) / 10 : null } };
+}
+function annOverall_(who, p) {
+  var g = annGroup_(who, p.groupId); if (!g) return { ok: false, code: 'forbidden', error: 'Choose one of your groups.' };
+  var now = Date.now(), r = annCompute_(g, rpMembers_()[g.groupId] || [], annSettings_(g.groupId), annPresRows_(g.groupId), now);
+  r.ok = true; r.serverTime = now; r.topics = annTopics_(g); r.slots = ANN_SLOTS; r.rubric = ANN_RUBRIC;
+  return r;
+}
+function annMember_(groupId, studentId) { return (rpMembers_()[groupId] || []).filter(function (m) { return m.studentId === studentId; })[0] || null; }
+function annDate_(v) { if (v === '' || v == null) return ''; var n = Number(v); return isFinite(n) && n > 0 ? Math.round(n) : NaN; }
+function annBy_(who) { return String(who.by || (who.admin ? 'admin' : '')).slice(0, 80); }
+/** Saves ONE slot (create or correct). Answers the student's slots and presentation part, so the table updates without a reload. */
+function annPresSave_(who, p) {
+  var g = annGroup_(who, p.groupId); if (!g) return { ok: false, code: 'forbidden', error: 'Choose one of your groups.' };
+  var sid = String(p.studentId || ''), slot = Number(p.slot), now = Date.now();
+  if (!annMember_(g.groupId, sid)) return dirErr_('This student is not on the group’s student list.');
+  if (!(slot >= 1 && slot <= ANN_SLOTS && Math.round(slot) === slot)) return dirErr_('Choose presentation 1 to ' + ANN_SLOTS + '.');
+  var presId = g.groupId + '|' + sid + '|' + slot, cur = annPresRows_(g.groupId).filter(function (r) { return r.presId === presId; })[0] || null;
+  var out = function () {
+    var pl = annPresRows_(g.groupId).filter(function (r) { return r.studentId === sid; }).map(function (r) { return annPresPub_(r, now); }).sort(function (a, b) { return a.slot - b.slot; });
+    return { ok: true, studentId: sid, presentations: pl, pres: annPresSum_(pl) };
+  };
+  if (p.clear === true || p.clear === 'true') {
+    if (cur && cur.status && cur.status !== 'assigned') return dirErr_('This presentation has a result — set it back to “Assigned” first (the change is recorded).');
+    if (cur) deleteRow_(DIR.PRES, cur._row);
+    return out();
+  }
+  var status = String(p.status || 'assigned'); if (!ANN_STATUS[status]) return dirErr_('Unknown status.');
+  var topic = dirStr_(p.topic, 200), moduleId = String(p.moduleId || '');
+  if (!topic) return dirErr_('Choose or type the topic.');
+  if (moduleId && !g.modules.some(function (m) { return m.moduleId === moduleId; })) return dirErr_('Choose one of the group’s modules.');
+  var dueAt = annDate_(p.dueAt), presentedAt = annDate_(p.presentedAt);
+  if ((typeof dueAt === 'number' && isNaN(dueAt)) || (typeof presentedAt === 'number' && isNaN(presentedAt))) return dirErr_('Check the dates.');
+  var mark = '', rubric = '';
+  if (status === 'completed') {
+    var mk = Number(p.mark);
+    if (p.mark === '' || p.mark == null || !ANN_MARKS[mk]) return dirErr_('Choose the mark the student earned: 0, 0.5, 1, 1.5 or 2.');
+    if (p.rubric && typeof p.rubric === 'object') {
+      var rs = 0, rb = {}, bad = false;
+      ANN_RUBRIC.forEach(function (k) { var v = Number(p.rubric[k] || 0); if (v !== 0 && v !== 0.5) bad = true; rb[k] = v; rs += v; });
+      if (bad) return dirErr_('Each rubric point is 0 or 0.5.');
+      if (rs !== mk) return dirErr_('The rubric adds up to ' + rs + ', but the mark is ' + mk + '.');
+      rubric = JSON.stringify(rb);
+    }
+    mark = mk;
+    if (!presentedAt) presentedAt = now;
+  }
+  var by = annBy_(who);
+  var row = { presId: presId, groupId: g.groupId, studentId: sid, slot: slot, topic: topic, moduleId: moduleId, dueAt: dueAt, presentedAt: status === 'assigned' ? '' : presentedAt,
+    status: status, mark: mark, rubricJson: rubric, comment: dirStr_(p.comment, 500), updatedAt: now, updatedBy: by };
+  if (cur) {
+    var hist = tsJson_(cur.historyJson, null) || [];
+    if (String(cur.status || '') !== status || String(cur.mark) !== String(mark)) hist.push({ at: now, by: by, status: String(cur.status || ''), mark: cur.mark === '' || cur.mark == null ? null : Number(cur.mark) });
+    row.historyJson = JSON.stringify(hist.slice(-30)); row.createdAt = cur.createdAt;
+    updateRow_(DIR.PRES, cur._row, row);
+  } else { row.historyJson = '[]'; row.createdAt = now; appendRow_(DIR.PRES, row); }
+  console.log('annual · presentation · ' + presId + ' · ' + status + (mark !== '' ? ' · ' + mark : ''));
+  return out();
+}
+/** ⚙ Auto-assign: fills only EMPTY slots of the active students with the chosen topics, round-robin (every topic used about
+ *  equally; a student gets a topic twice only when there are fewer topics than slots). Existing slots are never touched. */
+function annAuto_(who, p) {
+  var g = annGroup_(who, p.groupId); if (!g) return { ok: false, code: 'forbidden', error: 'Choose one of your groups.' };
+  var mods = {}; g.modules.forEach(function (m) { mods[m.moduleId] = 1; });
+  var T = (Array.isArray(p.topics) ? p.topics : []).map(function (t) { return { topic: dirStr_(t && t.topic, 200), moduleId: t && mods[t.moduleId] ? String(t.moduleId) : '' }; }).filter(function (t) { return t.topic; });
+  if (!T.length) return dirErr_('Choose at least one topic.');
+  var studs = (rpMembers_()[g.groupId] || []).filter(function (m) { return m.active; }).map(function (m) { return String(m.studentId); }).sort();
+  var have = {}, mine = {};
+  annPresRows_(g.groupId).forEach(function (r) { have[r.studentId + '|' + r.slot] = 1; (mine[r.studentId] = mine[r.studentId] || {})[String(r.topic).toLowerCase()] = 1; });
+  var cyc = 0, now = Date.now(), made = 0, by = annBy_(who);
+  for (var slot = 1; slot <= ANN_SLOTS; slot++) studs.forEach(function (sid) {
+    if (have[sid + '|' + slot]) return;
+    var got = mine[sid] = mine[sid] || {}, pick = -1;
+    for (var i = 0; i < T.length; i++) { var j = (cyc + i) % T.length; if (!got[T[j].topic.toLowerCase()]) { pick = j; break; } }
+    if (pick < 0) pick = cyc % T.length;
+    cyc = pick + 1; got[T[pick].topic.toLowerCase()] = 1; made++;
+    appendRow_(DIR.PRES, { presId: g.groupId + '|' + sid + '|' + slot, groupId: g.groupId, studentId: sid, slot: slot, topic: T[pick].topic, moduleId: T[pick].moduleId, dueAt: '', presentedAt: '',
+      status: 'assigned', mark: '', rubricJson: '', comment: '', historyJson: '[]', createdAt: now, updatedAt: now, updatedBy: by });
+  });
+  console.log('annual · auto-assign · ' + g.groupId + ' · ' + made + ' slot(s)');
+  return { ok: true, created: made };
+}
+/** Exclude a quiz from the annual mark, or excuse one student from one quiz (both reversible). */
+function annSet_(who, p) {
+  var g = annGroup_(who, p.groupId); if (!g) return { ok: false, code: 'forbidden', error: 'Choose one of your groups.' };
+  var v = tsJson_(getSetting_('ann:' + g.groupId), {}) || {}; v.excluded = v.excluded || {}; v.excused = v.excused || {};
+  var key = String(p.quiz || ''), st = key.split('|')[0], on = p.on === true || p.on === 'true';
+  if (key.indexOf('|') < 0 || !g.modules.some(function (m) { return m.storage === st; })) return dirErr_('Choose a quiz of this group.');
+  if (p.studentId != null && p.studentId !== '') {
+    var sid = String(p.studentId); if (!annMember_(g.groupId, sid)) return dirErr_('This student is not on the group’s student list.');
+    var e = v.excused[sid] = v.excused[sid] || {}; if (on) e[key] = 1; else delete e[key]; if (!Object.keys(e).length) delete v.excused[sid];
+  } else { if (on) v.excluded[key] = 1; else delete v.excluded[key]; }
+  setSetting_('ann:' + g.groupId, JSON.stringify(v));
+  console.log('annual · ' + (p.studentId ? 'excuse ' + p.studentId : 'exclude') + ' · ' + key + ' · ' + (on ? 'on' : 'off'));
+  return { ok: true, settings: annSettings_(g.groupId) };
 }
 
 /* ======================================================================

@@ -521,6 +521,7 @@
     sessions: ['🎓', 'Teaching Sessions', 'Schedule or start lectures, live attendance, Live Classroom, history.'],
     overall: ['📊', 'Overall Pathology Attendance', 'All modules together: attendance and absence % per student, module breakdown, below-75% warnings, Excel and print; results of every module.'],
     results: ['📈', 'Pathology Overall Results & Analytics', 'Assessment results of every module together: overall % per student (equal or weighted), module-by-module marks, completion, CSV.'],
+    annual: ['🏅', 'Annual Assessment (30)', 'Topic quizzes /20 + five presentations /10 for every student of the year: one class table, presentation marking, Excel and print.'],
     exams: ['📝', 'Official Exams', 'Module and combined exams, exam banks, student exam pages, results.'],
     manage: ['🧩', 'Teacher Management', 'Front-page module cards: title, icon, colour, link, status.'],
     directory: ['🏛️', 'Platform Directory', 'Institutions, groups, modules, deliveries, students, teachers, content.']
@@ -646,6 +647,7 @@
     var ov = overallSection(call, overallSummary);
     ov.appendChild(reportBlock(call));
     var rs = resultsSection(call, resultsSummary);
+    var an = annualSection(call, annualSummary);
     var mg = h('<section class="t-sec" id="t-manage"><div class="sec-head"><h2>Teacher Management</h2><span class="small muted">Front-page modules, statuses and links</span></div><div class="t-box"><p class="muted">Loading…</p></div></section>');
     var box = $('.t-box', mg);
     var dir = directorySection(function (D) {
@@ -653,7 +655,7 @@
       dashSum('directory', n('institutions', 'institution').replace('institutionss', 'institutions') + ' · ' + n('groups', 'group') + ' · ' + n('deliveries', 'delivery').replace('deliverys', 'deliveries'));
     });
     main.appendChild(dashShell({ intro: 'Signed in as the platform administrator. Choose an area to open it.',
-      views: [['modules', tmW], ['sessions', ss], ['overall', ov], ['results', rs], ['exams', ex], ['manage', mg], ['directory', dir]] }));
+      views: [['modules', tmW], ['sessions', ss], ['overall', ov], ['results', rs], ['annual', an], ['exams', ex], ['manage', mg], ['directory', dir]] }));
     DASH.onOpen.directory = function () { var d = $('details.dir', dir); if (d && !d.open) d.open = true; };   // loads the directory the first time
     moduleSummary();
     dashShow();
@@ -726,9 +728,10 @@
     var box = h('<section class="t-sec" id="t-mine"><p class="muted">Loading…</p></section>');
     var sessW = h('<div class="dv-wrap"><p class="muted small">Loading…</p></div>'), exW = h('<div class="dv-wrap"><p class="muted small">Loading…</p></div>'), ovW = h('<div class="dv-wrap"><p class="muted small">Loading…</p></div>');
     var resW = h('<div class="dv-wrap"><p class="muted small">Loading…</p></div>');
+    var annW = h('<div class="dv-wrap"><p class="muted small">Loading…</p></div>');
     var boxW = h('<div class="dv-wrap"></div>'); boxW.appendChild(learnLockSection(call)); boxW.appendChild(box);   // 2.18: the lock first
     main.appendChild(dashShell({ intro: 'Signed in as <b>' + esc(u.name || u.username) + '</b> (' + esc(u.username) + '). Your groups and modules — choose an area to open it.', tools: bar,
-      views: [['modules', boxW], ['sessions', sessW], ['overall', ovW], ['results', resW], ['exams', exW]] }));
+      views: [['modules', boxW], ['sessions', sessW], ['overall', ovW], ['results', resW], ['annual', annW], ['exams', exW]] }));
     dashShow();
     post(CFG.backendUrl, { module: 'portal', action: 'teacherMe', ttoken: t.ttoken }).then(function (r) {
       if (!r.ok) { if (r.code === 'auth') { sdel(TKEY); toast('Your teacher session has ended — please sign in again.'); return route(); } box.innerHTML = '<p class="err">' + esc(r.error) + '</p>'; return; }
@@ -737,8 +740,8 @@
       box.innerHTML = '';
       if (!r.deliveries.length) {
         box.appendChild(h('<div class="card"><p>No group or module has been assigned to you yet. Please contact the platform administrator.</p></div>'));
-        sessW.innerHTML = exW.innerHTML = ovW.innerHTML = resW.innerHTML = '<p class="muted small">No group or module is assigned to you yet.</p>';
-        ['modules', 'sessions', 'overall', 'results', 'exams'].forEach(function (id) { dashSum(id, 'Nothing assigned yet'); });
+        sessW.innerHTML = exW.innerHTML = ovW.innerHTML = resW.innerHTML = annW.innerHTML = '<p class="muted small">No group or module is assigned to you yet.</p>';
+        ['modules', 'sessions', 'overall', 'results', 'annual', 'exams'].forEach(function (id) { dashSum(id, 'Nothing assigned yet'); });
         return;
       }
       var nG = {}, nOpen = 0; r.deliveries.forEach(function (d) { nG[d.groupId] = 1; if (d.open) nOpen++; });
@@ -758,6 +761,7 @@
       exW.innerHTML = ''; exW.appendChild(examsSection(call, false, examSummary));
       ovW.innerHTML = ''; ovW.appendChild(overallSection(call, overallSummary)); ovW.appendChild(reportBlock(call));
       resW.innerHTML = ''; resW.appendChild(resultsSection(call, resultsSummary));
+      annW.innerHTML = ''; annW.appendChild(annualSection(call, annualSummary));
     });
   }
   function myCard(d) {
@@ -1570,6 +1574,331 @@
     }
     start();
     return sec;
+  }
+  /* ---------------- Annual Assessment (2.31): topic quizzes /20 + five presentations /10 = /30 per student ----------------
+     The quiz part is calculated on the server from the attempts the modules already keep (nothing typed in); presentations
+     are the only thing the teacher records: one slot per presentation (1–5), the mark is always the teacher's. */
+  var ANN_ST = { assigned: 'Assigned', completed: 'Completed', absent: 'Absent', notdone: 'Not completed' };
+  var ANN_RUB = { accuracy: 'Scientific accuracy', understanding: 'Understanding (answers to questions)', organisation: 'Organisation and slides', delivery: 'Delivery and time' };
+  function annN(v) { return v == null ? '—' : String(v); }
+  function annDay(t) { if (!t) return ''; var d = new Date(Number(t)); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+  function annFromDay(s) { if (!s) return ''; var t = new Date(s + 'T12:00:00').getTime(); return isFinite(t) ? t : ''; }
+  function annualSection(call, onSummary) {
+    var sec = h('<section class="t-sec" id="t-annual"><div class="an-body"><p class="muted small">Loading…</p></div></section>');
+    var body = $('.an-body', sec), G = null, groupId = '', R = null, tab = 'class', q = '', show = 'all', pq = '', pst = 'all', pmod = '';
+    function fail(r) {
+      if (r.code === 'auth') { sdel(TKEY); toast('Your session has ended — please sign in again.'); route(); return; }
+      if (r.code === 'mustchange') { teacherPwForm(true); return; }
+      body.innerHTML = '<p class="small ' + (r.code === 'badaction' ? 'muted' : 'err') + '">' + esc(r.code === 'badaction' ? 'Update Portal.gs on the backend (version 2.31) to use the annual assessment.' : r.error || 'Something went wrong.') + '</p>';
+    }
+    function start() {
+      call('tsGroups').then(function (r) {
+        if (!r.ok) { fail(r); if (onSummary) onSummary({ none: 'Not available' }); return; }
+        G = r;
+        if (!G.groups.length) { body.innerHTML = '<p class="muted small">No group has teaching modules yet.</p>'; if (onSummary) onSummary({ none: 'No teaching group yet' }); return; }
+        try { groupId = sessionStorage.getItem('pp_ts_group') || ''; } catch (e) { }
+        if (!G.groups.some(function (g) { return g.groupId === groupId; })) groupId = G.groups[0].groupId;
+        load();
+      });
+    }
+    function load() {
+      body.innerHTML = '<p class="muted small">Loading the quizzes and presentations of the year…</p>';
+      call('annOverall', { groupId: groupId }).then(function (r) {
+        if (!r.ok) { fail(r); if (onSummary && r.code === 'badaction') onSummary({ none: 'Update Portal.gs (2.31)' }); return; }
+        R = r; draw();
+        if (onSummary) onSummary({ group: r.group.label, students: r.summary.students, quizzes: r.summary.quizzes, presDone: r.summary.presDone, presTotal: r.summary.presTotal, behind: r.summary.behind });
+      });
+    }
+    function stu(id) { return R.students.filter(function (x) { return x.studentId === id; })[0]; }
+    function modTitle(id) { var m = R.modules.filter(function (x) { return x.moduleId === id; })[0]; return m ? m.title : ''; }
+    function quizOf(key) { return R.quizzes.filter(function (x) { return x.key === key; })[0]; }
+    function counted() { return R.quizzes.filter(function (x) { return !x.excluded; }); }
+    function sorted() { return R.students.slice().sort(function (a, b) { return (b.active - a.active) || String(a.studentId).localeCompare(String(b.studentId)); }); }
+    /** after one slot was saved: the student's presentation part and total, without a reload (the same rule as the server). */
+    function patch(r) {
+      var x = stu(r.studentId); if (!x) return;
+      x.presentations = r.presentations; x.pres = r.pres;
+      x.total = x.quiz == null && !x.pres.marked ? null : Math.round(((x.quiz || 0) + x.pres.mark) * 10) / 10;
+      x.behind = x.active && (x.quizMissed > 0 || x.pres.overdue > 0 || x.pres.missed > 0 || x.pres.assigned < R.slots);
+      var act = R.students.filter(function (y) { return y.active; });
+      R.summary.presDone = act.reduce(function (a, y) { return a + y.pres.done; }, 0); R.summary.behind = act.filter(function (y) { return y.behind; }).length;
+    }
+    function behindWhy(x) {
+      var w = [];
+      if (x.quizMissed) w.push(x.quizMissed + ' quiz' + (x.quizMissed === 1 ? '' : 'zes') + ' missed');
+      if (x.pres.overdue) w.push(x.pres.overdue + ' presentation' + (x.pres.overdue === 1 ? '' : 's') + ' overdue');
+      if (x.pres.missed) w.push(x.pres.missed + ' absent / not completed');
+      if (x.pres.assigned < R.slots) w.push((R.slots - x.pres.assigned) + ' presentation' + (R.slots - x.pres.assigned === 1 ? '' : 's') + ' not assigned');
+      return w.join(' · ');
+    }
+    function draw() {
+      var S = R.summary; body.innerHTML = '';
+      var top = h('<div class="ts-top"><label class="ts-g">Group <select class="an-g">' + G.groups.map(function (x) { return '<option value="' + esc(x.groupId) + '"' + (x.groupId === groupId ? ' selected' : '') + '>' + esc(x.label) + '</option>'; }).join('') + '</select></label>' +
+        '<button class="btn small" type="button" data-a="r">↻ Refresh</button></div>');
+      $('.an-g', top).onchange = function () { groupId = this.value; try { sessionStorage.setItem('pp_ts_group', groupId); } catch (e) { } load(); };
+      $('[data-a=r]', top).onclick = load;
+      body.appendChild(top);
+      body.appendChild(h('<div class="ov-kpis">' +
+        '<div class="ov-kpi"><span>Students</span><b>' + S.students + '</b>' + (S.inactive ? '<small>+ ' + S.inactive + ' inactive</small>' : '') + '</div>' +
+        '<div class="ov-kpi"><span>Quizzes counted</span><b>' + S.quizzes + '</b><small>' + (S.excluded ? S.excluded + ' excluded · ' : '') + 'all modules of the group</small></div>' +
+        '<div class="ov-kpi"><span>Presentations marked</span><b>' + S.presDone + ' / ' + S.presTotal + '</b><small>' + R.slots + ' per student</small></div>' +
+        '<div class="ov-kpi' + (S.behind ? ' ov-kpi-warn' : '') + '"><span>Behind</span><b>' + (S.behind ? '⚠ ' : '') + S.behind + '</b><small>missed or outstanding work</small></div>' +
+        '<div class="ov-kpi"><span>Class mean</span><b>' + (S.mean == null ? '—' : S.mean + ' / 30') + '</b></div></div>'));
+      body.appendChild(h('<p class="small muted an-method"><b>Quizzes /20</b> = 20 × the student’s average over every counted quiz — the best attempt of each quiz, a missed quiz counts 0, an excused one is left out for that student. ' +
+        'A quiz counts once a student of this group has taken it (in any module of the group); you can exclude a quiz under 📝 Quizzes. ' +
+        '<b>Presentations /10</b> = the marks you give (0–2 each, five per student; absent or not completed = 0). <b>Total /30</b> = quizzes + presentations. Students do not see these marks.</p>'));
+      var tools = h('<div class="roster-tools"><button class="btn primary" type="button" data-a="xlsx">⬇ Excel (.xlsx)</button><button class="btn" type="button" data-a="csv">⬇ CSV</button><button class="btn" type="button" data-a="print">🖨 Print class sheet</button></div>');
+      $('[data-a=xlsx]', tools).onclick = excel; $('[data-a=csv]', tools).onclick = csv; $('[data-a=print]', tools).onclick = printClass;
+      body.appendChild(tools);
+      var tabs = h('<div class="an-tabs" role="tablist">' + [['class', '📋 Class'], ['pres', '🎤 Presentations'], ['quiz', '📝 Quizzes']].map(function (t) { return '<button type="button" role="tab" class="btn small an-tab' + (tab === t[0] ? ' primary' : '') + '" data-t="' + t[0] + '" aria-selected="' + (tab === t[0]) + '">' + t[1] + '</button>'; }).join('') + '</div>');
+      Array.prototype.forEach.call(tabs.querySelectorAll('[data-t]'), function (b) { b.onclick = function () { tab = b.dataset.t; draw(); }; });
+      body.appendChild(tabs);
+      var pane = h('<div class="an-pane"></div>'); body.appendChild(pane);
+      if (!R.students.length) { pane.appendChild(h('<p class="muted small">No students in this group yet (Platform directory → Students).</p>')); return; }
+      if (tab === 'pres') presTab(pane); else if (tab === 'quiz') quizTab(pane); else classTab(pane);
+      if (R.unmatched) body.appendChild(h('<p class="small muted">' + R.unmatched + ' quiz attempt(s) could not be matched to this group’s student list and are not counted.</p>'));
+    }
+    /* ---- 📋 Class: one row per student ---- */
+    function classTab(pane) {
+      var w = h('<div class="ts-block an-class"><div class="ov-filter"><label>Find<input type="search" class="an-q" placeholder="Name or Student ID" value="' + esc(q) + '"></label>' +
+        '<label>Show<select class="an-show">' + [['all', 'All students'], ['behind', 'Behind (missed or outstanding)'], ['inactive', 'Inactive']].map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === show ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
+        '<span class="small muted an-count"></span></div><div class="tbl-wrap"><table class="dir-tbl an-tbl"><thead><tr><th>Student ID</th><th>Name</th><th class="n">Quizzes taken</th><th class="n">Quizzes /20</th><th class="n">Presentations</th><th class="n">Presentations /10</th><th class="n">Total /30</th><th>Outstanding</th><th></th></tr></thead><tbody></tbody></table></div></div>');
+      var detailBox = h('<div class="ov-detail an-detail"></div>');
+      function rows() {
+        var k = q.trim().toLowerCase(), tb = $('tbody', w); tb.innerHTML = '';
+        var list = sorted().filter(function (x) {
+          if (show === 'behind' && !x.behind) return false; if (show === 'inactive' ? x.active : (show !== 'all' && !x.active)) return false;
+          return !k || String(x.studentId).toLowerCase().indexOf(k) >= 0 || String(x.name).toLowerCase().indexOf(k) >= 0;
+        });
+        list.forEach(function (x) {
+          var tr = h('<tr data-student="' + esc(x.studentId) + '"' + (x.behind ? ' class="ts-warn"' : x.active ? '' : ' class="muted"') + '><td><code>' + esc(x.studentId) + '</code></td><td dir="auto">' + esc(x.name) + (x.active ? '' : ' <span class="small muted">(inactive)</span>') + '</td>' +
+            '<td class="n">' + x.quizDone + ' / ' + x.quizCounted + (x.quizMissed ? ' <span class="small" style="color:var(--bad)">· ' + x.quizMissed + ' missed</span>' : '') + '</td><td class="n"><b>' + annN(x.quiz) + '</b></td>' +
+            '<td class="n">' + x.pres.done + ' / ' + R.slots + '</td><td class="n"><b>' + x.pres.mark + '</b></td><td class="n an-total"><b>' + annN(x.total) + '</b></td>' +
+            '<td class="small">' + (x.behind ? '⚠ ' + esc(behindWhy(x)) : x.active ? '<span class="muted">—</span>' : '') + '</td><td><button class="btn small" type="button">Open →</button></td></tr>');
+          $('button', tr).onclick = function () { detail(x.studentId); };
+          tb.appendChild(tr);
+        });
+        if (!list.length) tb.appendChild(h('<tr><td colspan="9" class="muted small">No student matches.</td></tr>'));
+        $('.an-count', w).textContent = list.length + ' of ' + R.students.length + ' student' + (R.students.length === 1 ? '' : 's');
+      }
+      $('.an-q', w).oninput = function () { q = this.value; rows(); };
+      $('.an-show', w).onchange = function () { show = this.value; rows(); };
+      rows();
+      pane.appendChild(w); pane.appendChild(detailBox);
+      function detail(id) {
+        var x = stu(id); if (!x) return;
+        var w2 = h('<div class="note ov-stu an-stu" tabindex="-1"><div class="ov-stu-h"><div><b dir="auto">' + esc(x.name) + '</b> <code>' + esc(x.studentId) + '</code><div class="small muted">' + esc(R.group.label) + '</div></div></div>' +
+          '<div class="ov-kpis"><div class="ov-kpi"><span>Quizzes</span><b>' + annN(x.quiz) + ' / 20</b><small>' + x.quizDone + ' of ' + x.quizCounted + ' taken' + (x.quizExcused ? ' · ' + x.quizExcused + ' excused' : '') + '</small></div>' +
+          '<div class="ov-kpi"><span>Presentations</span><b>' + x.pres.mark + ' / 10</b><small>' + x.pres.done + ' of ' + R.slots + ' completed</small></div><div class="ov-kpi"><span>Total</span><b>' + annN(x.total) + ' / 30</b></div></div>' +
+          (x.behind ? '<p class="warn-t">⚠ ' + esc(behindWhy(x)) + '</p>' : '') +
+          '<h3 class="an-h">Quizzes</h3><div class="tbl-wrap"><table class="dir-tbl"><thead><tr><th>Module</th><th>Quiz</th><th>Given</th><th class="n">Result</th><th></th></tr></thead><tbody>' +
+          (x.quizzes.length ? x.quizzes.map(function (z) { var Q = quizOf(z.key) || {}; return '<tr data-q="' + esc(z.key) + '"><td>' + esc((Q.icon || '') + ' ' + (Q.module || '')) + '</td><td>' + esc(Q.title || z.key) + '</td><td class="small">' + esc(annDay(Q.at)) + '</td>' +
+            '<td class="n">' + (z.state === 'done' ? '<b>' + z.pct + '%</b>' + (z.attempts > 1 ? ' <span class="small muted">(best of ' + z.attempts + ')</span>' : '') : z.state === 'excused' ? '<span class="pill soon">Excused</span>' : '<span class="pill locked">Missed · 0%</span>') + '</td>' +
+            '<td>' + (z.state === 'missed' ? '<button class="btn small" type="button" data-ex="1">Excuse</button>' : z.state === 'excused' ? '<button class="btn small" type="button" data-ex="0">Undo excuse</button>' : '') + '</td></tr>'; }).join('') : '<tr><td colspan="5" class="muted small">No quiz has been given to this group yet.</td></tr>') +
+          '</tbody></table></div><h3 class="an-h">Presentations</h3><div class="an-slots"></div>' +
+          '<div class="roster-tools"><button class="btn" type="button" data-a="p">🖨 Print this student’s report</button><button class="btn" type="button" data-a="x">Close</button></div></div>');
+        Array.prototype.forEach.call(w2.querySelectorAll('[data-ex]'), function (b) {
+          b.onclick = function () {
+            var key = b.closest('tr').dataset.q, on = b.dataset.ex === '1';
+            if (on && !window.confirm('Excuse ' + x.name + ' from this quiz? It is then left out of their quiz mark (instead of counting 0).')) return;
+            b.disabled = true;
+            call('annSet', { groupId: groupId, quiz: key, studentId: x.studentId, on: on }).then(function (r) { if (!r.ok) { b.disabled = false; return fail(r); } toast(on ? 'Excused.' : 'Excuse removed.'); reloadKeep(x.studentId); });
+          };
+        });
+        slotsInto($('.an-slots', w2), x, rows);
+        $('[data-a=x]', w2).onclick = function () { detailBox.innerHTML = ''; };
+        $('[data-a=p]', w2).onclick = function () { printStudent(stu(id)); };
+        detailBox.innerHTML = ''; detailBox.appendChild(w2); w2.scrollIntoView({ block: 'nearest' }); try { w2.focus({ preventScroll: true }); } catch (e) { }
+      }
+      detailOpen = detail;
+    }
+    var detailOpen = null;
+    function reloadKeep(id) {
+      call('annOverall', { groupId: groupId }).then(function (r) { if (!r.ok) return fail(r); R = r; draw(); if (id && detailOpen) detailOpen(id); });
+    }
+    /* the five slots of one student, each with ✏ Edit */
+    function slotsInto(box, x, also) {
+      box.innerHTML = '';
+      var t = h('<div class="tbl-wrap"><table class="dir-tbl an-slot-tbl"><thead><tr><th class="n">#</th><th>Topic</th><th>Module</th><th>Planned</th><th>Status</th><th class="n">Mark</th><th>Comment</th><th></th></tr></thead><tbody></tbody></table></div>');
+      for (var s = 1; s <= R.slots; s++) (function (slot) {
+        var p = x.presentations.filter(function (y) { return y.slot === slot; })[0];
+        var tr = h('<tr data-slot="' + slot + '"' + (p && p.overdue ? ' class="ts-warn"' : '') + '><td class="n">' + slot + '</td>' + (p ? '<td dir="auto">' + esc(p.topic) + '</td><td class="small">' + esc(modTitle(p.moduleId)) + '</td><td class="small">' + esc(annDay(p.dueAt)) + (p.overdue ? ' ⚠' : '') + '</td>' +
+          '<td>' + esc(ANN_ST[p.status]) + '</td><td class="n"><b>' + (p.status === 'completed' ? p.mark : p.status === 'assigned' ? '' : '0') + '</b></td><td class="small" dir="auto">' + esc(p.comment) + '</td>' : '<td colspan="6" class="muted small">Not assigned yet</td>') +
+          '<td><button class="btn small" type="button" data-a="e">' + (p ? '✏ Edit' : '＋ Assign') + '</button></td></tr>');
+        $('[data-a=e]', tr).onclick = function () { editor(stu(x.studentId), slot, function () { slotsInto(box, stu(x.studentId), also); if (also) also(); }); };
+        $('tbody', t).appendChild(tr);
+      })(s);
+      box.appendChild(t);
+    }
+    /* ---- the slot editor (a small dialog): topic, module, planned date, status, mark (or the 4-point rubric), comment ---- */
+    function editor(x, slot, after) {
+      var p = x.presentations.filter(function (y) { return y.slot === slot; })[0] || { topic: '', moduleId: '', dueAt: null, presentedAt: null, status: 'assigned', mark: null, rubric: null, comment: '', history: [] };
+      var old = document.querySelector('.an-modal'); if (old) old.remove();
+      var opts = R.topics.map(function (t) { return '<option value="' + esc(t.topic) + '">' + esc(t.module + ' · Topic ' + t.n) + '</option>'; }).join('');
+      var m = h('<div class="an-modal" role="dialog" aria-modal="true" aria-label="Presentation"><form class="an-dlg">' +
+        '<h3>🎤 Presentation ' + slot + ' — <span dir="auto">' + esc(x.name) + '</span></h3>' +
+        '<label>Topic<input name="topic" list="an-topics" required maxlength="200" value="' + esc(p.topic) + '" placeholder="Choose from the list or type a topic"><datalist id="an-topics">' + opts + '</datalist></label>' +
+        '<div class="an-row"><label>Module<select name="moduleId"><option value="">—</option>' + R.modules.map(function (mm) { return '<option value="' + esc(mm.moduleId) + '"' + (mm.moduleId === p.moduleId ? ' selected' : '') + '>' + esc(mm.title) + '</option>'; }).join('') + '</select></label>' +
+        '<label>Planned date<input type="date" name="dueAt" value="' + esc(annDay(p.dueAt)) + '"></label></div>' +
+        '<div class="an-row"><label>Status<select name="status">' + Object.keys(ANN_ST).map(function (k) { return '<option value="' + k + '"' + (k === p.status ? ' selected' : '') + '>' + ANN_ST[k] + '</option>'; }).join('') + '</select></label>' +
+        '<label class="an-pon">Presented on<input type="date" name="presentedAt" value="' + esc(annDay(p.presentedAt)) + '"></label></div>' +
+        '<fieldset class="an-mark"><legend>Mark (0–2) — your decision</legend><div class="an-marks">' + [0, 0.5, 1, 1.5, 2].map(function (v) { return '<label class="an-mk"><input type="radio" name="mark" value="' + v + '"' + (p.mark === v ? ' checked' : '') + '> ' + v + '</label>'; }).join('') + '</div>' +
+        '<details class="an-rub"' + (p.rubric ? ' open' : '') + '><summary class="small">Use the rubric (optional): 4 × 0.5</summary>' + Object.keys(ANN_RUB).map(function (k) { return '<label class="small an-rb"><input type="checkbox" data-r="' + k + '"' + (p.rubric && p.rubric[k] ? ' checked' : '') + '> ' + ANN_RUB[k] + ' — 0.5</label>'; }).join('') + '</details></fieldset>' +
+        '<label>Comment (optional)<textarea name="comment" rows="2" maxlength="500" dir="auto">' + esc(p.comment) + '</textarea></label>' +
+        (p.history && p.history.length ? '<details class="small"><summary>Changes (' + p.history.length + ')</summary>' + p.history.map(function (y) { return '<div>' + esc(new Date(y.at).toLocaleString()) + ' · ' + esc(y.by) + ' · was ' + esc(ANN_ST[y.status] || y.status || '—') + (y.mark != null ? ' (' + y.mark + ')' : '') + '</div>'; }).join('') + '</details>' : '') +
+        '<p class="small err an-err" role="alert"></p><div class="roster-tools"><button class="btn primary" type="submit">💾 Save</button>' + (x.presentations.some(function (y) { return y.slot === slot; }) && p.status === 'assigned' ? '<button class="btn" type="button" data-a="clr">Remove this slot</button>' : '') + '<button class="btn" type="button" data-a="c">Cancel</button></div></form></div>');
+      var f = $('form', m), err = $('.an-err', m);
+      function sync() { $('.an-mark', m).hidden = f.status.value !== 'completed'; $('.an-pon', m).hidden = f.status.value === 'assigned'; }
+      function rubric() { var o = {}, any = false; Array.prototype.forEach.call(m.querySelectorAll('[data-r]'), function (c) { o[c.dataset.r] = c.checked ? 0.5 : 0; if (c.checked) any = true; }); return { o: o, any: any, sum: Object.keys(o).reduce(function (a, k) { return a + o[k]; }, 0) }; }
+      Array.prototype.forEach.call(m.querySelectorAll('[data-r]'), function (c) { c.onchange = function () { var r = rubric(), v = m.querySelector('input[name=mark][value="' + r.sum + '"]'); if (v) v.checked = true; }; });
+      f.status.onchange = sync; sync();
+      f.addEventListener('change', function () { err.textContent = ''; });
+      f.topic.onchange = function () { var t = R.topics.filter(function (y) { return y.topic === f.topic.value; })[0]; if (t && !f.moduleId.value) f.moduleId.value = t.moduleId; };
+      function close() { m.remove(); document.removeEventListener('keydown', key, true); }
+      function key(e) { if (e.key === 'Escape') close(); }
+      document.addEventListener('keydown', key, true);
+      $('[data-a=c]', m).onclick = close;
+      m.onclick = function (e) { if (e.target === m) close(); };
+      function save(o, btn) {
+        btn.disabled = true; err.textContent = '';
+        call('annPres', Object.assign({ groupId: groupId, studentId: x.studentId, slot: slot }, o)).then(function (r) {
+          btn.disabled = false;
+          if (!r.ok) { if (r.code === 'auth' || r.code === 'badaction') { close(); return fail(r); } err.textContent = r.error || 'Could not save.'; return; }
+          patch(r); close(); toast('Saved.'); if (after) after();
+        });
+      }
+      var clr = $('[data-a=clr]', m); if (clr) clr.onclick = function () { if (window.confirm('Remove presentation ' + slot + ' of ' + x.name + '?')) save({ clear: true }, clr); };
+      f.onsubmit = function (e) {
+        e.preventDefault();
+        var st = f.status.value, mk = (f.querySelector('input[name=mark]:checked') || {}).value, r = rubric();
+        if (st === 'completed' && mk == null) { err.textContent = 'Choose the mark the student earned (0–2).'; return; }
+        save({ topic: f.topic.value.trim(), moduleId: f.moduleId.value, dueAt: annFromDay(f.dueAt.value), presentedAt: st === 'assigned' ? '' : annFromDay(f.presentedAt.value), status: st,
+          mark: st === 'completed' ? Number(mk) : '', rubric: st === 'completed' && r.any ? r.o : null, comment: f.comment.value }, $('button[type=submit]', f));
+      };
+      document.body.appendChild(m); f.topic.focus();
+    }
+    /* ---- 🎤 Presentations: every slot of every student, with ⚙ Auto-assign ---- */
+    function presTab(pane) {
+      var w = h('<div class="ts-block an-pres"><div class="roster-tools"><button class="btn primary" type="button" data-a="auto">⚙ Auto-assign topics…</button><span class="small muted">fills only empty slots — nothing you entered is changed</span></div>' +
+        '<div class="ov-filter"><label>Find<input type="search" class="an-pq" placeholder="Student or topic" value="' + esc(pq) + '"></label>' +
+        '<label>Status<select class="an-pst">' + [['all', 'All'], ['empty', 'Not assigned'], ['assigned', 'Assigned'], ['overdue', 'Overdue'], ['completed', 'Completed'], ['absent', 'Absent'], ['notdone', 'Not completed']].map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === pst ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
+        '<label>Module<select class="an-pmod"><option value="">All modules</option>' + R.modules.map(function (m) { return '<option value="' + esc(m.moduleId) + '"' + (m.moduleId === pmod ? ' selected' : '') + '>' + esc(m.title) + '</option>'; }).join('') + '</select></label><span class="small muted an-pcount"></span></div>' +
+        '<div class="tbl-wrap"><table class="dir-tbl an-ptbl"><thead><tr><th>Student</th><th class="n">#</th><th>Topic</th><th>Module</th><th>Planned</th><th>Status</th><th class="n">Mark</th><th>Comment</th><th></th></tr></thead><tbody></tbody></table></div></div>');
+      function rows() {
+        var k = pq.trim().toLowerCase(), tb = $('tbody', w), n = 0; tb.innerHTML = '';
+        sorted().filter(function (x) { return x.active; }).forEach(function (x) {
+          for (var s = 1; s <= R.slots; s++) (function (slot) {
+            var p = x.presentations.filter(function (y) { return y.slot === slot; })[0];
+            if (pst === 'empty' ? p : pst === 'overdue' ? !(p && p.overdue) : pst !== 'all' && (!p || p.status !== pst)) return;
+            if (pmod && (!p || p.moduleId !== pmod)) return;
+            if (k && String(x.studentId + ' ' + x.name + ' ' + (p ? p.topic : '')).toLowerCase().indexOf(k) < 0) return;
+            n++;
+            var tr = h('<tr data-student="' + esc(x.studentId) + '" data-slot="' + slot + '"' + (p && p.overdue ? ' class="ts-warn"' : '') + '><td dir="auto">' + esc(x.name) + ' <span class="small muted">' + esc(x.studentId) + '</span></td><td class="n">' + slot + '</td>' +
+              (p ? '<td dir="auto">' + esc(p.topic) + '</td><td class="small">' + esc(modTitle(p.moduleId)) + '</td><td class="small">' + esc(annDay(p.dueAt)) + (p.overdue ? ' ⚠' : '') + '</td><td>' + esc(ANN_ST[p.status]) + '</td><td class="n"><b>' + (p.status === 'completed' ? p.mark : p.status === 'assigned' ? '' : '0') + '</b></td><td class="small" dir="auto">' + esc(p.comment) + '</td>'
+                : '<td colspan="6" class="muted small">Not assigned yet</td>') +
+              '<td><button class="btn small" type="button">' + (p ? (p.status === 'assigned' ? '✓ Mark / ✏ Edit' : '✏ Edit') : '＋ Assign') + '</button></td></tr>');
+            $('button', tr).onclick = function () { editor(x, slot, rows); };
+            tb.appendChild(tr);
+          })(s);
+        });
+        if (!n) tb.appendChild(h('<tr><td colspan="9" class="muted small">Nothing matches.</td></tr>'));
+        $('.an-pcount', w).textContent = n + ' presentation slot' + (n === 1 ? '' : 's');
+      }
+      $('.an-pq', w).oninput = function () { pq = this.value; rows(); };
+      $('.an-pst', w).onchange = function () { pst = this.value; rows(); };
+      $('.an-pmod', w).onchange = function () { pmod = this.value; rows(); };
+      $('[data-a=auto]', w).onclick = autoDialog;
+      rows();
+      pane.appendChild(w);
+    }
+    function autoDialog() {
+      var old = document.querySelector('.an-modal'); if (old) old.remove();
+      var empty = R.students.filter(function (x) { return x.active; }).reduce(function (a, x) { return a + (R.slots - x.presentations.length); }, 0);
+      var byMod = {}; R.topics.forEach(function (t) { (byMod[t.moduleId] = byMod[t.moduleId] || []).push(t); });
+      var m = h('<div class="an-modal" role="dialog" aria-modal="true" aria-label="Auto-assign"><form class="an-dlg"><h3>⚙ Auto-assign presentation topics</h3>' +
+        '<p class="small">Fills the <b>' + empty + '</b> empty slot(s) of the active students with the topics you tick — each topic used about equally, no student gets the same topic twice. Slots that already exist are not changed. You can edit any of them afterwards.</p>' +
+        (R.topics.length ? R.modules.filter(function (mm) { return byMod[mm.moduleId]; }).map(function (mm) {
+          return '<fieldset class="an-tp"><legend><label><input type="checkbox" data-mod="' + esc(mm.moduleId) + '" checked> <b>' + esc(mm.icon + ' ' + mm.title) + '</b></label></legend>' +
+            byMod[mm.moduleId].map(function (t, i) { return '<label class="small an-tpi"><input type="checkbox" data-t="' + esc(mm.moduleId) + '|' + i + '" checked> Topic ' + t.n + ' — ' + esc(t.topic) + '</label>'; }).join('') + '</fieldset>';
+        }).join('') : '<p class="small muted">No topic quizzes found in this group’s modules — type the topics below.</p>') +
+        '<label class="small">More topics (optional, one per line)<textarea rows="3" class="an-more" dir="auto"></textarea></label>' +
+        '<p class="small err an-err" role="alert"></p><div class="roster-tools"><button class="btn primary" type="submit">⚙ Assign</button><button class="btn" type="button" data-a="c">Cancel</button></div></form></div>');
+      Array.prototype.forEach.call(m.querySelectorAll('[data-mod]'), function (c) { c.onchange = function () { Array.prototype.forEach.call(m.querySelectorAll('[data-t^="' + c.dataset.mod + '|"]'), function (x) { x.checked = c.checked; }); }; });
+      function close() { m.remove(); }
+      $('[data-a=c]', m).onclick = close; m.onclick = function (e) { if (e.target === m) close(); };
+      $('form', m).onsubmit = function (e) {
+        e.preventDefault();
+        var topics = [];
+        Array.prototype.forEach.call(m.querySelectorAll('[data-t]:checked'), function (c) { var a = c.dataset.t.split('|'), t = byMod[a[0]][Number(a[1])]; topics.push({ topic: t.topic, moduleId: t.moduleId }); });
+        $('.an-more', m).value.split('\n').map(function (s) { return s.trim(); }).filter(Boolean).forEach(function (s) { topics.push({ topic: s, moduleId: '' }); });
+        if (!topics.length) { $('.an-err', m).textContent = 'Tick or type at least one topic.'; return; }
+        var b = $('button[type=submit]', m); b.disabled = true; b.textContent = 'Assigning…';
+        call('annAuto', { groupId: groupId, topics: topics }).then(function (r) {
+          if (!r.ok) { b.disabled = false; b.textContent = '⚙ Assign'; $('.an-err', m).textContent = r.error || 'Could not assign.'; return; }
+          close(); toast(r.created + ' presentation slot(s) assigned.'); reloadKeep();
+        });
+      };
+      document.body.appendChild(m);
+    }
+    /* ---- 📝 Quizzes: what counts, with Exclude ---- */
+    function quizTab(pane) {
+      var w = h('<div class="ts-block an-quiz"><p class="small muted">Every quiz of the group’s modules that at least one student has taken. Untick a quiz to leave it out of the annual mark (for example a trial quiz) — tick it again to count it.</p>' +
+        '<div class="tbl-wrap"><table class="dir-tbl"><thead><tr><th>Counts</th><th>Module</th><th>Quiz</th><th>Given</th><th class="n">Taken by</th></tr></thead><tbody>' +
+        (R.quizzes.length ? R.quizzes.map(function (Q) { return '<tr data-q="' + esc(Q.key) + '"' + (Q.excluded ? ' class="muted"' : '') + '><td><input type="checkbox" aria-label="Counts in the annual mark"' + (Q.excluded ? '' : ' checked') + '></td><td>' + esc(Q.icon + ' ' + Q.module) + '</td><td>' + esc(Q.title) + '</td><td class="small">' + esc(annDay(Q.at)) + '</td><td class="n">' + Q.taken + ' / ' + R.summary.students + '</td></tr>'; }).join('')
+          : '<tr><td colspan="5" class="muted small">No quiz has been taken by this group yet.</td></tr>') + '</tbody></table></div></div>');
+      Array.prototype.forEach.call(w.querySelectorAll('tr[data-q] input'), function (c) {
+        c.onchange = function () { c.disabled = true; call('annSet', { groupId: groupId, quiz: c.closest('tr').dataset.q, on: !c.checked }).then(function (r) { if (!r.ok) { c.disabled = false; c.checked = !c.checked; return fail(r); } reloadKeep(); }); };
+      });
+      pane.appendChild(w);
+    }
+    /* ---- exports ---- */
+    function fname(ext) { return 'annual-assessment-' + R.group.linkCode + '-' + annDay(Date.now()) + '.' + ext; }
+    function head() { return ['Student ID', 'Name', 'Status', 'Quizzes counted', 'Quizzes taken', 'Missed', 'Excused', 'Quizzes /20', 'Presentations completed', 'Presentations /10', 'Total /30', 'Outstanding']; }
+    function line(x) { return [String(x.studentId), x.name, x.active ? 'active' : 'inactive', x.quizCounted, x.quizDone, x.quizMissed, x.quizExcused, x.quiz == null ? '' : x.quiz, x.pres.done, x.pres.mark, x.total == null ? '' : x.total, x.behind ? behindWhy(x) : '']; }
+    function csv() { csvDownload(fname('csv'), head(), sorted().map(line)); }
+    function excel() {
+      if (!window.PlatformXlsx) return toast('Reload the page to export to Excel.');
+      var st = sorted(), C = counted(), warn = {}; st.forEach(function (x, i) { if (x.behind) warn[i + 1] = 'warn'; });
+      var reg = { name: 'Annual register', rows: [head()].concat(st.map(line)), widths: [13, 30, 9, 10, 10, 8, 8, 11, 12, 13, 10, 40], styles: warn };
+      var qz = { name: 'Quizzes', rows: [['Student ID', 'Name'].concat(C.map(function (Q) { return Q.module + ' · ' + Q.title; }), ['Quizzes /20'])].concat(st.map(function (x) {
+        return [String(x.studentId), x.name].concat(x.quizzes.map(function (z) { return z.state === 'done' ? z.pct : z.state === 'excused' ? 'excused' : 0; }), [x.quiz == null ? '' : x.quiz]);
+      })), widths: [13, 30].concat(C.map(function () { return 14; })).concat([11]) };
+      var pr = { name: 'Presentations', rows: [['Student ID', 'Name', '#', 'Topic', 'Module', 'Planned', 'Presented', 'Status', 'Mark', 'Rubric', 'Comment']] };
+      st.forEach(function (x) { x.presentations.forEach(function (p) { pr.rows.push([String(x.studentId), x.name, p.slot, p.topic, modTitle(p.moduleId), annDay(p.dueAt), annDay(p.presentedAt), ANN_ST[p.status], p.status === 'completed' ? p.mark : p.status === 'assigned' ? '' : 0, p.rubric ? Object.keys(ANN_RUB).map(function (k) { return ANN_RUB[k] + ' ' + (p.rubric[k] || 0); }).join('; ') : '', p.comment]); }); });
+      pr.widths = [13, 30, 4, 40, 18, 12, 12, 14, 7, 40, 40];
+      var info = { name: 'Report info', header: 0, widths: [28, 90], styles: { 0: 'title' }, rows: [['Annual Pathology Assessment (30 marks)'], ['Group', R.group.label], ['Generated', new Date().toLocaleString()],
+        ['Quizzes counted', C.length + (R.summary.excluded ? ' (' + R.summary.excluded + ' excluded)' : '')], ['Quizzes /20', '20 × average of the best attempt of every counted quiz; a missed quiz counts 0; an excused quiz is left out for that student.'],
+        ['Presentations /10', 'Five presentations, 0–2 marks each, given by the teacher; absent or not completed = 0.'], ['Total /30', 'Quizzes /20 + Presentations /10.']] };
+      PlatformXlsx.download(fname('xlsx'), [reg, qz, pr, info]);
+    }
+    function printHead(title) {
+      return '<h1>' + esc(title) + '</h1><p class="sub">' + esc(R.group.label) + '</p><div class="meta"><span><b>Generated:</b> ' + esc(new Date().toLocaleString()) + '</span><span><b>Quizzes counted:</b> ' + counted().length + '</span><span><b>Presentations:</b> ' + R.slots + ' per student, 0–2 each</span></div>';
+    }
+    var NOTE = '<p class="note">Quizzes /20 = 20 × the average of the best attempt of every counted quiz (a missed quiz counts 0; an excused quiz is left out for that student). Presentations /10 = the teacher’s marks (absent or not completed = 0). Total /30 = quizzes + presentations.</p>';
+    var SIG = '<div class="sig"><div>Teacher — name and signature</div><div>Head of Department — signature</div><div>Date</div></div>';
+    function printClass() {
+      var st = sorted().filter(function (x) { return x.active; });
+      ovPrint('Annual assessment — ' + R.group.label, printHead('Annual Pathology Assessment — Class Sheet') +
+        '<table><thead><tr><th>#</th><th>Student ID</th><th>Name</th><th class="n">Quizzes taken</th><th class="n">Quizzes /20</th><th class="n">Presentations</th><th class="n">Presentations /10</th><th class="n">Total /30</th><th>Outstanding</th></tr></thead><tbody>' +
+        st.map(function (x, i) { return '<tr' + (x.behind ? ' class="warn"' : '') + '><td class="n">' + (i + 1) + '</td><td>' + esc(x.studentId) + '</td><td dir="auto">' + esc(x.name) + '</td><td class="n">' + x.quizDone + ' / ' + x.quizCounted + '</td><td class="n">' + annN(x.quiz) + '</td><td class="n">' + x.pres.done + ' / ' + R.slots + '</td><td class="n">' + x.pres.mark + '</td><td class="n"><b>' + annN(x.total) + '</b></td><td>' + esc(x.behind ? behindWhy(x) : '') + '</td></tr>'; }).join('') +
+        '</tbody></table>' + NOTE + SIG);
+    }
+    function printStudent(x) {
+      ovPrint('Annual assessment — ' + x.name, printHead('Annual Pathology Assessment — Student Report') +
+        '<h2 dir="auto">' + esc(x.name) + ' · ' + esc(x.studentId) + '</h2><div class="kpi"><span>Quizzes <b>' + annN(x.quiz) + ' / 20</b></span><span>Presentations <b>' + x.pres.mark + ' / 10</b></span><span>Total <b>' + annN(x.total) + ' / 30</b></span></div>' +
+        '<h2>Quizzes</h2><table><thead><tr><th>Module</th><th>Quiz</th><th>Given</th><th class="n">Result</th></tr></thead><tbody>' +
+        x.quizzes.map(function (z) { var Q = quizOf(z.key) || {}; return '<tr><td>' + esc(Q.module || '') + '</td><td>' + esc(Q.title || '') + '</td><td>' + esc(annDay(Q.at)) + '</td><td class="n">' + (z.state === 'done' ? z.pct + '%' : z.state === 'excused' ? 'Excused' : 'Missed (0%)') + '</td></tr>'; }).join('') + '</tbody></table>' +
+        '<h2>Presentations</h2><table><thead><tr><th>#</th><th>Topic</th><th>Module</th><th>Presented</th><th>Status</th><th class="n">Mark</th><th>Comment</th></tr></thead><tbody>' +
+        [1, 2, 3, 4, 5].slice(0, R.slots).map(function (s) { var p = x.presentations.filter(function (y) { return y.slot === s; })[0]; return p ? '<tr><td class="n">' + s + '</td><td dir="auto">' + esc(p.topic) + '</td><td>' + esc(modTitle(p.moduleId)) + '</td><td>' + esc(annDay(p.presentedAt)) + '</td><td>' + esc(ANN_ST[p.status]) + '</td><td class="n">' + (p.status === 'completed' ? p.mark : p.status === 'assigned' ? '' : '0') + '</td><td dir="auto">' + esc(p.comment) + '</td></tr>' : '<tr><td class="n">' + s + '</td><td colspan="6">Not assigned yet</td></tr>'; }).join('') +
+        '</tbody></table>' + NOTE + SIG);
+    }
+    start();
+    return sec;
+  }
+  function annualSummary(x) {
+    if (x.none) { dashSum('annual', x.none); return; }
+    dashSum('annual', x.group + ' · ' + x.students + ' student' + (x.students === 1 ? '' : 's') + ' · ' + x.quizzes + ' quiz' + (x.quizzes === 1 ? '' : 'zes') + ' counted · ' + x.presDone + ' / ' + x.presTotal + ' presentations marked',
+      x.behind ? '⚠ ' + x.behind + ' behind' : '', 'warn');
   }
   function overallSection(call, onSummary) {
     var sec = h('<section class="t-sec" id="t-overall"><div class="ov-body"><p class="muted small">Loading…</p></div></section>');

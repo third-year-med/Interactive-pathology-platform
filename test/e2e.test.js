@@ -2277,7 +2277,7 @@ test('Presentation Mode attendance code: the open code stays in the corner on ev
   await p.context().close();
 });
 
-test('Teacher Dashboard: compact cards first; each card opens its full management view; Back / browser Back / deep links; typed input is kept and unsaved changes are protected; a personal teacher gets five cards', { skip: SKIP }, async function () {
+test('Teacher Dashboard: compact cards first; each card opens its full management view; Back / browser Back / deep links; typed input is kept and unsaved changes are protected; a personal teacher gets six cards', { skip: SKIP }, async function () {
   groupFixture();
   main.call({ module: 'portal', action: 'setup', password: TPW });
   const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
@@ -2293,7 +2293,7 @@ test('Teacher Dashboard: compact cards first; each card opens its full managemen
   await p.waitForSelector('.dash-grid .dash-card');
   // only the six cards are on screen — no management form or table
   assert.deepStrictEqual(await p.$$eval('.dash-card', function (c) { return c.map(function (x) { return x.dataset.view + '|' + x.querySelector('.dc-t').textContent; }); }),
-    ['modules|Teaching Modules', 'sessions|Teaching Sessions', 'overall|Overall Pathology Attendance', 'results|Pathology Overall Results & Analytics', 'exams|Official Exams', 'manage|Teacher Management', 'directory|Platform Directory']);
+    ['modules|Teaching Modules', 'sessions|Teaching Sessions', 'overall|Overall Pathology Attendance', 'results|Pathology Overall Results & Analytics', 'annual|Annual Assessment (30)', 'exams|Official Exams', 'manage|Teacher Management', 'directory|Platform Directory']);
   assert.strictEqual(await p.$$eval('.dash-view', function (v) { return v.filter(function (x) { return !x.hidden; }).length; }), 0);
   for (const sel of ['#t-modules', '#t-sessions', '#t-overall', '#t-exams', '#t-manage', '#t-dir', 'form.ts-form', '.modrow', 'table']) assert.ok(!(await p.isVisible(sel)), sel + ' hidden on the dashboard');
   // summaries from the data the sections already loaded
@@ -2386,7 +2386,7 @@ test('Teacher Dashboard: compact cards first; each card opens its full managemen
   await q.goto(url + '#/teacher');
   await q.fill('#t-u', un); await q.fill('#t-p', 'dash-teacher-2'); await q.click('form.card button[type=submit]');
   await q.waitForSelector('.dash-card');
-  assert.deepStrictEqual(await q.$$eval('.dash-card', function (c) { return c.map(function (x) { return x.dataset.view; }); }), ['modules', 'sessions', 'overall', 'results', 'exams']);
+  assert.deepStrictEqual(await q.$$eval('.dash-card', function (c) { return c.map(function (x) { return x.dataset.view; }); }), ['modules', 'sessions', 'overall', 'results', 'annual', 'exams']);
   await q.waitForFunction(function () { return /1 module in 1 group/.test(document.querySelector('.dash-card[data-view=modules] .dc-sum').textContent); });
   await dash(q, 'modules'); await q.waitForSelector('#t-mine .mod[data-id="cellinjury"] .t-open', { state: 'visible' });
   await q.click('.dash-view[data-view=modules] .dv-back');
@@ -3232,6 +3232,95 @@ test('module Live Classroom: a signed-in registered student goes straight in (no
 test('no JavaScript errors', { skip: SKIP }, function () { assert.deepStrictEqual(errors, []); });
 
 /* ---------------- Overall Pathology Attendance (2.15) ---------------- */
+test('🏅 Annual Assessment (2.31): quizzes /20 from the modules\' attempts (missed = 0), auto-assign + mark presentations (rubric), excuse, exclude, total /30, CSV / Excel / print', { skip: SKIP }, async function () {
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const A = function (action, o) { const r = main.call(Object.assign({ module: 'portal', action: action, token: t }, o || {})); assert.ok(r.ok, action + ' ' + JSON.stringify(r)); return r; };
+  const sv = function (kind, record) { return A('dirSave', { kind: kind, record: record }).record; };
+  A('dirGet');
+  const inst = sv('institution', { name: 'Annual Test University', shortName: 'ATU' });
+  const g = sv('group', { institutionId: inst.institutionId, name: 'Group N', academicYear: '2026-27', linkCode: 'an-a' });
+  sv('delivery', { groupId: g.groupId, moduleId: 'cellinjury', status: 'available' }); sv('delivery', { groupId: g.groupId, moduleId: 'inflhealing', status: 'available' });
+  A('rosterAdd', { groupId: g.groupId, mustChange: false, students: [{ studentId: '28010001', name: 'Huda First', password: 'pass-n1-xyz' }, { studentId: '28010002', name: 'Imad Second', password: 'pass-n2-xyz' }] });
+  const CI = 'cellinjury-an-a', IH = 'inflhealing-an-a'; let n = 0;
+  const att = function (st, id, ref, pct) { n++; main.ctx.assessStore_(st).put('attempt', 'an' + n, { id: 'an' + n, assessmentId: ref, assessmentTitle: ref === 'tq1' ? 'Topic 1 quiz — Adaptations' : 'Topic 1 quiz — Acute inflammation', email: id + '@student.local', status: 'submitted', percent: pct, submittedAt: Date.now() - 864e5 * (3 - n) }); };
+  att(CI, '28010001', 'tq1', 80); att(IH, '28010001', 'tq2', 60); att(IH, '28010002', 'tq2', 100);   // Huda 140/200 → 14; Imad missed tq1 → 100/200 → 10
+  // the topic quizzes themselves (the presentation topics come from their titles)
+  main.call({ module: CI, action: 'setup', password: 'mod-teacher-an-1' });
+  const mt = main.call({ module: CI, action: 'login', password: 'mod-teacher-an-1' }).token;
+  ['Topic 1 quiz — Adaptations', 'Topic 2 quiz — Necrosis', 'Topic 3 quiz — Apoptosis'].forEach(function (title, i) { assert.ok(main.call({ module: CI, action: 'upsert', token: mt, collection: 'assessments', id: 'tq' + (i ? 'c' + i : '1'), data: { id: 'tq' + (i ? 'c' + i : '1'), title: title, status: 'published' } }).ok); });
+  const p = await page();
+  p.removeAllListeners('dialog'); p.on('dialog', function (dl) { dl.accept(); });
+  await p.goto(url + '#/teacher'); await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+  await dash(p, 'annual');
+  await p.waitForSelector('#t-annual .an-g');
+  await p.selectOption('#t-annual .an-g', g.groupId);
+  await p.waitForFunction(function () { return document.querySelectorAll('#t-annual .an-tbl tbody tr[data-student]').length === 2; }, null, { timeout: 15000 });
+  const cells = function (id) { return p.$eval('#t-annual .an-tbl tr[data-student="' + id + '"]', function (tr) { return Array.prototype.map.call(tr.cells, function (c) { return c.textContent.trim(); }); }); };
+  assert.deepStrictEqual((await cells('28010001')).slice(0, 7), ['28010001', 'Huda First', '2 / 2', '14', '0 / 5', '0', '14']);
+  assert.deepStrictEqual((await cells('28010002')).slice(0, 7), ['28010002', 'Imad Second', '1 / 2 · 1 missed', '10', '0 / 5', '0', '10'], 'missed quiz counts 0');
+  assert.match((await cells('28010002'))[7], /1 quiz missed[\s\S]*5 presentations not assigned/);
+  assert.match(await p.textContent('#t-annual .ov-kpis'), /Students2[\s\S]*Quizzes counted2[\s\S]*Presentations marked0 \/ 10[\s\S]*Behind⚠ 2/);
+  // 🎤 Presentations → ⚙ Auto-assign (topics from the topic quizzes) → mark one with the rubric
+  await p.click('#t-annual .an-tab[data-t=pres]');
+  await p.click('#t-annual [data-a=auto]');
+  await p.waitForSelector('.an-modal .an-tpi');
+  assert.match(await p.textContent('.an-modal'), /Fills the 10 empty slot[\s\S]*Topic 1 — Adaptations[\s\S]*Topic 3 — Apoptosis/);
+  await p.fill('.an-modal .an-more', 'Hyperplasia\nMetaplasia');
+  await p.click('.an-modal button[type=submit]');
+  await p.waitForFunction(function () { return !document.querySelector('.an-modal') && document.querySelectorAll('#t-annual .an-ptbl tbody tr[data-slot]').length === 10 && !/Not assigned yet/.test(document.querySelector('#t-annual .an-ptbl').textContent); }, null, { timeout: 15000 });
+  const topics = await p.$$eval('#t-annual .an-ptbl tr[data-student="28010001"] td:nth-child(3)', function (c) { return c.map(function (x) { return x.textContent; }); });
+  assert.strictEqual(new Set(topics).size, 5, 'five different topics: ' + topics);
+  if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'annual-presentations.png'), fullPage: true });
+  await p.click('#t-annual .an-ptbl tr[data-student="28010001"][data-slot="1"] button');
+  await p.waitForSelector('.an-modal form');
+  assert.ok(await p.isHidden('.an-modal .an-mark'), 'no mark while assigned');
+  await p.selectOption('.an-modal select[name=status]', 'completed');
+  await p.click('.an-modal button[type=submit]');
+  assert.match(await p.textContent('.an-modal .an-err'), /Choose the mark/, 'never a mark without the teacher choosing it');
+  await p.click('.an-modal .an-rub summary');
+  for (const k of ['accuracy', 'understanding', 'organisation']) await p.check('.an-modal [data-r=' + k + ']');
+  assert.strictEqual(await p.$eval('.an-modal input[name=mark]:checked', function (i) { return i.value; }), '1.5', 'the rubric sets the mark');
+  await p.check('.an-modal [data-r=delivery]');
+  await p.fill('.an-modal textarea[name=comment]', 'Clear and accurate');
+  if (process.env.SHOTS) await (await p.$('.an-modal form')).screenshot({ path: path.join(process.env.SHOTS, 'annual-mark.png') });
+  await p.click('.an-modal button[type=submit]');
+  await p.waitForFunction(function () { var r = document.querySelector('#t-annual .an-ptbl tr[data-student="28010001"][data-slot="1"]'); return !document.querySelector('.an-modal') && r && /Completed/.test(r.textContent) && /Clear and accurate/.test(r.textContent); });
+  // 📋 Class: Huda 14 + 2 = 16; Imad excused from tq1 → 100 % of 1 quiz → 20
+  await p.click('#t-annual .an-tab[data-t=class]');
+  await p.waitForSelector('#t-annual .an-tbl');
+  assert.deepStrictEqual((await cells('28010001')).slice(2, 7), ['2 / 2', '14', '1 / 5', '2', '16']);
+  await p.click('#t-annual .an-tbl tr[data-student="28010002"] button');
+  await p.waitForSelector('#t-annual .an-stu [data-ex="1"]');
+  await p.click('#t-annual .an-stu [data-ex="1"]');
+  await p.waitForFunction(function () { var r = document.querySelector('#t-annual .an-tbl tr[data-student="28010002"]'); return r && /20/.test(r.cells[3].textContent) && document.querySelector('#t-annual .an-stu'); }, null, { timeout: 15000 });
+  assert.match(await p.textContent('#t-annual .an-stu'), /Excused/);
+  // 📝 Quizzes: exclude tq2 → Huda 80 % → 16 + 2 = 18
+  await p.click('#t-annual .an-tab[data-t=quiz]');
+  await p.uncheck('#t-annual .an-quiz tr[data-q="' + IH + '|tq2"] input');
+  await p.waitForFunction(function () { return /Quizzes counted1[\s\S]*1 excluded/.test(document.querySelector('#t-annual .ov-kpis').textContent); }, null, { timeout: 15000 });
+  await p.click('#t-annual .an-tab[data-t=class]');
+  assert.deepStrictEqual((await cells('28010001')).slice(2, 7), ['1 / 1', '16', '1 / 5', '2', '18']);
+  if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'annual-class.png'), fullPage: true });
+  // exports: CSV = the table; Excel has the four sheets; the printed class sheet
+  const dl = function (sel) { return Promise.all([p.waitForEvent('download'), p.click(sel)]).then(function (x) { return x[0].path(); }); };
+  const csv = fs.readFileSync(await dl('#t-annual [data-a=csv]'), 'utf8').replace(/^﻿/, '').split(/\r\n/);
+  assert.match(csv[0], /^Student ID,Name,Status,Quizzes counted,Quizzes taken,Missed,Excused,Quizzes \/20,Presentations completed,Presentations \/10,Total \/30,Outstanding$/);
+  assert.match(csv[1], /^28010001,Huda First,active,1,1,0,0,16,1,2,18,/);
+  assert.match(csv[2], /^28010002,Imad Second,active,0,0,0,1,,0,0,,/, 'excused from the only counted quiz → no quiz mark yet');
+  const xp = await dl('#t-annual [data-a=xlsx]');
+  const wb = require('child_process').execFileSync('unzip', ['-p', xp, 'xl/workbook.xml']).toString();
+  assert.match(wb, /name="Annual register"[\s\S]*name="Quizzes"[\s\S]*name="Presentations"[\s\S]*name="Report info"/);
+  await p.click('#t-annual [data-a=print]');
+  await p.waitForFunction(function () { var f = document.querySelector('iframe.ov-print'); return f && f.contentDocument && /Annual Pathology Assessment — Class Sheet/.test(f.contentDocument.body.textContent); });
+  assert.match(await p.evaluate(function () { return document.querySelector('iframe.ov-print').contentDocument.body.textContent; }), /Huda First[\s\S]*16[\s\S]*18/);
+  // the marks persist on the server (a fresh read), with the correction history
+  const srv = A('annOverall', { groupId: g.groupId }), hu = srv.students.filter(function (x) { return x.studentId === '28010001'; })[0];
+  assert.deepStrictEqual([hu.quiz, hu.pres.mark, hu.total, hu.presentations[0].mark, hu.presentations[0].rubric.delivery], [16, 2, 18, 2, 0.5]);
+  assert.strictEqual(errors.filter(function (e) { return !/ERR_TUNNEL|net::/.test(e); }).length, 0, errors.join('\n'));
+  await p.context().close();
+});
+
 test('Pathology Overall Results & Analytics (2.22): one row per student, module assessment % and overall % (equal / weighted), missing ≠ 0, filters, sort, details, CSV = table', { skip: SKIP }, async function () {
   main.call({ module: 'portal', action: 'setup', password: TPW });
   const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
