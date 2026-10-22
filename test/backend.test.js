@@ -2682,3 +2682,58 @@ test('Pathology Overall Results (2.22): module % = mean of submitted assessment 
   assert.strictEqual(S.tt('resOverall', S.sara.tok, { groupId: S.ra.groupId }).code, 'forbidden');
   S.ts('resSettings', { method: 'equal', weights: {} });
 });
+
+test('2.33 assessment-only question bank: teachers of every group read it, only the Admin changes it from the main copy, students never receive it nor any published assessment version — attempts still work', function () {
+  const S = tsSetup(), CI = 'cellinjury-razi-a-26', X = S.b.ctx;
+  const fresh = function () { Object.keys(X.DIR_HEADERS).forEach(function (n) { delete X.HEADERS[n]; if (X.TEXT_COLS) delete X.TEXT_COLS[n]; }); };
+  const tMain = S.call({ module: 'portal', action: 'portalTeacherOpen', token: S.admin, modules: ['cellinjury'] }).modules.cellinjury.token;
+  const tRa = S.t('teacherOpen', S.ahmed.tok, { deliveryId: S.ci.deliveryId }).token;
+  const call = function (m, o) { fresh(); return S.call(Object.assign({ module: m }, o)); };
+  const q1 = { id: 'aqb_cc_001', type: 'mcq', stem: 'CD 95 is a marker of:', options: ['Intrinsic', 'Extrinsic', 'Necrosis', 'Adaptation'], answer: 1, topic: 't10', explanation: 'Fas.' };
+  const q2 = { id: 'aqb_cc_024', type: 'selectall', stem: 'Apoptosis shows:', options: ['Blebs', 'Inflammation', 'Nuclear fragmentation'], answers: [0, 2], topic: 't10' };
+  // save: Admin from the main copy; bad questions are refused one by one
+  let r = call('cellinjury', { action: 'qbSave', token: tMain, items: [q1, q2, { id: 'bad id!', type: 'mcq' }, { id: 'nokey', type: 'mcq', stem: 'x', options: ['a', 'b'] }] });
+  assert.ok(r.ok, JSON.stringify(r)); assert.deepStrictEqual([r.saved, r.added, r.rejected.length, r.total], [2, 2, 2, 2]);
+  assert.strictEqual(call('cellinjury', { action: 'qbSave', token: tMain, items: [q1] }).added, 0, 'same id = replaced, never doubled');
+  // a group's teacher (personal teacher) reads the module's bank, cannot change it; no session / a student: nothing
+  r = call(CI, { action: 'qbList', token: tRa }); assert.ok(r.ok, JSON.stringify(r));
+  assert.deepStrictEqual([r.module, r.canEdit, r.items.map(function (q) { return q.id; }).sort(), r.items[0].bank], ['cellinjury', false, ['aqb_cc_001', 'aqb_cc_024'], true]);
+  assert.strictEqual(call(CI, { action: 'qbSave', token: tRa, items: [q1] }).code, 'forbidden');
+  assert.strictEqual(call(CI, { action: 'qbDelete', token: tRa, all: true }).code, 'forbidden');
+  const stu = login(S, CI, 'b1', 'basma-pass-1').token;
+  assert.strictEqual(call(CI, { action: 'qbList', stoken: stu }).ok, false);
+  assert.strictEqual(call(CI, { action: 'qbList', stoken: stu, token: 'made-up' }).ok, false);
+  assert.strictEqual(call('inflhealing-razi-a-26', { action: 'qbList', token: tRa }).ok, false, 'another module\'s teacher token');
+  // students: the bank rows never travel; published versions arrive as removed; assessments themselves still listed
+  const ttok = assessFixture(S, CI);
+  const items = function (o) { const x = call(CI, Object.assign({ action: 'getAllContent', since: 0 }, o)); assert.ok(x.ok, JSON.stringify(x)); return x.items; };
+  const stuItems = items({ stoken: stu });
+  assert.ok(!stuItems.some(function (i) { return /^priv:/.test(i.collection); }));
+  const sv = stuItems.filter(function (i) { return i.collection === 'assessmentversions'; });
+  assert.deepStrictEqual(sv.map(function (i) { return [i.id, i.deleted, i.data]; }).sort(), [['q1@1', true, null], ['q2@1', true, null]]);
+  assert.ok(stuItems.some(function (i) { return i.collection === 'assessments' && i.id === 'q1' && !i.deleted; }));
+  assert.ok(items({ stoken: stu, token: 'made-up' }).filter(function (i) { return i.collection === 'assessmentversions'; }).every(function (i) { return i.deleted && !i.data; }), 'a made-up teacher token changes nothing');
+  const tv = items({ token: ttok }).filter(function (i) { return i.collection === 'assessmentversions'; });
+  assert.ok(tv.length === 2 && tv.every(function (i) { return !i.deleted && i.data && i.data.questions.x1; }), 'teachers still get them');
+  assert.strictEqual(call(CI, { action: 'getAllContent', since: 0 }).ok, false, 'no session: refused as before');
+  // versioned content ON: the same for students, master content still arrives
+  assert.ok(S.dir('contentMigrate', { moduleId: 'cellinjury', decisions: {} }).ok);
+  assert.ok(S.dir('contentSetMode', { moduleId: 'cellinjury', mode: 'on' }).ok);
+  assert.ok(call('cellinjury', { action: 'upsert', token: tMain, collection: 'customtopics', id: 'C9', data: { title: 'Main' } }).ok);
+  const on = items({ stoken: stu });
+  assert.ok(on.filter(function (i) { return i.collection === 'assessmentversions'; }).every(function (i) { return i.deleted && !i.data; }));
+  assert.ok(!on.some(function (i) { return /^priv:/.test(i.collection); }));
+  assert.ok(items({ token: ttok }).some(function (i) { return i.collection === 'assessmentversions' && !i.deleted; }));
+  // the assessment engine is untouched: list, start (own password), the attempt's questions come from the server
+  assert.ok(call(CI, { action: 'aePwSet', token: ttok, assessmentId: 'q1', password: 'Necro-26' }).ok);
+  const mine = call(CI, { action: 'getMyAssessments', stoken: stu }); assert.ok(mine.ok, JSON.stringify(mine));
+  const asg = mine.items.filter(function (i) { return i.assessment.id === 'q1'; })[0]; assert.ok(asg);
+  const st = call(CI, { action: 'startAttempt', stoken: stu, assignmentId: asg.assignment.id, password: 'Necro-26' }); assert.ok(st.ok, JSON.stringify(st));
+  assert.strictEqual(st.attempt.questions[0].stem, 'Necrosis is always irreversible.');
+  // delete: one, then all (Admin, main copy)
+  assert.strictEqual(call('cellinjury', { action: 'qbDelete', token: tMain, ids: ['aqb_cc_024', 'nope'] }).deleted, 1);
+  assert.strictEqual(call('cellinjury', { action: 'qbList', token: tMain }).items.length, 1);
+  assert.strictEqual(call('cellinjury', { action: 'qbDelete', token: tMain, all: true }).deleted, 1);
+  assert.deepStrictEqual(call(CI, { action: 'qbList', token: tRa }).items, []);
+  assert.strictEqual(X.PORTAL_VERSION, '2.33');
+});

@@ -113,11 +113,13 @@ R = [
       el('p', { class: 'small muted', style: 'margin-bottom:0' }, 'Each quiz has its own random password (in every group): 🔑 Passwords → 👁 Show or 📋 Copy, then give it to the class when the quiz should start.'));
     openModal({ title: '⚡ Topic quizzes — done', body, wide: true, actions: [{ label: 'OK', primary: true }] });
   },
-  /** 📤 Copy to groups (Portal.gs 2.21): the same assessment in other groups of this module — each keeps its own results. */"""),
+  /** 📤 Copy to groups (Portal.gs 2.21): the same assessment in other groups of this module — each keeps its own results. */""",
+"""  topicQuizPlan() {"""),   # done-marker: assess-bank edits lines inside this block
 ]
 for path in sys.argv[1:]:
     s = open(path, encoding='utf-8').read(); n = 0
-    for a, b in R:
-        if b in s: continue
+    for r in R:
+        a, b = r[0], r[1]
+        if b in s or (len(r) > 2 and r[2] in s): continue
         assert s.count(a) == 1, (path, a[:70]); s = s.replace(a, b); n += 1
     open(path, 'w', encoding='utf-8').write(s); print(path, 'changes:', n)

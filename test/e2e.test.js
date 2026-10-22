@@ -3914,6 +3914,115 @@ test('⚡ Topic quizzes: one quiz per topic (pool of its practice questions, 5 r
   }
 });
 
+/* 🔒 Assessment-only question bank (Portal.gs 2.33, patch assess-bank): imported in the main copy, hidden from Practice,
+   never sent to a student's browser, used by ⚡ Topic quizzes (bank first, ≥ 5 per topic) and by the server-built attempts. */
+test('🔒 Assessment bank: import in the main copy → never in Practice / Revision, never in a student browser (content, sync, storage); ⚡ Topic quizzes take a topic with ≥ 5 bank questions from the bank; a student attempt gets bank questions from the server', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+  groupFixture();
+  const qs = [], tf = function (topic, i) { return { id: topic + '-q' + i, type: 'tf', topic: topic, stem: 'Practice statement ' + i + ' of ' + topic + '.', answer: i % 2 === 0, explanation: 'Because.' }; };
+  for (let i = 1; i <= 7; i++) qs.push(tf('tA', i));
+  for (let i = 1; i <= 5; i++) qs.push(tf('tC', i));
+  const topics = [{ id: 'tA', title: 'Cell adaptations', sections: [] }, { id: 'tC', title: 'Cell death', sections: [] }];
+  const bq = []; for (let i = 1; i <= 6; i++) bq.push({ id: 'aqb_t_' + i, type: 'mcq', topic: 'tA', stem: 'BANKSTEM ' + i + ': which one?', options: ['One', 'Two', 'Three', 'Four'], answer: i % 4, explanation: 'BANKEXPL ' + i, difficulty: 2 });
+  bq.push({ id: 'aqb_t_7', type: 'selectall', topic: 'tA', stem: 'BANKSTEM 7: select all.', options: ['A', 'B', 'C'], answers: [0, 2] });
+  bq.push({ id: 'aqb_t_8', type: 'mcq', topic: 'tC', stem: 'BANKSTEM 8.', options: ['x', 'y'], answer: 0 }, { id: 'aqb_t_9', type: 'mcq', topic: 'tC', stem: 'BANKSTEM 9.', options: ['x', 'y'], answer: 1 });
+  const bad = { id: 'tA-q1', type: 'mcq', topic: 'tA', stem: 'Clashes with a practice id.', options: ['x', 'y'], answer: 0 };
+  const file = { name: 'bank.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ format: 'neo-assessment-bank', version: 1, module: 'cellinjury', title: 'Test bank', items: bq.concat([bad]) })) };
+  const ST = 'cellinjury-tr-a', mod = syntheticModule(CI_PAGE, { topics: topics, questions: qs }), keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  const autos = function (st) { return main.ctx.rpRows_('Content').filter(function (r) { return r.module === st && r.collection === 'assessments' && !main.ctx.isTrue_(r.deleted); }).map(function (r) { return main.ctx.unpackJson_(r); }).filter(function (a) { return a && a.autoTopic; }); };
+  const backendUrl = JSON.parse(/window\.NEO_CONFIG\s*=\s*(\{[\s\S]*?\});/.exec(mod.html)[1]).backendUrl;
+  const teacherPage = async function (storage, hash) {
+    main.call({ module: storage, action: 'setup', password: 'teacher-' + storage + '-1' });
+    const tok = main.call({ module: storage, action: 'login', password: 'teacher-' + storage + '-1' }).token;
+    const t = await page(), g = storage.indexOf('-') > 0 ? storage.slice(storage.indexOf('-') + 1) : '';
+    await t.route('https://third-year-med.github.io/cell-injury-teaching-platform/**', function (route) { return route.fulfill({ status: 200, contentType: 'text/html', body: mod.html }); });
+    await t.addInitScript(function (o) { try { localStorage.setItem(o.k, JSON.stringify({ token: o.tok, expiresAt: Date.now() + 3600e3, url: o.url })); } catch (e) { } }, { tok: tok, url: backendUrl, k: 'ci_' + (g ? g + '_' : '') + 'backend_token_v1' });
+    await t.goto('https://third-year-med.github.io/cell-injury-teaching-platform/' + (g ? '?g=' + g : '') + hash);
+    return t;
+  };
+  try {
+    // 1. the Admin imports the bank in the main copy (Teacher Portal → 📝 Assessments → 🔒 Assessment bank)
+    const m = await teacherPage('cellinjury', '#/teacher/assessments');
+    await m.waitForSelector('[data-a=abank]', { timeout: 20000 });
+    await m.click('[data-a=abank]');
+    await m.waitForSelector('.abank-import input[type=file]');
+    assert.match(await m.textContent('.abank-intro'), /assessments only[\s\S]*never appear in Practice/);
+    await m.setInputFiles('.abank-import input[type=file]', file);
+    await m.waitForFunction(function () { return /9 new · 0 changed · 0 already in the bank · 1 cannot be added/.test(document.querySelector('.abank-import').textContent); });
+    assert.match(await m.textContent('.abank-plan'), /tA-q1 — Clashes with a practice id\. — not possible: a practice question already has this id/);
+    if (process.env.SHOTS) await (await m.$('.abank-import')).screenshot({ path: path.join(process.env.SHOTS, 'abank-plan.png') });
+    await m.click('.abank-import button.btn-primary'); await m.click('.modal button:has-text("Add to the bank")');
+    await m.waitForFunction(function () { return /✓ 9 questions saved · the bank now holds 9/.test(document.querySelector('.abank-import').textContent); }, null, { timeout: 30000 });
+    assert.strictEqual(main.ctx.rpRows_('Content').filter(function (r) { return r.module === 'cellinjury' && r.collection === 'priv:assessbank' && !main.ctx.isTrue_(r.deleted); }).length, 9, 'stored privately in the main copy');
+    assert.match(await m.textContent('.abank-topics'), /1Cell adaptations7🔒 the bank[\s\S]*2Cell death2practice questions/);
+    assert.match(await m.textContent('.abank-list'), /aqb_t_7[\s\S]*A, C/);
+    if (process.env.SHOTS) await m.screenshot({ path: path.join(process.env.SHOTS, 'abank-tab.png'), fullPage: true });
+    // the teacher's own Practice: no bank question anywhere (QUESTIONS, Revision, the Question Bank manager)
+    const tv = await m.evaluate(function () { return { q: QUESTIONS.length, bankInQ: QUESTIONS.some(function (q) { return q.bank; }), known: !!Q_BY_ID.aqb_t_1, rev: Views.revision.filtered().some(function (q) { return q.bank; }),
+      mgr: bankFiltered(bankFilterDefaults()).some(function (q) { return q.bank; }), builder: bankFiltered(bankFilterDefaults({ withBank: true, source: 'bank' })).length }; });
+    assert.deepStrictEqual(tv, { q: 12, bankInQ: false, known: true, rev: false, mgr: false, builder: 9 });
+    await m.evaluate(function () { location.hash = '#/revision'; });
+    await m.waitForFunction(function () { var v = document.querySelector('#view-revision'); return v && /Practice statement/.test(v.textContent); }, null, { timeout: 15000 });
+    assert.ok(!/BANKSTEM/.test(await m.textContent('#view-revision')), 'Revision shows no bank question');
+    await m.context().close();
+    // 2. a group's teacher: the bank is read-only there; ⚡ Topic quizzes: Topic 1 from the bank (7), Topic 2 from practice (only 2 in the bank)
+    const t = await teacherPage(ST, '#/teacher/assessments');
+    await t.waitForSelector('[data-a=abank]', { timeout: 20000 });
+    await t.click('[data-a=abank]');
+    await t.waitForFunction(function () { return /Edit master draft/.test((document.querySelector('.abank-import') || {}).textContent || ''); });
+    assert.ok(!(await t.$('.abank-import input[type=file]')), 'no import from a group copy');
+    await t.click('.sub-tabs .chip');   // back to the library
+    await t.waitForSelector('[data-a=topic-quizzes]');
+    await t.click('[data-a=topic-quizzes]'); await t.waitForSelector('.modal .tq');
+    const plan = await t.textContent('.modal');
+    assert.match(plan, /assessment-bank questions when it has at least 5[\s\S]*1Cell adaptations7 🔒✓ new quiz[\s\S]*2Cell death5✓ new quiz/);
+    if (process.env.SHOTS) await (await t.$('.modal')).screenshot({ path: path.join(process.env.SHOTS, 'abank-topic-quizzes.png') });
+    await t.click('.modal .modal-foot .btn-primary');
+    await t.waitForFunction(function () { var x = document.querySelector('.modal'); return x && /Topic quizzes — done/.test(x.textContent); }, null, { timeout: 60000 });
+    const a = autos(ST).sort(function (x, y) { return x.title.localeCompare(y.title); });
+    assert.deepStrictEqual(a.map(function (x) { return [x.title, x.questionIds.length, x.questionIds.every(function (id) { return /^aqb_t_/.test(id); })]; }), [['Topic 1 quiz — Cell adaptations', 7, true], ['Topic 2 quiz — Cell death', 5, false]]);
+    assert.match(a[0].description, /5 random questions from the 7 🔒 assessment-bank questions/);
+    const ver = main.ctx.unpackJson_(main.ctx.findContentRow_(ST, 'assessmentversions', a[0].id + '@' + a[0].publishedVersion));
+    assert.strictEqual(ver.questions.aqb_t_1.stem, 'BANKSTEM 1: which one?', 'the published version froze the bank questions');
+    await t.context().close();
+    // 3. the student: nothing of the bank in the page, in any server answer or in the browser's storage
+    const sp = await page(), bodies = [];
+    sp.on('response', async function (r) { if (/script\.google\.com/.test(r.url())) { try { bodies.push(await r.text()); } catch (e) { } } });
+    await openSyntheticModule(sp, mod, [], { stubAssess: false });
+    await sp.evaluate(function () { location.hash = '#/quiz'; });
+    await sp.waitForSelector('#view-quiz details[data-group=todo] .assess-card', { timeout: 15000 });
+    assert.ok((await sp.textContent('#view-quiz')).indexOf('Topic 1 quiz — Cell adaptations') >= 0, 'the student has the quiz to do');
+    await sp.evaluate(function () { location.hash = '#/revision'; }); await sp.waitForFunction(function () { var v = document.querySelector('#view-revision'); return v && /Practice statement/.test(v.textContent); }, null, { timeout: 15000 });
+    const sv = await sp.evaluate(function () { return { q: QUESTIONS.length, bank: Object.keys(Q_BY_ID).some(function (k) { return /^aqb_/.test(k); }), versions: (State.assessmentVersions || []).length,
+      stored: JSON.stringify(Object.assign({}, localStorage)) + JSON.stringify(Object.assign({}, sessionStorage)), page: document.body.innerText }; });
+    assert.deepStrictEqual([sv.q, sv.bank, sv.versions], [12, false, 0]);
+    assert.ok(!/BANKSTEM|BANKEXPL/.test(sv.stored), 'not in the student browser\'s storage');
+    assert.ok(!/BANKSTEM|BANKEXPL/.test(sv.page), 'not on the page');
+    assert.ok(bodies.length > 0 && !bodies.some(function (b) { return /BANKSTEM|BANKEXPL/.test(b); }), 'no server answer to the student carried a bank question (' + bodies.length + ' answers)');
+    await sp.context().close();
+    // 4. the assessment engine draws from the bank: a student attempt of Topic 1 = 5 bank questions, built on the server
+    const ss = main.call({ module: ST, action: 'studentLogin', username: 'ahmed', password: PW }).token;
+    const it = main.call({ module: ST, action: 'getMyAssessments', stoken: ss }).items.filter(function (i) { return i.assessment.id === a[0].id; })[0];
+    const st = main.call({ module: ST, action: 'startAttempt', stoken: ss, assignmentId: it.assignment.id, password: main.ctx.apwMap_(ST)[a[0].id].pw });
+    assert.ok(st.ok, JSON.stringify(st));
+    assert.strictEqual(st.attempt.questions.length, 5);
+    assert.ok(st.attempt.questions.every(function (q) { return /^BANKSTEM/.test(q.stem) && q.answer === undefined && !(q.answers || []).length && q.explanation === undefined; }), 'bank questions, no answer key or explanation sent');
+    assert.strictEqual(errors.filter(function (e) { return !/ERR_TUNNEL|net::/.test(e); }).length, 0, errors.join('\n'));
+  } finally {
+    main.ctx.CONTENT_KEYS.cellinjury = keep;
+    main.ctx.rpRows_('Content').forEach(function (r) { if (r.collection === 'priv:assessbank' && !main.ctx.isTrue_(r.deleted)) main.ctx.actionDelete_(r.module, { collection: r.collection, id: r.id }); });
+    main.ctx.rpRows_('Content').forEach(function (r) {
+      if (r.collection !== 'assessments' && r.collection !== 'assessmentversions') return;
+      const id = String(r.id).split('@')[0], row = main.ctx.findContentRow_(r.module, 'assessments', id), d = row && main.ctx.unpackJson_(row);
+      if (!(d && d.autoTopic) || main.ctx.isTrue_(r.deleted)) return;
+      main.ctx.assessStore_(r.module).list('assignment').forEach(function (g) { if (g.assessmentId === id) main.ctx.assessStore_(r.module).del('assignment', g.id); });
+      main.ctx.assessStore_(r.module).list('attempt').forEach(function (g) { if (g.assessmentId === id) main.ctx.assessStore_(r.module).del('attempt', g.id); });
+      main.ctx.llForget_(r.module);
+      const pw = main.ctx.apwMap_(r.module); if (pw[id]) { delete pw[id]; main.ctx.setSetting_('apw:' + r.module, JSON.stringify(pw)); }
+    });
+    main.ctx.rpRows_('Content').forEach(function (r) { if ((r.collection === 'assessmentversions' || r.collection === 'assessments') && !main.ctx.isTrue_(r.deleted)) { const id = String(r.id).split('@')[0]; const row = main.ctx.findContentRow_(r.module, 'assessments', id), d = row && main.ctx.unpackJson_(row); if (d && d.autoTopic) main.ctx.actionDelete_(r.module, { collection: r.collection, id: r.id }); } });
+  }
+});
+
 test('Presentation slide editor: B (and Ctrl+B) bolds / un-bolds the selected words in bullets and subtitle, with a live preview; the slide shows bold', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
   groupFixture();
   const ST = 'cellinjury-tr-a', mod = syntheticModule(CI_PAGE), keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;

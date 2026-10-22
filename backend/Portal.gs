@@ -69,6 +69,8 @@
  *                     (module teacher token); signed-in students: getMyAssessments / submitAttempt need no password,
  *                     startAttempt needs THAT assessment's password (see "Assessment passwords" below)
  *   (module storages) aeAttOnly {assessmentId | assessmentIds (2.30), on}  2.29: only students checked in to this lecture's attendance may start it
+ *   (module storages) qbList / qbSave {items} / qbDelete {ids | all}  2.33: the module's assessment-only question bank (teachers; changes:
+ *                     the Admin in the main copy) — and a signed-in student's getAllContent never carries assessmentversions
  *   llList / llSet {deliveryId, locked?, auto?}  2.18: Learning-module lock per group + module (see "Learning lock" below)
  *   resOverall {groupId}  2.22: Pathology Overall Results & Analytics — every student of the group, the ASSESSMENT
  *                         percentage of each teaching module and the overall percentage (equal or weighted); read-only
@@ -196,7 +198,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.32';
+var PORTAL_VERSION = '2.33';
 /** 2.28: the shortest password for teachers AND students on every Portal screen (user, 2026-10-21: 4, was 8). Code.gs checks its own
     (STU_MIN_PW and the module teacher password) — platformCheck warns while they still ask for more. No maximum. */
 var PW_MIN_ = 4;
@@ -232,9 +234,11 @@ function portalHook_(module, p) {
     var ap = assessPwHook_(String(module), act, p); if (ap) return ap;   // 2.19: one password per assessment (asked only to start it)
     if (act === 'aeCopyTargets' || act === 'aeCopyTo') return aeCopyHook_(String(module), act, p);   // 2.21: copy an assessment to other groups
     if (act === 'attMark' || act === 'attMarks') return attMarkHook_(String(module), act, p);   // 2.25/2.26: Present / Late / Excused in the module report
+    if (QB_ACTIONS[act]) return qbankHook_(String(module), act, p);   // 2.33: the module's assessment-only question bank (teachers)
     // 2.5 speed: the frequent "anything new?" check is answered from memory when nothing changed for this storage
     if (act === 'getAllContent') { var fast = cvFastUnchanged_(String(module), p); if (fast) return fast; }
     else if (!CV_NO_CONTENT_WRITE[act]) cvMarkWrite_(String(module));
+    if (act === 'getAllContent' && p.stoken) { var sc = qbStudentContent_(String(module), p); if (sc) return sc; }   // 2.33: students never receive frozen assessment questions
     if ((act === 'logout' || act === 'changePassword') && p.token) CacheService.getScriptCache().remove('tok:' + module + ':' + p.token);
     if (act === 'studentSession' && p.preview) return cvPreviewSession_(String(module), p);   // the preview file of a new build
     if (act === 'contentBuildManifest') return cvBuildManifest_(String(module), p);
@@ -1564,7 +1568,7 @@ function contentHook_(module, act, p) {
   if (act === 'getAllContent') {
     var since = Number(p.since || 0);
     if (mode !== 'on' && !(since && since <= changed)) return null;      // off and already refreshed: Code.gs as before
-    if (typeof studentAuthOn_ === 'function' && studentAuthOn_(module)) { var gate = gateRequest_(module, p); if (gate) return gate; }
+    if (!p.__gated && typeof studentAuthOn_ === 'function' && studentAuthOn_(module)) { var gate = gateRequest_(module, p); if (gate) return gate; }
     return contentResolve_(module, M, mode === 'on', since, changed);
   }
   if (mode !== 'on') return null;
@@ -2104,7 +2108,7 @@ function perfLog_(module, p) { try { console.log('req ' + String(module) + ' ' +
 var CV_NO_CONTENT_WRITE = {};
 ['getAllContent', 'ping', 'login', 'logout', 'changePassword', 'setup', 'studentLogin', 'studentLogout', 'studentSession', 'studentChangePassword',
  'listStudents', 'saveStudent', 'bulkAddStudents', 'setStudentActive', 'resetStudentPassword', 'deleteStudent', 'unlockStudent',
- 'listHistory', 'exportCourse', 'uploadImage', 'privList', 'aiStatus', 'setAIConfig', 'aiTest', 'practicalAI', 'practicalImage',
+ 'listHistory', 'exportCourse', 'uploadImage', 'privList', 'qbList', 'aiStatus', 'setAIConfig', 'aiTest', 'practicalAI', 'practicalImage',
  'submitQuizResult', 'getResults', 'deleteResult', 'checkQuizPassword', 'getQuizPassword', 'setQuizPassword',
  'liveJoin', 'liveSync', 'liveHistory', 'liveContext', 'livePost', 'liveEdit', 'liveDelete', 'livePin', 'liveReact', 'liveSearch', 'liveMembers',
  'liveNotifications', 'liveMarkRead', 'liveSetPrefs', 'liveTyping', 'liveUploadInit', 'liveUploadChunk', 'liveUploadStatus', 'liveFileChunk', 'liveModuleInfo',
@@ -3100,6 +3104,83 @@ function resOverall_(who, p) {
   r.ok = true; r.serverTime = Date.now(); r.admin = !!who.admin;
   r.partial = !!(all && all.modules.length > g.modules.length);
   r.groupModules = all ? all.modules.length : g.modules.length;
+  return r;
+}
+
+/* ======================================================================
+ * Assessment-only question bank (2.33, user 2026-10-22) — questions that are NEVER practice material.
+ * A module's bank lives in its MAIN storage as private Content rows "priv:assessbank" (one row per question). Private rows
+ * are never sent by getAllContent, so no student browser ever receives them, and they are not versioned content (nothing
+ * to publish): the bank is the same for every group of the module. Teachers use it in the module's assessment builder
+ * and ⚡ Topic quizzes; an assessment freezes the questions it uses in its published version, attempts are built on the
+ * server from that version, and students see a question only inside their own attempt.
+ *   qbList                 any teacher session of the module (main storage, a group's storage, the master draft) → {items}
+ *   qbSave {items:[q]}     the Admin from the main storage or the master draft: adds / replaces questions (by id)
+ *   qbDelete {ids | all}   the same: removes questions from the bank (assessments already published keep their frozen copy)
+ * Students: a signed-in student's getAllContent never carries "assessmentversions" (the frozen questions and answer keys
+ * of published assessments): each such row is sent as removed, so an older copy in the browser is cleared too. The
+ * student's assessment screens use getMyAssessments / startAttempt / submitAttempt, which never needed those rows.
+ * ====================================================================== */
+var QB_ACTIONS = { qbList: 1, qbSave: 1, qbDelete: 1 };
+var QB_COLL = 'priv:assessbank', QB_MAX = 2000;
+var QB_TYPES = { mcq: 1, vignette: 1, tf: 1, selectall: 1, fillblank: 1, matching: 1 };
+/** A question as the bank keeps it, or a reason why it cannot be kept. */
+function qbClean_(q) {
+  if (!q || typeof q !== 'object') return { error: 'not a question' };
+  var id = String(q.id || ''); if (!/^[A-Za-z0-9_.:-]{1,80}$/.test(id)) return { error: 'bad id “' + id.slice(0, 40) + '”' };
+  if (!QB_TYPES[q.type]) return { error: id + ': unsupported type ' + String(q.type).slice(0, 20) };
+  if (!String(q.stem || '').trim()) return { error: id + ': no question text' };
+  var nOpt = Array.isArray(q.options) ? q.options.length : 0;
+  if ((q.type === 'mcq' || q.type === 'vignette') && !(nOpt >= 2 && typeof q.answer === 'number' && q.answer >= 0 && q.answer < nOpt)) return { error: id + ': needs options and one correct option' };
+  if (q.type === 'selectall' && !(nOpt >= 2 && Array.isArray(q.answers) && q.answers.length && q.answers.every(function (i) { return typeof i === 'number' && i >= 0 && i < nOpt; }))) return { error: id + ': needs options and the correct options' };
+  var json = JSON.stringify(q); if (json.length > 40000) return { error: id + ': too long' };
+  var c = JSON.parse(json); c.id = id; c.bank = true; delete c.imported;
+  return { q: c };
+}
+function qbRows_(M) { return readAll_(SHEETS.CONTENT).filter(function (r) { return r.module === M && r.collection === QB_COLL && !isTrue_(r.deleted); }); }
+function qbankHook_(S, act, p) {
+  var M = cvBaseOf_(S);
+  return authed_(S, p, function (token) {
+    if (act === 'qbList') {
+      var items = []; qbRows_(M).forEach(function (r) { var q = unpackJson_(r); if (q) items.push(q); });
+      return { ok: true, module: M, items: items, canEdit: S === M };
+    }
+    if (S !== M) return { ok: false, code: 'forbidden', error: 'The assessment bank is changed from the module’s main copy: Platform Home → Content → ✏️ Edit master draft.' };
+    if (dirReadable_() && !examCaller_(token).admin) return { ok: false, code: 'forbidden', error: 'Only the Admin changes the assessment bank.' };
+    var lock = LockService.getScriptLock(); lock.waitLock(30000);
+    try {
+      var have = {}; qbRows_(M).forEach(function (r) { have[String(r.id)] = 1; });
+      if (act === 'qbDelete') {
+        var ids = p.all === true || p.all === 'true' ? Object.keys(have) : (Array.isArray(p.ids) ? p.ids.map(String) : []);
+        var n = 0; ids.forEach(function (id) { if (have[id]) { actionDelete_(M, { collection: QB_COLL, id: id }); n++; } });
+        return { ok: true, deleted: n };
+      }
+      var list = Array.isArray(p.items) ? p.items : [], saved = 0, added = 0, bad = [];
+      if (Object.keys(have).length + list.length > QB_MAX) return { ok: false, error: 'The bank holds at most ' + QB_MAX + ' questions.' };
+      list.forEach(function (q) {
+        var c = qbClean_(q); if (c.error) { bad.push(c.error); return; }
+        if (!have[c.q.id]) added++;
+        actionUpsert_(M, { collection: QB_COLL, id: c.q.id, data: c.q }); have[c.q.id] = 1; saved++;
+      });
+      return { ok: true, saved: saved, added: added, rejected: bad, total: Object.keys(have).length };
+    } finally { lock.releaseLock(); }
+  });
+}
+/** A signed-in student's getAllContent: the same rows as always, but published assessment versions are sent as removed.
+    null = not a student request (teachers, the master draft) → the usual path. */
+function qbStudentContent_(module, p) {
+  if (typeof studentAuthOn_ !== 'function' || !studentAuthOn_(module)) return null;
+  var gate = gateRequest_(module, p); if (gate) return gate;
+  p.__gated = true;
+  if (p.__role !== 'student') return null;
+  var r = contentHook_(module, 'getAllContent', p);
+  if (!r) {   // versioned content not in use: the storage's own rows, as Code.gs sends them
+    var since = Number(p.since || 0);
+    r = { ok: true, serverTime: Date.now(), items: readAll_(SHEETS.CONTENT).filter(function (x) {
+      return x.module === module && Number(x.updatedAt) > since && x.collection !== 'history' && String(x.collection).indexOf('priv:') !== 0;
+    }).map(function (x) { return { collection: x.collection, id: x.id, data: isTrue_(x.deleted) ? null : unpackJson_(x), deleted: isTrue_(x.deleted) }; }) };
+  }
+  if (r && r.ok && Array.isArray(r.items)) r.items = r.items.map(function (it) { return it.collection === 'assessmentversions' ? { collection: it.collection, id: it.id, data: null, deleted: true } : it; });
   return r;
 }
 
