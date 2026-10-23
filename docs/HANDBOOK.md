@@ -283,13 +283,13 @@ chapter position (HANDBOOK §5 step 5) — that position is its place on every g
   screens only use getMyAssessments / startAttempt / submitAttempt, whose attempt questions come without answers). Honest
   limit unchanged: the PRACTICE course itself is decrypted in the student's browser. First bank: Cell Injury, from the user's PDF
   “Review of Pathology and Genetics — Cell Injury” (99 MCQs, ids `aqb_cc_NNN` = the PDF's number). **User, 2026-10-23: only
-  questions covered by the syllabus** → 79 kept; 20 left out (Q61 key “None”; fixatives, basement membrane, nigrosin,
-  oncocytes, Gamna–Gandy, Crooke's hyaline, Fournier, Councilman bodies, glucocorticoids, Mallory-hyaline disease lists,
-  heterotopic calcification, “most common site” of metastatic calcification, neutrophil products, Masson–Fontana, Q95 key
-  contradicting the course). Checked against the module's topic/section outline because that session had no key for
-  `cellcondensed`; to be re-checked against the exact text with `CC_CONTENT_KEY`. File `cellinjury-assessment-bank.json`
-  (module `cellcondensed`, also accepted by `cellinjury`; not committed). A bank already imported with 98 → 🗑 Delete all, then
-  import the 79. Tests:
+  questions covered by the syllabus** → checked against the EXACT text of `cellcondensed` (sections, glossary): 86 kept, 13
+  left out (Q61 key “None”; Councilman bodies, calcification starting in mitochondria (Q46, Q52), heterotopic calcification,
+  oncocytes, Gamna–Gandy, basement membrane (Q85, Q91), acridine orange, cathepsin G, peroxisomal scavenger (Q95), nigrosin).
+  Q56/Q62 option “Lipochrome” reads “Lipochrome (lipofuscin)” (the course says only lipofuscin). An answer reached by
+  elimination counts as covered when the tested list is in the course (e.g. psammoma bodies, metastatic-calcification
+  sites, Mallory bodies). File `cellinjury-assessment-bank.json` (module `cellcondensed`, also accepted by `cellinjury`; not
+  committed). A bank already imported with 98 or 79 → 🗑 Delete all, then import the 86. Tests:
   backend “2.33 assessment-only question bank…”, e2e “🔒 Assessment bank…” (checks every server answer, the page and the
   browser storage of a student for the bank text).
 - **Password copy (2026-10-16, module patch only):** `apwSecret` adds 📋 Copy (`data-a=copy`, clipboard API with an
