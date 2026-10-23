@@ -281,9 +281,15 @@ chapter position (HANDBOOK §5 step 5) — that position is its place on every g
   preview, delete). Students: Portal.gs 2.33 sends every `assessmentversions` row to a signed-in student as removed, and the
   page drops/ignores them for a student (they hold the frozen questions + answer keys of published assessments; the student
   screens only use getMyAssessments / startAttempt / submitAttempt, whose attempt questions come without answers). Honest
-  limit unchanged: the PRACTICE course itself is decrypted in the student's browser. First bank: Cell Injury, 98 MCQs from the
-  user's PDF “Review of Pathology and Genetics — Cell Injury” (ids `aqb_cc_001…099`, Q61 left out: its key is “None”),
-  file `cellinjury-assessment-bank.json` (module `cellcondensed`, also accepted by `cellinjury`; not committed). Tests:
+  limit unchanged: the PRACTICE course itself is decrypted in the student's browser. First bank: Cell Injury, from the user's PDF
+  “Review of Pathology and Genetics — Cell Injury” (99 MCQs, ids `aqb_cc_NNN` = the PDF's number). **User, 2026-10-23: only
+  questions covered by the syllabus** → 79 kept; 20 left out (Q61 key “None”; fixatives, basement membrane, nigrosin,
+  oncocytes, Gamna–Gandy, Crooke's hyaline, Fournier, Councilman bodies, glucocorticoids, Mallory-hyaline disease lists,
+  heterotopic calcification, “most common site” of metastatic calcification, neutrophil products, Masson–Fontana, Q95 key
+  contradicting the course). Checked against the module's topic/section outline because that session had no key for
+  `cellcondensed`; to be re-checked against the exact text with `CC_CONTENT_KEY`. File `cellinjury-assessment-bank.json`
+  (module `cellcondensed`, also accepted by `cellinjury`; not committed). A bank already imported with 98 → 🗑 Delete all, then
+  import the 79. Tests:
   backend “2.33 assessment-only question bank…”, e2e “🔒 Assessment bank…” (checks every server answer, the page and the
   browser storage of a student for the bank text).
 - **Password copy (2026-10-16, module patch only):** `apwSecret` adds 📋 Copy (`data-a=copy`, clipboard API with an
