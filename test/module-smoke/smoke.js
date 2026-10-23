@@ -6,7 +6,7 @@ const HERE = __dirname, REPOS = process.env.MODULE_REPOS || path.resolve(HERE, '
 process.chdir(HERE);
 (async () => {
   const b = await chromium.launch({ executablePath: process.env.CHROMIUM || '/opt/pw-browsers/chromium' });
-  for (const [repo, key] of [['inflammation-healing', 'inflhealing'], ['introduction-to-pathology', 'intropath'], ['cell-injury-teaching-platform', 'cellinjury'], ['third-year-med-inflammation-condensed', 'inflcondensed'], ['cell-injury-condensed', 'cellcondensed'], ['neoplasia', 'neoplasm']]) {
+  for (const [repo, key] of [['inflammation-healing', 'inflhealing'], ['introduction-to-pathology', 'intropath'], ['cell-injury-teaching-platform', 'cellinjury'], ['third-year-med-inflammation-condensed', 'inflcondensed'], ['cell-injury-condensed', 'cellcondensed'], ['neoplasia', 'neoplasm'], ['genetics', 'genetics']]) {
     if (!fs.existsSync(path.join(REPOS, repo, 'index.html'))) { console.log(repo, '| skipped: not cloned next to this repository'); continue; }
     const d = JSON.parse(fs.readFileSync('data-min.json', 'utf8')); d.course.moduleKey = key;
     fs.writeFileSync('d.json', JSON.stringify(d));
