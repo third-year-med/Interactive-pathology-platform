@@ -4792,6 +4792,13 @@ test('Neoplasia module (neoplasm): every topic, section, view and slide renders 
     assert.ok(!!(await p.$('#lfs-bar')) && !(await vis('#app-header')) && !(await vis('.ex-sidebar')), 'stays on for the next topic');
     await p.click('#lfs-bar .lfs-x');
     assert.ok(!(await p.$('#lfs-bar')) && await vis('#app-header') && await vis('.ex-sidebar'), '✕ leaves');
+    // learn-fs-key patch: F turns full-screen reading on and off; F typed in a text box does nothing
+    await p.evaluate(function () { if (document.activeElement) document.activeElement.blur(); });
+    await p.keyboard.press('f'); await p.waitForSelector('#lfs-bar');
+    assert.ok(!(await vis('#app-header')), 'F turns full-screen reading on');
+    await p.keyboard.press('F'); await p.waitForFunction(function () { return !document.getElementById('lfs-bar'); });
+    const note = await p.$('#view-explain textarea');
+    if (note) { await note.focus(); await p.keyboard.press('f'); await p.waitForTimeout(150); assert.ok(!(await p.$('#lfs-bar')), 'F in a text box types, no full screen'); await note.fill(''); await p.evaluate(function () { document.activeElement.blur(); }); }
     await p.click('#view-explain [data-a=learn-fs]'); await p.waitForSelector('#lfs-bar');
     await p.keyboard.press('Escape');
     await p.waitForFunction(function () { return !document.getElementById('lfs-bar') && !document.body.classList.contains('learn-fs'); });
@@ -4925,6 +4932,13 @@ test('Genetics and Pediatric Diseases module (genetics): every topic, section, v
     assert.ok(!!(await p.$('#lfs-bar')) && !(await vis('#app-header')) && !(await vis('.ex-sidebar')), 'stays on for the next topic');
     await p.click('#lfs-bar .lfs-x');
     assert.ok(!(await p.$('#lfs-bar')) && await vis('#app-header') && await vis('.ex-sidebar'), '✕ leaves');
+    // learn-fs-key patch: F turns full-screen reading on and off; F typed in a text box does nothing
+    await p.evaluate(function () { if (document.activeElement) document.activeElement.blur(); });
+    await p.keyboard.press('f'); await p.waitForSelector('#lfs-bar');
+    assert.ok(!(await vis('#app-header')), 'F turns full-screen reading on');
+    await p.keyboard.press('F'); await p.waitForFunction(function () { return !document.getElementById('lfs-bar'); });
+    const note = await p.$('#view-explain textarea');
+    if (note) { await note.focus(); await p.keyboard.press('f'); await p.waitForTimeout(150); assert.ok(!(await p.$('#lfs-bar')), 'F in a text box types, no full screen'); await note.fill(''); await p.evaluate(function () { document.activeElement.blur(); }); }
     await p.click('#view-explain [data-a=learn-fs]'); await p.waitForSelector('#lfs-bar');
     await p.keyboard.press('Escape');
     await p.waitForFunction(function () { return !document.getElementById('lfs-bar') && !document.body.classList.contains('learn-fs'); });
