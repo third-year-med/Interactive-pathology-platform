@@ -2,7 +2,7 @@
 together — before the lab (read the topic, do its quiz), in the lab (the session's practical and its handout), after the
 lab (Image Bank), before the exam (both). A folding card with direct links is shown on the practical topic in Learn
 (the first topic whose title contains "Practical") and at the top of Apply → Practical → Practicals. The open/closed
-state is remembered per browser. Idempotent."""
+state is remembered per browser. Idempotent (done-markers: prac-guide-photo later rewrites the card's wording)."""
 import sys
 R = [
 (""".exam-qs ol{margin:.5rem 0 0;padding-left:1.3rem;color:var(--ink-2)}
@@ -14,12 +14,12 @@ R = [
 .prac-guide ol{margin:.5rem 0 0;padding-left:1.3rem;color:var(--ink-2)}
 .prac-guide li{margin:.25rem 0}
 .prac-guide .row{margin-top:.6rem;flex-wrap:wrap}
-"""),
+""", ".prac-guide{"),
 ("""    if (t.syllabusQuestions && t.syllabusQuestions.length) {
       main.appendChild(el('details', { class: 'exam-qs' },""",
  """    if (pracGuideTopic() === t) main.appendChild(pracGuideCard('learn'));
     if (t.syllabusQuestions && t.syllabusQuestions.length) {
-      main.appendChild(el('details', { class: 'exam-qs' },"""),
+      main.appendChild(el('details', { class: 'exam-qs' },""", "if (pracGuideTopic() === t)"),
 ("""function pracTabs(active) {""",
  """/* 🧭 Practical study guide (2026-10-24): how the practical Learn topic and Apply → Practical work together.
    Shown on that topic in Learn ('learn') and on Apply → Practical → Practicals ('practical'). */
@@ -47,16 +47,16 @@ function pracGuideCard(where) {
   d.addEventListener('toggle', () => Store.set('prac_guide_open_v1', d.open));
   return d;
 }
-function pracTabs(active) {"""),
+function pracTabs(active) {""", "function pracGuideTopic()"),
 ("""    page.appendChild(pracTabs('list'));
     if (teacher) page.appendChild(PracTeacher.draftsPanel());""",
  """    page.appendChild(pracTabs('list'));
     page.appendChild(pracGuideCard('practical'));
-    if (teacher) page.appendChild(PracTeacher.draftsPanel());"""),
+    if (teacher) page.appendChild(PracTeacher.draftsPanel());""", "page.appendChild(pracGuideCard('practical'));"),
 ]
 for path in sys.argv[1:]:
     s = open(path, encoding='utf-8').read(); n = 0
-    for a, b in R:
-        if b in s: continue
+    for a, b, *done in R:   # done = a marker that stays after a later patch (prac-guide-photo) rewrites the text
+        if b in s or (done and done[0] in s): continue
         assert s.count(a) == 1, (path, a[:70]); s = s.replace(a, b); n += 1
     open(path, 'w', encoding='utf-8').write(s); print(path, 'changes:', n)

@@ -4805,13 +4805,13 @@ test('Neoplasia module (neoplasm): every topic, section, view and slide renders 
     await p.click('#view-explain [data-a=learn-fs]'); await p.waitForSelector('#lfs-bar');
     await p.evaluate(function () { location.hash = '#/practise'; });
     await p.waitForFunction(function () { return !document.getElementById('lfs-bar') && !document.body.classList.contains('learn-fs'); });
-    // prac-guide patch: 🧭 before / in / after the lab — only on the practical topic (t15) and on Apply → Practical, with working links
+    // prac-guide (+ prac-guide-photo) patches: 🧭 before / during / after the practical session — only on the practical topic (t15) and on Apply → Practical, with working links
     await p.evaluate(function () { location.hash = '#/explain/t02'; });
     await p.waitForFunction(function () { return /Topic 2 of/.test(document.querySelector('#view-explain .topic-hero').textContent); });
     assert.strictEqual(await p.$('#view-explain [data-a=prac-guide]'), null, 'no guide on an ordinary topic');
     await p.evaluate(function () { location.hash = '#/explain/t15'; });
     await p.waitForSelector('#view-explain [data-a=prac-guide][open]');
-    assert.match(await p.textContent('#view-explain [data-a=prac-guide]'), /Before the lab — read this topic.*In the lab.*After the lab — open the Image Bank.*Before the exam/);
+    assert.match(await p.textContent('#view-explain [data-a=prac-guide]'), /Before the session — read this topic.*During the session — open the session’s practical.*describe each gross and microscopic picture.*After the session — open the Image Bank.*Before the exam/);
     await p.click('#view-explain [data-a=prac-guide] >> text=🔬 Open the Practicals');
     await p.waitForSelector('#view-practical [data-a=prac-guide]');
     assert.match(await p.textContent('#view-practical [data-a=prac-guide]'), /read “Practical Pathology — Specimens & Slides” in Learn/);
