@@ -4805,6 +4805,30 @@ test('Neoplasia module (neoplasm): every topic, section, view and slide renders 
     await p.click('#view-explain [data-a=learn-fs]'); await p.waitForSelector('#lfs-bar');
     await p.evaluate(function () { location.hash = '#/practise'; });
     await p.waitForFunction(function () { return !document.getElementById('lfs-bar') && !document.body.classList.contains('learn-fs'); });
+    // prac-guide patch: 🧭 before / in / after the lab — only on the practical topic (t15) and on Apply → Practical, with working links
+    await p.evaluate(function () { location.hash = '#/explain/t02'; });
+    await p.waitForFunction(function () { return /Topic 2 of/.test(document.querySelector('#view-explain .topic-hero').textContent); });
+    assert.strictEqual(await p.$('#view-explain [data-a=prac-guide]'), null, 'no guide on an ordinary topic');
+    await p.evaluate(function () { location.hash = '#/explain/t15'; });
+    await p.waitForSelector('#view-explain [data-a=prac-guide][open]');
+    assert.match(await p.textContent('#view-explain [data-a=prac-guide]'), /Before the lab — read this topic.*In the lab.*After the lab — open the Image Bank.*Before the exam/);
+    await p.click('#view-explain [data-a=prac-guide] >> text=🔬 Open the Practicals');
+    await p.waitForSelector('#view-practical [data-a=prac-guide]');
+    assert.match(await p.textContent('#view-practical [data-a=prac-guide]'), /read “Practical Pathology — Specimens & Slides” in Learn/);
+    await p.click('#view-practical [data-a=prac-guide] >> text=📖 Read the topic in Learn');
+    await p.waitForFunction(function () { return location.hash.indexOf('#/explain/t15') === 0; });
+    await p.click('#view-explain [data-a=prac-guide] summary');   // folding is remembered
+    await p.evaluate(function () { location.hash = '#/practical'; });
+    await p.waitForSelector('#view-practical [data-a=prac-guide]:not([open])');
+    await p.click('#view-practical [data-a=prac-guide] summary');
+    await p.evaluate(function () { location.hash = '#/explain/t15'; });
+    await p.waitForSelector('#view-explain [data-a=prac-guide][open]');
+    await p.click('#view-explain [data-a=prac-guide] >> text=🖼 Image Bank');
+    await p.waitForFunction(function () { return location.hash.indexOf('#/practical/bank') === 0; });
+    await p.evaluate(function () { location.hash = '#/explain/t15'; });
+    await p.waitForSelector('#view-explain [data-a=prac-guide][open]');
+    await p.click('#view-explain [data-a=prac-guide] >> text=🧠 Topic quiz');
+    await p.waitForFunction(function () { return location.hash.indexOf('#/revision/topic/t15') === 0; });
     const check = await p.evaluate(function () { return uxValidatePathway(); });
     assert.deepStrictEqual(check.errors, [], 'the learning-unit links (UX_UNITS, UX_FLOW) all point at existing, matching topics and sections');
     const views = ['#/learn', '#/practise', '#/apply', '#/progress', '#/revision', '#/review', '#/review/facts', '#/review/compare', '#/review/morph', '#/review/traps', '#/review/quick',
