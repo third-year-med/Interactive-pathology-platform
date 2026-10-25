@@ -3325,7 +3325,7 @@ test('🏅 Annual Assessment (2.31/2.32): quizzes /20 from the modules\' attempt
   await p.context().close();
 });
 
-test('Pathology Overall Results & Analytics (2.22): one row per student, module assessment % and overall % (equal / weighted), missing ≠ 0, filters, sort, details, CSV = table', { skip: SKIP }, async function () {
+test('Pathology Overall Results & Analytics (2.22, rule 2.34): one row per student, module assessment % (missed assessment = 0) and overall % (equal / weighted), filters, sort, details, CSV = table', { skip: SKIP }, async function () {
   main.call({ module: 'portal', action: 'setup', password: TPW });
   const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
   const A = function (action, o) { const r = main.call(Object.assign({ module: 'portal', action: action, token: t }, o || {})); assert.ok(r.ok, action + ' ' + JSON.stringify(r)); return r; };
@@ -3338,7 +3338,7 @@ test('Pathology Overall Results & Analytics (2.22): one row per student, module 
   const CI = 'cellinjury-rs-a', IH = 'inflhealing-rs-a'; let n = 0;
   const att = function (st, id, pct, ref) { n++; main.ctx.assessStore_(st).put('attempt', 'rs' + n, { id: 'rs' + n, assessmentId: ref || 'q1', assessmentTitle: 'Topic ' + (ref || 'q1'), email: id + '@student.local', status: 'submitted', percent: pct, submittedAt: Date.now() }); };
   att(CI, '27010001', 80); att(IH, '27010001', 60, 'q1'); att(IH, '27010001', 80, 'q2');   // CI 80, IH 70 → 75
-  att(CI, '27010002', 50);                                                                 // only CI → partial, overall 50
+  att(CI, '27010002', 50);                                                                 // only CI q1; missed IH q1 + q2 → IH 0, overall 25
   const p = await page();
   await p.goto(url + '#/teacher'); await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
   await dash(p, 'results');
@@ -3348,11 +3348,11 @@ test('Pathology Overall Results & Analytics (2.22): one row per student, module 
   const cells = function (id) { return p.$eval('#t-results tr[data-student="' + id + '"]', function (tr) { return Array.prototype.map.call(tr.cells, function (c) { return c.textContent.trim(); }); }); };
   const r1 = await cells('27010001'), r2 = await cells('27010002'), r3 = await cells('27010003');
   assert.deepStrictEqual(r1.slice(0, 9), ['27010001', 'Amina Full', 'active', '2 / 2', '2', '80%', '70%', '75%', '✓ All modules']);
-  assert.deepStrictEqual(r2.slice(3, 9), ['1 / 2', '1', '50%', '—', '50%', 'Partial'], 'missing module shown as —, not 0');
-  assert.deepStrictEqual(r3.slice(3, 9), ['0 / 2', '0', '—', '—', '—', 'No results yet']);
+  assert.deepStrictEqual(r2.slice(3, 9), ['2 / 2', '2', '50%', '0%', '25%', 'Partial'], '2.34: the missed assessments count 0');
+  assert.deepStrictEqual(r3.slice(3, 9), ['2 / 2', '2', '0%', '0%', '0%', 'Nothing submitted'], 'absent from every assessment the group took → 0 %');
   const kpi = await p.textContent('#t-results .ov-kpis');
-  assert.match(kpi, /Enrolled students3[\s\S]*With an overall result2[\s\S]*Incomplete \(some modules\)1[\s\S]*Cohort mean62\.5%[\s\S]*Highest · lowest75% · 50%[\s\S]*Modules contributing2 \/ 2/);
-  assert.match(await p.textContent('#t-results .ov-method'), /Equal weighting[\s\S]*never counted as zero/);
+  assert.match(kpi, /Enrolled students3[\s\S]*With an overall result3[\s\S]*Incomplete \(missed some\)1[\s\S]*1 submitted nothing[\s\S]*Cohort mean33\.3%[\s\S]*Highest · lowest75% · 0%[\s\S]*Modules contributing2 \/ 2/);
+  assert.match(await p.textContent('#t-results .ov-method'), /Equal weighting[\s\S]*a missed assessment = 0 %/);
   if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'overall-results.png'), fullPage: true });
   // filters, search, sort
   await p.selectOption('#t-results .rs-show', 'partial');
@@ -3362,7 +3362,7 @@ test('Pathology Overall Results & Analytics (2.22): one row per student, module 
   assert.deepStrictEqual(await p.$$eval('#t-results .rs-tbl tbody tr[data-student]', function (r) { return r.map(function (x) { return x.dataset.student; }); }), ['27010003']);
   await p.fill('#t-results .rs-q', '');
   await p.click('#t-results .rs-tbl th[data-k=overall]');
-  assert.deepStrictEqual(await p.$$eval('#t-results .rs-tbl tbody tr[data-student]', function (r) { return r.map(function (x) { return x.dataset.student; }); }), ['27010001', '27010002', '27010003'], 'highest first, no result last');
+  assert.deepStrictEqual(await p.$$eval('#t-results .rs-tbl tbody tr[data-student]', function (r) { return r.map(function (x) { return x.dataset.student; }); }), ['27010001', '27010002', '27010003'], 'highest first');
   const ihId = await p.$eval('#t-results .rs-mod option:nth-child(3)', function (o) { return o.value; });
   await p.selectOption('#t-results .rs-mod', ihId);
   assert.match(await p.textContent('#t-results .rs-tbl thead'), /Inflammation/); assert.ok(!/Cell Injury/.test(await p.textContent('#t-results .rs-tbl thead')));
@@ -3370,16 +3370,18 @@ test('Pathology Overall Results & Analytics (2.22): one row per student, module 
   // drill-down
   await p.click('#t-results tr[data-student="27010001"] button');
   await p.waitForSelector('#t-results .rs-stu');
-  assert.match(await p.textContent('#t-results .rs-stu'), /Overall assessment75%[\s\S]*Topic q1 \(1 · 60%\)[\s\S]*Topic q2 \(1 · 80%\)[\s\S]*70%/);
+  assert.match(await p.textContent('#t-results .rs-stu'), /Overall assessment75%[\s\S]*Topic q1 \(60%\)[\s\S]*Topic q2 \(80%\)[\s\S]*70%/);
   // CSV = table
   const dl = function (sel) { return Promise.all([p.waitForEvent('download'), p.click(sel)]).then(function (x) { return x[0].path(); }).then(function (f) { return fs.readFileSync(f, 'utf8').replace(/^﻿/, ''); }); };
   const all = (await dl('#t-results [data-a=csv]')).split(/\r\n/);
   assert.match(all[0], /^Student ID,Name,Status,Completion,Modules with results,Modules included,Modules with assessments,Calculation method,.*Overall assessment %$/);
   assert.strictEqual(all[1], '27010001,Amina Full,active,complete,2,2,2,equal,80,70,75');
-  assert.strictEqual(all[2], '27010002,Basel Half,active,partial,1,1,2,equal,50,,50', 'missing = empty, not 0');
-  assert.strictEqual(all[3], '27010003,Carim None,active,none,0,0,2,equal,,,');
+  assert.strictEqual(all[2], '27010002,Basel Half,active,partial,2,2,2,equal,50,0,25', 'missed = 0');
+  assert.strictEqual(all[3], '27010003,Carim None,active,none,2,2,2,equal,0,0,0');
   const one = await dl('#t-results .rs-stu [data-a=c]');
   assert.match(one, /27010001,Amina Full,OVERALL,,equal,75,/);
+  const basel = await (async function () { await p.click('#t-results tr[data-student="27010002"] button'); await p.waitForFunction(function () { return /Basel/.test((document.querySelector('#t-results .rs-stu') || {}).textContent || ''); }); return p.textContent('#t-results .rs-stu'); })();
+  assert.match(basel, /Missed assessments2[\s\S]*Topic q1 \(missed · 0%\)[\s\S]*Topic q2 \(missed · 0%\)/);
   // weighted: Cell Injury ×3 → (240 + 70) / 4 = 77.5
   await p.click('#t-results .rs-set summary');
   await p.check('#t-results input[name=rs-m][value=weighted]');

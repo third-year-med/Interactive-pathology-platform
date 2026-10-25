@@ -198,7 +198,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.33';
+var PORTAL_VERSION = '2.34';
 /** 2.28: the shortest password for teachers AND students on every Portal screen (user, 2026-10-21: 4, was 8). Code.gs checks its own
     (STU_MIN_PW and the module teacher password) — platformCheck warns while they still ask for more. No maximum. */
 var PW_MIN_ = 4;
@@ -2987,6 +2987,11 @@ function attOverall_(who, p) {
 
 /* ======================================================================
  * Pathology Overall Results & Analytics (2.22) — READ-ONLY (only resSettings writes one setting).
+ * 2.34 (user, 2026-10-25: "a student absent from 7 of 8 quizzes cannot be 100 %"): the MODULE ASSESSMENT % now uses the rule
+ * of the Annual Assessment, so the two reports always agree — counted assessments = those of the module that at least one
+ * student of the group has submitted and the teacher has not excluded; per counted assessment the student's BEST submitted
+ * %, a MISSED one = 0 %, an EXCUSED one is left out of that student's count (the same settings ann:<groupId>.excluded /
+ * .excused that 🎓 Annual Assessment sets). Before 2.34: the mean of the attempts the student happened to submit.
  * One row per student of the group (the roster = StudentMemberships; the stable Student ID is the key; inactive members are
  * listed and marked, never merged or dropped). For every teaching module of the group (the deliveries the caller teaches —
  * Admin: all; personal teacher: the assigned ones), the student's MODULE ASSESSMENT % is the existing per-module rule of
@@ -3023,7 +3028,8 @@ function resSettingsSave_(p) {
 }
 function resR1_(v) { return v == null ? null : Math.round(v * 10) / 10; }
 /** g: a place of tsPlaces_; members: the group's roster (active and inactive); set: resSettings_(). */
-function resOverallCompute_(g, members, set) {
+function resOverallCompute_(g, members, set, ann) {
+  ann = ann || { excluded: {}, excused: {} };
   var reg = {}; portalRegistry_().forEach(function (m, i) { if (m.moduleKey) reg[m.moduleKey] = i; });
   var mods = g.modules.slice().sort(function (a, b) { var x = reg[a.moduleId], y = reg[b.moduleId]; x = x == null ? 1e6 : x; y = y == null ? 1e6 : y; return x - y || a.title.localeCompare(b.title); });
   var want = {}; mods.forEach(function (m) { want[m.storage] = m; });
@@ -3051,7 +3057,7 @@ function resOverallCompute_(g, members, set) {
       [row.email, a && a.email, String(row.studentId).toLowerCase().replace(/[^a-z0-9._-]/g, '') + '@student.local'].forEach(function (e) { e = String(e || '').trim().toLowerCase(); if (e && !idx['em:' + e]) idx['em:' + e] = row; });
       var nk = row.name.trim().toLowerCase(); if (nk && nameCount[nk] === 1) idx['nm:' + nk] = row;
     });
-    var titles = {}, subs = 0, withRes = {};
+    var titles = {}, subs = 0, withRes = {}, counted = {};
     att[m.storage].forEach(function (q) {
       titles[q.ref] = q.title;
       var row = (q.email && idx['em:' + q.email]) || (q.email && /@student\.local$/.test(q.email) && idx['id:' + q.email.replace(/@student\.local$/, '')]) || (q.name && idx['nm:' + q.name.trim().toLowerCase()]) || null;
@@ -3060,36 +3066,49 @@ function resOverallCompute_(g, members, set) {
       var b = row.by[m.deliveryId] || (row.by[m.deliveryId] = { percents: [], per: {} });
       b.percents.push(q.percent);
       var e = b.per[q.ref] || (b.per[q.ref] = { id: q.ref, title: q.title, percents: [] }); e.percents.push(q.percent);
+      var c = counted[q.ref] || (counted[q.ref] = { id: q.ref, title: q.title, at: q.at }); if (q.at && (!c.at || q.at < c.at)) c.at = q.at;
     });
     var assigned = Object.keys(asg[m.storage]).length;
-    return { deliveryId: m.deliveryId, moduleId: m.moduleId, title: m.title, icon: m.icon, storage: m.storage, active: m.active,
+    var cnt = Object.keys(counted).filter(function (k) { return !ann.excluded[m.storage + '|' + k]; }).map(function (k) { return counted[k]; })
+      .sort(function (a, b) { return (a.at || 0) - (b.at || 0) || a.title.localeCompare(b.title); });
+    return { deliveryId: m.deliveryId, moduleId: m.moduleId, title: m.title, icon: m.icon, storage: m.storage, active: m.active, counted: cnt,
+      excluded: Object.keys(counted).length - cnt.length,
       assignments: assigned, submitted: subs, students: Object.keys(withRes).length, hasAssessments: assigned > 0 || subs > 0,
       weight: set.method === 'weighted' ? (set.weights[m.moduleId] != null ? set.weights[m.moduleId] : 1) : 1,
       weightDefault: set.method === 'weighted' && set.weights[m.moduleId] == null };
   });
+  // 2.34 (user, 2026-10-25): a module whose delivery is inactive, or where no student of the group has submitted anything,
+  // is not shown (nor counted): it would only add empty columns and rows.
+  var hidden = modules.filter(function (m) { return m.active === false || !m.submitted; }).map(function (m) { return { deliveryId: m.deliveryId, title: m.title, icon: m.icon, reason: m.active === false ? 'inactive' : 'nosubmissions' }; });
+  modules = modules.filter(function (m) { return m.active !== false && m.submitted > 0; });
   var assessed = modules.filter(function (m) { return m.hasAssessments; });
   var students = rows.map(function (row) {
-    var sumW = 0, sum = 0, nRes = 0, nInc = 0;
+    var sumW = 0, sum = 0, nRes = 0, nInc = 0, missedAll = 0, subsAll = 0, exc = ann.excused[row.studentId] || {};
     var mm = modules.map(function (m) {
-      var b = row.by[m.deliveryId], pct = null, n = 0, per = [];
-      if (b && b.percents.length) {
-        pct = b.percents.reduce(function (x, y) { return x + y; }, 0) / b.percents.length; n = b.percents.length;
-        per = Object.keys(b.per).map(function (k) { var e = b.per[k]; return { id: e.id, title: e.title, attempts: e.percents.length, avg: resR1_(e.percents.reduce(function (x, y) { return x + y; }, 0) / e.percents.length), best: resR1_(Math.max.apply(null, e.percents)) }; });
-      }
+      var b = row.by[m.deliveryId] || { percents: [], per: {} }, n = b.percents.length, tot = 0, k = 0, missed = 0, excused = 0;
+      var per = m.counted.map(function (c) {   // every counted assessment: best % if submitted, missed = 0 %, excused = left out
+        var e = b.per[c.id];
+        if (e) { var best = Math.max(0, Math.min(100, Math.max.apply(null, e.percents))); tot += best; k++;
+          return { id: c.id, title: c.title, state: 'done', attempts: e.percents.length, avg: resR1_(e.percents.reduce(function (x, y) { return x + y; }, 0) / e.percents.length), best: resR1_(best), pct: resR1_(best) }; }
+        if (exc[m.storage + '|' + c.id]) { excused++; return { id: c.id, title: c.title, state: 'excused', attempts: 0, avg: null, best: null, pct: null }; }
+        k++; missed++; return { id: c.id, title: c.title, state: 'missed', attempts: 0, avg: null, best: null, pct: 0 };
+      });
+      var pct = k ? tot / k : null;
       var included = pct != null && m.weight > 0;
       if (pct != null) nRes++;
       if (included) { nInc++; sum += m.weight * pct; sumW += m.weight; }
-      return { deliveryId: m.deliveryId, moduleId: m.moduleId, module: m.title, icon: m.icon, pct: resR1_(pct), attempts: n, assessments: per, included: included, weight: m.weight };
+      missedAll += missed; subsAll += n;
+      return { deliveryId: m.deliveryId, moduleId: m.moduleId, module: m.title, icon: m.icon, pct: resR1_(pct), attempts: n, assessments: per, counted: k, missed: missed, excused: excused, included: included, weight: m.weight };
     });
     var overall = sumW > 0 ? resR1_(sum / sumW) : null;
     var done = assessed.filter(function (m) { var x = row.by[m.deliveryId]; return x && x.percents.length; }).length;
-    var state = !row.active ? 'inactive' : !assessed.length || !done ? 'none' : done >= assessed.length ? 'complete' : 'partial';
+    var state = !row.active ? 'inactive' : !assessed.length || !subsAll ? 'none' : !missedAll && done >= assessed.length ? 'complete' : 'partial';
     return { studentId: row.studentId, name: row.name, active: row.active, hasAccount: row.hasAccount,
       status: !row.active ? 'inactive' : row.hasAccount ? 'active' : 'no account',
-      withResults: nRes, included: nInc, assessedModules: assessed.length, remaining: Math.max(0, assessed.length - done), overall: overall, completion: state, modules: mm };
+      withResults: nRes, included: nInc, assessedModules: assessed.length, remaining: Math.max(0, assessed.length - done), missed: missedAll, overall: overall, completion: state, modules: mm };
   });
   var act = students.filter(function (x) { return x.active; }), res = act.filter(function (x) { return x.overall != null; }), vals = res.map(function (x) { return x.overall; });
-  return { settings: set, group: { groupId: g.groupId, label: g.label, linkCode: g.linkCode, academicYear: g.academicYear }, modules: modules, students: students,
+  return { settings: set, group: { groupId: g.groupId, label: g.label, linkCode: g.linkCode, academicYear: g.academicYear }, modules: modules, hidden: hidden, students: students,
     summary: { enrolled: act.length, inactive: students.length - act.length, withResults: res.length, incomplete: act.filter(function (x) { return x.completion === 'partial'; }).length,
       none: act.filter(function (x) { return x.completion === 'none'; }).length, complete: act.filter(function (x) { return x.completion === 'complete'; }).length,
       mean: vals.length ? resR1_(vals.reduce(function (x, y) { return x + y; }, 0) / vals.length) : null,
@@ -3100,7 +3119,7 @@ function resOverallCompute_(g, members, set) {
 function resOverall_(who, p) {
   var g = tsGroupOf_(who, p.groupId); if (!g) return { ok: false, code: 'forbidden', error: 'Choose one of your groups.' };
   var all = tsPlaces_({ ids: null }).filter(function (x) { return x.groupId === g.groupId; })[0];
-  var r = resOverallCompute_(g, rpMembers_()[g.groupId] || [], resSettings_());
+  var r = resOverallCompute_(g, rpMembers_()[g.groupId] || [], resSettings_(), annSettings_(g.groupId));
   r.ok = true; r.serverTime = Date.now(); r.admin = !!who.admin;
   r.partial = !!(all && all.modules.length > g.modules.length);
   r.groupModules = all ? all.modules.length : g.modules.length;
@@ -3201,6 +3220,7 @@ function qbStudentContent_(module, p) {
  *     optional 5-criterion rubric of 0 / 0.5 / 1 each must add up to it), absent (0), notdone (0). Every change of status / mark
  *     keeps the previous value, when and by whom (historyJson). A slot with a result cannot be cleared — set it back first.
  *   TOTAL /30 = quiz mark (rounded to 0.1) + presentation mark.
+ * 2.34: modules whose group delivery is inactive are left out (their quizzes no longer count), as in Pathology Overall Results.
  * ====================================================================== */
 var ANN_SLOTS = 2, ANN_MAX = 5, ANN_STATUS = { assigned: 1, completed: 1, absent: 1, notdone: 1 };   // 2 × 5 = 10 marks
 var ANN_RUBRIC = ['accuracy', 'understanding', 'questions', 'organisation', 'delivery'];   // 0 / 0.5 / 1 each → 0–5
@@ -3244,6 +3264,7 @@ function annTopics_(g) {
 }
 /** g = the group with all its modules, members = its roster, set = annSettings_, pres = its Presentations rows. */
 function annCompute_(g, members, set, pres, now) {
+  g = Object.assign({}, g, { modules: g.modules.filter(function (m) { return m.active !== false; }) });   // 2.34: an inactive delivery's quizzes are not counted
   var want = {}; g.modules.forEach(function (m) { want[m.storage] = m; });
   var acc = {}, seenAtt = {}, att = [];
   g.modules.forEach(function (m) { acc[m.storage] = {}; });

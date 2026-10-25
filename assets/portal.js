@@ -1433,6 +1433,13 @@
     setTimeout(function () { try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { toast('Printing is not available in this browser.'); } }, 200);
   }
   /* ---------------- Pathology Overall Results & Analytics (2.22): the ASSESSMENT % of every module and the overall % ---------------- */
+  /** One assessment in Pathology Overall Results: done (best %), missed (0 %), excused — 2.34; an older server: attempts · average. */
+  function resAssessLabel(a) {
+    if (a.state === 'missed') return a.title + ' (missed · 0%)';
+    if (a.state === 'excused') return a.title + ' (excused)';
+    if (a.state === 'done') return a.title + ' (' + a.best + '%' + (a.attempts > 1 ? ' best of ' + a.attempts : '') + ')';
+    return a.title + ' (' + a.attempts + ' · ' + a.avg + '%)';
+  }
   function resultsSection(call, onSummary) {
     var sec = h('<section class="t-sec" id="t-results"><div class="rs-body"><p class="muted small">Loading…</p></div></section>');
     var body = $('.rs-body', sec), G = null, groupId = '', R = null, show = 'all', q = '', modSel = '', sortBy = 'id', dir = 1;
@@ -1461,7 +1468,7 @@
     }
     function pc(v) { return v == null ? '—' : v + '%'; }
     function method() { return R.settings.method === 'weighted' ? 'Weighted average of the module percentages' : 'Equal weighting — mean of the module percentages'; }
-    var COMP = { complete: ['✓ All modules', 'open'], partial: ['Partial', 'soon'], none: ['No results yet', ''], inactive: ['Inactive', 'locked'] };
+    var COMP = { complete: ['✓ All modules', 'open'], partial: ['Partial', 'soon'], none: ['Nothing submitted', ''], inactive: ['Inactive', 'locked'] };
     function badge(x) { var c = COMP[x.completion] || ['?', '']; return '<span class="pill ' + c[1] + '">' + esc(c[0]) + '</span>'; }
     function modOf(x, id) { return x.modules.filter(function (m) { return m.deliveryId === id; })[0]; }
     function visible() {
@@ -1488,22 +1495,23 @@
       body.appendChild(h('<div class="ov-kpis">' +
         '<div class="ov-kpi"><span>Enrolled students</span><b>' + S.enrolled + '</b>' + (S.inactive ? '<small>+ ' + S.inactive + ' inactive (not counted)</small>' : '') + '</div>' +
         '<div class="ov-kpi"><span>With an overall result</span><b>' + S.withResults + '</b><small>of ' + S.enrolled + ' enrolled</small></div>' +
-        '<div class="ov-kpi"><span>Incomplete (some modules)</span><b>' + S.incomplete + '</b><small>' + S.none + ' with no results yet</small></div>' +
+        '<div class="ov-kpi"><span>Incomplete (missed some)</span><b>' + S.incomplete + '</b><small>' + S.none + ' submitted nothing</small></div>' +
         '<div class="ov-kpi"><span>Cohort mean</span><b>' + pc(S.mean) + '</b><small>of students with a result</small></div>' +
         '<div class="ov-kpi"><span>Highest · lowest</span><b>' + pc(S.high) + ' · ' + pc(S.low) + '</b><small>overall %, students with a result</small></div>' +
         '<div class="ov-kpi"><span>Modules contributing</span><b>' + S.modulesWithResults + ' / ' + S.modules + '</b><small>' + S.modulesAssessed + ' with assessments</small></div></div>'));
       body.appendChild(h('<p class="small ov-mods"><b>Modules:</b> ' + (R.modules.length ? R.modules.map(function (m) { return '<span class="ov-chip">' + esc(m.icon + ' ' + m.title) + ' · ' + (m.submitted ? m.students + ' student' + (m.students === 1 ? '' : 's') + ' · ' + m.submitted + ' attempt' + (m.submitted === 1 ? '' : 's') : m.hasAssessments ? 'assigned, no submission yet' : 'no assessments') + (R.settings.method === 'weighted' ? ' · weight ' + m.weight + (m.weightDefault ? ' (default)' : '') : '') + '</span>'; }).join(' ') : '—') + '</p>'));
+      if (R.hidden && R.hidden.length) body.appendChild(h('<p class="small muted ov-hidden">Not shown: ' + R.hidden.map(function (m) { return esc(m.icon + ' ' + m.title) + ' (' + (m.reason === 'inactive' ? 'delivery inactive' : 'nobody in the group has submitted an assessment yet') + ')'; }).join(' · ') + '.</p>'));
       if (R.partial) body.appendChild(h('<p class="note small">Only the ' + R.modules.length + ' module(s) assigned to you are included; the group has ' + R.groupModules + ' teaching module(s). The platform administrator sees every module.</p>'));
-      body.appendChild(h('<p class="small muted ov-method"><b>' + esc(method()) + '.</b> A module’s assessment % is the same figure as in that module’s Results &amp; attendance sheet: the mean of the student’s submitted assessment attempts in that module (every submitted attempt, each counted once). Practice quizzes, official exams and attendance are not included. ' +
+      body.appendChild(h('<p class="small muted ov-method"><b>' + esc(method()) + '.</b> ' + (R.modules.some(function (m) { return m.counted; }) ? 'A module’s assessment % uses the rule of the 🎓 Annual Assessment: every assessment of the module that at least one student of the group has submitted counts; the student’s best % in each, <b>a missed assessment = 0 %</b>; an assessment the teacher excluded, or excused for that student (Annual Assessment), is left out. Practice quizzes, official exams and attendance are not included. ' : 'A module’s assessment % is the mean of the student’s submitted assessment attempts in that module. Practice quizzes, official exams and attendance are not included. ') +
         (R.settings.method === 'weighted' ? 'Overall % = Σ(weight × module %) ÷ Σ(weight) over the modules the student has results in; weight 0 = excluded; a module without a configured weight counts 1. ' : 'Overall % = the sum of the student’s module percentages ÷ the number of those modules; every module counts equally. ') +
-        'Modules without a result are left out — never counted as zero. Percentages are rounded to one decimal at the end.</p>'));
+        'A module with no counted assessment yet is left out. Percentages are rounded to one decimal at the end.</p>'));
       if (R.admin) body.appendChild(settingsBox());
       var tools = h('<div class="roster-tools"><button class="btn primary" type="button" data-a="csv">⬇ CSV — all students</button></div>');
       $('[data-a=csv]', tools).onclick = csvAll; body.appendChild(tools);
       if (!R.students.length) { body.appendChild(h('<p class="muted small">No students in this group yet (Platform directory → Students).</p>')); return; }
       var tbl = h('<div class="ts-block rs-class"><h3>📈 Overall assessment results — ' + esc(R.group.label) + '</h3>' +
         '<div class="ov-filter"><label>Find<input type="search" class="rs-q" placeholder="Name or Student ID" value="' + esc(q) + '"></label>' +
-        '<label>Show<select class="rs-show">' + [['all', 'All students'], ['complete', 'Results in all modules'], ['partial', 'Partial (some modules)'], ['none', 'No results yet'], ['inactive', 'Inactive']].map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === show ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
+        '<label>Show<select class="rs-show">' + [['all', 'All students'], ['complete', 'Results in all modules'], ['partial', 'Partial (missed some)'], ['none', 'Nothing submitted'], ['inactive', 'Inactive']].map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === show ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
         '<label>Module<select class="rs-mod"><option value="">All modules</option>' + R.modules.map(function (m) { return '<option value="' + esc(m.deliveryId) + '"' + (m.deliveryId === modSel ? ' selected' : '') + '>' + esc(m.title) + '</option>'; }).join('') + '</select></label>' +
         '<span class="small muted rs-count"></span></div><div class="tbl-wrap"><table class="dir-tbl rs-tbl"><thead></thead><tbody></tbody></table></div></div>');
       body.appendChild(tbl);
@@ -1534,9 +1542,9 @@
       function detail(x) {
         var w = h('<div class="note ov-stu rs-stu" tabindex="-1"><div class="ov-stu-h"><div><b dir="auto">' + esc(x.name) + '</b> <code>' + esc(x.studentId) + '</code><div class="small muted">' + esc(R.group.label) + ' · ' + esc(x.status) + '</div></div>' + badge(x) + '</div>' +
           '<div class="ov-kpis"><div class="ov-kpi"><span>Overall assessment</span><b>' + pc(x.overall) + '</b><small>' + esc(R.settings.method === 'weighted' ? 'weighted' : 'equal weighting') + '</small></div>' +
-          '<div class="ov-kpi"><span>Modules with results</span><b>' + x.withResults + '</b><small>of ' + x.assessedModules + ' with assessments</small></div><div class="ov-kpi"><span>Included in overall</span><b>' + x.included + '</b></div><div class="ov-kpi"><span>Not yet assessed</span><b>' + x.remaining + '</b></div></div>' +
-          '<div class="tbl-wrap"><table class="dir-tbl"><thead><tr><th>Module</th><th class="n">Attempts</th><th>Assessments (attempts · average)</th><th class="n">Module %</th>' + (R.settings.method === 'weighted' ? '<th class="n">Weight</th>' : '') + '<th>In overall</th></tr></thead><tbody>' +
-          x.modules.map(function (m) { return '<tr><td>' + esc(m.icon + ' ' + m.module) + '</td><td class="n">' + m.attempts + '</td><td class="small">' + (m.assessments.length ? m.assessments.map(function (a) { return esc(a.title) + ' (' + a.attempts + ' · ' + a.avg + '%)'; }).join('<br>') : '<span class="muted">—</span>') + '</td><td class="n"><b>' + pc(m.pct) + '</b></td>' + (R.settings.method === 'weighted' ? '<td class="n">' + m.weight + '</td>' : '') + '<td>' + (m.included ? '✓' : m.pct == null ? '<span class="muted">no result</span>' : '<span class="muted">weight 0</span>') + '</td></tr>'; }).join('') +
+          '<div class="ov-kpi"><span>Modules with results</span><b>' + x.withResults + '</b><small>of ' + x.assessedModules + ' with assessments</small></div><div class="ov-kpi"><span>Included in overall</span><b>' + x.included + '</b></div><div class="ov-kpi"><span>Not yet assessed</span><b>' + x.remaining + '</b></div>' + (x.missed != null ? '<div class="ov-kpi"><span>Missed assessments</span><b>' + x.missed + '</b><small>counted as 0 %</small></div>' : '') + '</div>' +
+          '<div class="tbl-wrap"><table class="dir-tbl"><thead><tr><th>Module</th><th class="n">Attempts</th><th>Assessments (best % · missed = 0 %)</th><th class="n">Module %</th>' + (R.settings.method === 'weighted' ? '<th class="n">Weight</th>' : '') + '<th>In overall</th></tr></thead><tbody>' +
+          x.modules.map(function (m) { return '<tr><td>' + esc(m.icon + ' ' + m.module) + '</td><td class="n">' + m.attempts + '</td><td class="small">' + (m.assessments.length ? m.assessments.map(function (a) { return esc(resAssessLabel(a)); }).join('<br>') : '<span class="muted">—</span>') + '</td><td class="n"><b>' + pc(m.pct) + '</b></td>' + (R.settings.method === 'weighted' ? '<td class="n">' + m.weight + '</td>' : '') + '<td>' + (m.included ? '✓' : m.pct == null ? '<span class="muted">no result</span>' : '<span class="muted">weight 0</span>') + '</td></tr>'; }).join('') +
           '<tr><td><b>Overall</b></td><td></td><td class="small muted">' + esc(method()) + '</td><td class="n"><b>' + pc(x.overall) + '</b></td>' + (R.settings.method === 'weighted' ? '<td></td>' : '') + '<td></td></tr></tbody></table></div>' +
           '<div class="roster-tools"><button class="btn" type="button" data-a="c">⬇ CSV — this student</button><button class="btn" type="button" data-a="x">Close</button></div></div>');
         $('[data-a=x]', w).onclick = function () { detailBox.innerHTML = ''; };
@@ -1568,7 +1576,7 @@
       }));
     }
     function csvStudent(x) {
-      var rows = x.modules.map(function (m) { return [x.studentId, x.name, m.module, m.attempts, m.assessments.map(function (a) { return a.title + ' (' + a.attempts + ' · ' + a.avg + '%)'; }).join('; '), m.pct == null ? '' : m.pct, R.settings.method === 'weighted' ? m.weight : 1, m.included ? 'yes' : 'no']; });
+      var rows = x.modules.map(function (m) { return [x.studentId, x.name, m.module, m.attempts, m.assessments.map(resAssessLabel).join('; '), m.pct == null ? '' : m.pct, R.settings.method === 'weighted' ? m.weight : 1, m.included ? 'yes' : 'no']; });
       rows.push([x.studentId, x.name, 'OVERALL', '', R.settings.method, x.overall == null ? '' : x.overall, '', x.included + ' module(s)']);
       csvDownload(fname(String(x.studentId).replace(/[^A-Za-z0-9_-]/g, '')), ['Student ID', 'Name', 'Module', 'Attempts', 'Assessments', 'Module assessment %', 'Weight', 'Included in overall'], rows);
     }

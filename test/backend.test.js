@@ -2619,7 +2619,7 @@ test('copy an assessment to other groups (2.21): only groups of the same module 
   assert.strictEqual(T('aeCopyTo', { assessmentId: 'q1', targets: [] }).ok, false);
 });
 
-test('Pathology Overall Results (2.22): module % = mean of submitted assessment attempts; overall equal (75% example) or weighted; missing ≠ zero; inactive / duplicates / exams / practice excluded; settings; permissions', function () {
+test('Pathology Overall Results (2.22, rule 2.34): module % = best % per counted assessment, a missed one = 0; overall equal (75% example) or weighted; a module with no counted assessment ≠ zero; inactive / duplicates / exams / practice excluded; settings; permissions', function () {
   const S = tsSetup(), X = S.b.ctx;
   const M = ['ovA', 'ovB', 'ovC', 'ovD'].map(function (k, i) { return { deliveryId: 'd-' + k, moduleId: 'mod' + k, title: ['Cell Injury', 'Inflammation', 'Hemodynamic Disorders', 'Neoplasia'][i], icon: '📘', storage: 'mod' + k + '-tg', active: true }; });
   const g = { groupId: 'g-ov', label: 'Test group', linkCode: 'tg', academicYear: '2026-27', modules: M };
@@ -2652,14 +2652,16 @@ test('Pathology Overall Results (2.22): module % = mean of submitted assessment 
   const s1 = by(eq, 's1'), s2 = by(eq, 's2'), s3 = by(eq, 's3'), s4 = by(eq, 's4');
   assert.deepStrictEqual(pcts(s1), [80, 70, 90, 60]);
   assert.deepStrictEqual([s1.overall, s1.withResults, s1.included, s1.completion, s1.remaining], [75, 4, 4, 'complete', 0], 'the 75% example');
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(modOf(s1, 0).assessments.map(function (a) { return [a.title, a.attempts, a.avg]; }))), [['Quiz q1', 1, 70], ['Quiz q2', 1, 90]]);
-  assert.deepStrictEqual(pcts(s2), [50, 100, 30, null], 'missing stays missing; the duplicate counted once');
-  assert.deepStrictEqual([s2.overall, s2.withResults, s2.completion, s2.remaining], [60, 3, 'partial', 1]);
-  assert.deepStrictEqual([s3.overall, s3.withResults, s3.completion], [null, 0, 'none'], 'no submissions → no overall (not zero)');
-  assert.deepStrictEqual([s4.status, s4.completion, s4.overall], ['inactive', 'inactive', 40], 'inactive listed with history, not dropped');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(modOf(s1, 0).assessments.map(function (a) { return [a.title, a.state, a.attempts, a.pct]; }))), [['Quiz q1', 'done', 1, 70], ['Quiz q2', 'done', 1, 90]]);
+  // 2.34: s2 missed q2 in A (0) and the only assessment of D (0): A = (50 + 0) / 2; the duplicate attempt counted once
+  assert.deepStrictEqual(pcts(s2), [25, 100, 30, 0], 'a missed assessment counts 0');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(modOf(s2, 0).assessments.map(function (a) { return [a.title, a.state, a.pct]; }))), [['Quiz q1', 'done', 50], ['Quiz q2', 'missed', 0]]);
+  assert.deepStrictEqual([s2.overall, s2.withResults, s2.missed, s2.completion, s2.remaining], [38.8, 4, 2, 'partial', 1], '(25 + 100 + 30 + 0) / 4');
+  assert.deepStrictEqual([s3.overall, s3.missed, s3.completion], [0, 5, 'none'], 'nothing submitted while the group took 5 assessments → 0 %');
+  assert.deepStrictEqual([s4.status, s4.completion, s4.overall], ['inactive', 'inactive', 5], 'inactive listed with history, not dropped: (20 + 0 + 0 + 0) / 4');
   assert.strictEqual(gm(eq, 1).submitted, 2, 'exam attempt and practice result are not assessments');
   assert.strictEqual(gm(eq, 3).hasAssessments, true);
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(eq.summary)), { enrolled: 3, inactive: 1, withResults: 2, incomplete: 1, none: 1, complete: 1, mean: 67.5, high: 75, low: 60, modulesWithResults: 4, modulesAssessed: 4, modules: 4 });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(eq.summary)), { enrolled: 3, inactive: 1, withResults: 3, incomplete: 1, none: 1, complete: 1, mean: 37.9, high: 75, low: 0, modulesWithResults: 4, modulesAssessed: 4, modules: 4 });
   assert.ok(eq.others.some(function (o) { return o.label === 'stranger@x.y'; }), 'unmatched attempts reported apart');
   // weighted: A×2, B×1, C×1, D×0 (excluded) → s1 = (160 + 70 + 90) / 4 = 80; an unconfigured module counts 1 and is flagged
   const w = X.resOverallCompute_(g, members, { method: 'weighted', weights: { modovA: 2, modovB: 1, modovC: 1, modovD: 0 } });
@@ -2676,11 +2678,49 @@ test('Pathology Overall Results (2.22): module % = mean of submitted assessment 
   assert.deepStrictEqual(JSON.parse(JSON.stringify([sv.settings.method, sv.settings.weights])), ['weighted', { cellinjury: 2 }]);
   // the real group through the dashboard action: Admin and the group's teacher; another teacher refused
   const r = S.ts('resOverall', { groupId: S.ra.groupId }); assert.ok(r.ok, JSON.stringify(r).slice(0, 300));
-  assert.deepStrictEqual(r.modules.map(function (m) { return m.storage; }).sort(), ['cellinjury-razi-a-26', 'inflhealing-razi-a-26']);
+  assert.deepStrictEqual(r.modules.map(function (m) { return m.deliveryId; }).concat(r.hidden.map(function (m) { return m.deliveryId; })).sort(), [S.ci.deliveryId, S.ih.deliveryId].sort(), 'shown + hidden (2.34: no submissions → hidden)');
   assert.strictEqual(r.settings.method, 'weighted'); assert.ok(r.students.some(function (x) { return x.studentId === 'b1'; }));
   assert.ok(S.tt('resOverall', S.ahmed.tok, { groupId: S.ra.groupId }).ok);
   assert.strictEqual(S.tt('resOverall', S.sara.tok, { groupId: S.ra.groupId }).code, 'forbidden');
   S.ts('resSettings', { method: 'equal', weights: {} });
+});
+
+test('2.34 Pathology Overall Results: the user\'s case — 8 topic quizzes; one student took all 8 (95 %), another only 1 (100 %) → 12.5 %, not 100 %; excused / excluded quizzes as in the Annual Assessment, which gives the same figure', function () {
+  const S = tsSetup(), X = S.b.ctx;
+  const M = [{ deliveryId: 'd-ci', moduleId: 'modci', title: 'Cell Injury', icon: '🧫', storage: 'modci-tg', active: true },
+    { deliveryId: 'd-ip', moduleId: 'modip', title: 'Introduction', icon: '🔬', storage: 'modip-tg', active: true },        // nobody submitted → not shown
+    { deliveryId: 'd-ih', moduleId: 'modih', title: 'Inflammation', icon: '🔥', storage: 'modih-tg', active: false }];     // delivery inactive → not shown
+  const g = { groupId: 'g-34', label: 'Group', linkCode: 'tg', academicYear: '2026-27', modules: M };
+  let n = 0;
+  const att = function (id, ref, pct) { n++; X.assessStore_(M[0].storage).put('attempt', 'a' + n, { id: 'a' + n, assessmentId: ref, assessmentTitle: 'Topic ' + ref.slice(1) + ' quiz', email: id + '@student.local', name: '', status: 'submitted', percent: pct, submittedAt: 1000 + n }); };
+  [100, 100, 80, 80, 100, 100, 100, 100].forEach(function (p, i) { att('w1', 't' + (i + 1), p); });   // Wesal: 8 quizzes, mean 95
+  att('t1x', 't8', 100);                                                                            // Taha: only Topic 8
+  att('w1', 't3', 60);                                                                              // a retake: the best (80) counts
+  X.assessStore_('modih-tg').put('attempt', 'ih1', { id: 'ih1', assessmentId: 'x', assessmentTitle: 'X', email: 'w1@student.local', status: 'submitted', percent: 10, submittedAt: 1 });
+  X.assessStore_('modip-tg').put('assignment', 'ipa', { id: 'ipa', assessmentId: 'y', status: 'active', targetType: 'all' });
+  const full = X.resOverallCompute_(g, [{ studentId: 'w1', name: 'Wesal', active: true }], { method: 'equal', weights: {} });
+  assert.deepStrictEqual(full.modules.map(function (m) { return m.title; }), ['Cell Injury'], 'only the module with submissions and an active delivery');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(full.hidden.map(function (m) { return [m.title, m.reason]; }))), [['Inflammation', 'inactive'], ['Introduction', 'nosubmissions']]);
+  assert.deepStrictEqual([full.students[0].modules.length, full.students[0].overall, full.summary.modules], [1, 95, 1], 'the inactive module\'s 10 % is not counted');
+  const members = [{ studentId: 'w1', name: 'Wesal', active: true }, { studentId: 't1x', name: 'Taha', active: true }];
+  const run = function (ann) { const r = X.resOverallCompute_(g, members, { method: 'equal', weights: {} }, ann); const o = {}; r.students.forEach(function (x) { o[x.studentId] = x; }); return o; };
+  let r = run({ excluded: {}, excused: {} });
+  assert.deepStrictEqual([r.w1.overall, r.w1.modules[0].counted, r.w1.missed, r.w1.completion], [95, 8, 0, 'complete']);
+  assert.deepStrictEqual([r.t1x.overall, r.t1x.modules[0].counted, r.t1x.missed, r.t1x.completion], [12.5, 8, 7, 'partial'], '100 / 8 — absent from 7 quizzes');
+  assert.strictEqual(r.t1x.modules[0].assessments.filter(function (a) { return a.state === 'missed'; }).length, 7);
+  // the teacher excuses Taha for Topics 1–3 (e.g. not yet enrolled): 100 / 5 = 20 %
+  r = run({ excluded: {}, excused: { t1x: { 'modci-tg|t1': true, 'modci-tg|t2': true, 'modci-tg|t3': true } } });
+  assert.deepStrictEqual([r.t1x.overall, r.t1x.modules[0].counted, r.t1x.modules[0].excused], [20, 5, 3]);
+  // the teacher excludes Topic 3 for the whole group: Wesal (100+100+80+100+100+100+100)/7 = 97.1
+  r = run({ excluded: { 'modci-tg|t3': true }, excused: {} });
+  assert.deepStrictEqual([r.w1.overall, r.w1.modules[0].counted, r.t1x.overall], [97.1, 7, 14.3]);
+  // the same figures as the Annual Assessment's quiz part (/20 → %)
+  const a = X.annCompute_(g, members, { excluded: {}, excused: {} }, [], Date.now()); const ao = {}; a.students.forEach(function (x) { ao[x.studentId] = x; });
+  assert.deepStrictEqual([ao.w1.quiz * 5, ao.t1x.quiz * 5], [95, 12.5]);
+  // the dashboard action reads the Annual Assessment's settings of the group
+  X.setSetting_('ann:' + S.ra.groupId, JSON.stringify({ excluded: {}, excused: {} }));
+  assert.ok(S.ts('resOverall', { groupId: S.ra.groupId }).ok);
+  assert.strictEqual(X.PORTAL_VERSION, '2.34');
 });
 
 test('2.33 assessment-only question bank: teachers of every group read it, only the Admin changes it from the main copy, students never receive it nor any published assessment version — attempts still work', function () {
@@ -2735,5 +2775,5 @@ test('2.33 assessment-only question bank: teachers of every group read it, only 
   assert.strictEqual(call('cellinjury', { action: 'qbList', token: tMain }).items.length, 1);
   assert.strictEqual(call('cellinjury', { action: 'qbDelete', token: tMain, all: true }).deleted, 1);
   assert.deepStrictEqual(call(CI, { action: 'qbList', token: tRa }).items, []);
-  assert.strictEqual(X.PORTAL_VERSION, '2.33');
+  assert.ok(Number(X.PORTAL_VERSION) >= 2.33);
 });
