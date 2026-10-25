@@ -84,8 +84,8 @@ test.before(async function () {
 test.after(async function () { if (SKIP) return; await browser.close(); server.close(); });
 
 const navigations = [];
-async function page(viewport) {
-  const ctx = await browser.newContext({ viewport: viewport || { width: 1280, height: 900 } });
+async function page(viewport, ctxOpts) {
+  const ctx = await browser.newContext(Object.assign({ viewport: viewport || { width: 1280, height: 900 } }, ctxOpts || {}));
   const p = await ctx.newPage();
   p.on('pageerror', function (e) { errors.push(e.message); });
   p.on('dialog', function (d) { d.accept(); });
@@ -4025,6 +4025,69 @@ test('🔒 Assessment bank: import in the main copy → never in Practice / Revi
     });
     main.ctx.rpRows_('Content').forEach(function (r) { if ((r.collection === 'assessmentversions' || r.collection === 'assessments') && !main.ctx.isTrue_(r.deleted)) { const id = String(r.id).split('@')[0]; const row = main.ctx.findContentRow_(r.module, 'assessments', id), d = row && main.ctx.unpackJson_(row); if (d && d.autoTopic) main.ctx.actionDelete_(r.module, { collection: r.collection, id: r.id }); } });
   }
+});
+
+/* ⛶ Full-screen reading on iPad (patch learn-fs-ipad, user 2026-10-25): Safari on a new iPad left the system full screen on
+   scroll swipes and links, which ended the reading mode and made the page jump to the top. A touch device now uses only the
+   reading mode, keeps it when a system full screen ends, and switching keeps the reader's place; a desktop still asks for the
+   system full screen. Synthetic course in the real module page (no key needed). */
+test('⛶ Full-screen reading: iPad = reading mode only (no system full screen), survives a full-screen exit, keeps the place; desktop still requests the system full screen', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+  groupFixture();
+  const para = function (i) { return 'Paragraph ' + i + ': ' + 'Cell injury results when cells are stressed beyond their ability to adapt. '.repeat(6); };
+  const sec = function (k) { return { id: 's010' + k, heading: 'Section ' + k, body: [1, 2, 3, 4, 5].map(function (i) { return para(k * 10 + i); }).join('\n\n'), tables: [], figures: [], keyPoints: [] }; };
+  const topics = [{ id: 't01', title: 'Long topic', summary: 'A long topic.', sections: [1, 2, 3, 4, 5, 6].map(sec) }];
+  const mod = syntheticModule(CI_PAGE, { topics: topics }), keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  const spy = function () { window.__fsCalls = 0; const o = Element.prototype.requestFullscreen; Element.prototype.requestFullscreen = function () { window.__fsCalls++; return o ? o.apply(this, arguments) : Promise.resolve(); }; };
+  const run = async function (p) {
+    await p.addInitScript(spy);
+    await openSyntheticModule(p, mod, [], { stubAssess: false });
+    await p.evaluate(function () { location.hash = '#/explain/t01'; });
+    await p.waitForSelector('#view-explain [data-a=learn-fs]');
+    await p.click('#view-explain button:has-text("Expand all")');   // every section open: a long page
+    await p.waitForFunction(function () { return /Paragraph 32/.test(document.querySelector('#view-explain').textContent); });
+    // read halfway down, then switch on: the paragraph at the top of the screen stays at the top
+    const mark = function () { return p.evaluate(function () { const y = Math.round(innerHeight * 0.4), w = document.createTreeWalker(document.querySelector('#view-explain'), NodeFilter.SHOW_TEXT); let n, best = null;
+      while ((n = w.nextNode())) { if (!/^Paragraph \d+/.test(n.nodeValue.trim())) continue; const r = n.parentElement.getBoundingClientRect(), d = r.top <= y && r.bottom >= y ? 0 : Math.min(Math.abs(r.top - y), Math.abs(r.bottom - y)); if (!best || d < best.d) best = { d: d, t: n.nodeValue.trim().slice(0, 13), top: Math.round(r.top) }; }
+      return best; }); };
+    await p.evaluate(function () { const w = document.createTreeWalker(document.querySelector('#view-explain'), NodeFilter.SHOW_TEXT); let n; while ((n = w.nextNode()) && !/Paragraph 32/.test(n.nodeValue)); window.scrollTo({ top: n.parentElement.getBoundingClientRect().top + scrollY - Math.round(innerHeight * 0.4) + 20, behavior: 'instant' }); });
+    const m0 = await mark(); assert.ok(m0, 'a paragraph at the top');
+    await p.evaluate(function () { if (document.activeElement) document.activeElement.blur(); });
+    await p.keyboard.press('f'); await p.waitForSelector('#lfs-bar'); await p.waitForTimeout(300);   // F where the reader is (the ⛶ button sits at the top of the topic)
+    const m1 = await mark();
+    return { m0: m0, m1: m1, mark: mark };
+  };
+  try {
+    // ---- iPad (Safari, iPadOS 18: desktop user agent + touch screen) ----
+    const ipad = await page({ width: 1180, height: 820 }, { userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Safari/605.1.15', hasTouch: true, isMobile: false });
+    await ipad.addInitScript(function () { Object.defineProperty(Navigator.prototype, 'maxTouchPoints', { get: function () { return 5; } }); });   // a real iPad reports 5
+    const r = await run(ipad);
+    assert.strictEqual(await ipad.evaluate(function () { return navigator.maxTouchPoints > 1 && LearnFS.touch(); }), true, 'recognised as an iPad');
+    assert.strictEqual(await ipad.evaluate(function () { return window.__fsCalls; }), 0, 'no system full screen on the iPad');
+    assert.ok(await ipad.evaluate(function () { return document.body.classList.contains('learn-fs'); }), 'the reading mode is on');
+    assert.strictEqual(r.m1.t, r.m0.t, 'the same paragraph stays at the top (' + r.m0.t + ' → ' + r.m1.t + ')');
+    assert.ok(Math.abs(r.m1.top - r.m0.top) <= 4, 'at the same place (' + r.m0.top + ' → ' + r.m1.top + ')');
+    if (process.env.SHOTS) await ipad.screenshot({ path: path.join(process.env.SHOTS, 'learn-fs-ipad.png') });
+    // a system full screen that ends by itself (Safari) keeps the reading mode and the place
+    const y0 = await ipad.evaluate(function () { return scrollY; });
+    await ipad.evaluate(function () { LearnFS.native = true; document.dispatchEvent(new Event('fullscreenchange')); });
+    await ipad.waitForTimeout(150);
+    assert.ok(await ipad.evaluate(function () { return LearnFS.on && document.body.classList.contains('learn-fs') && !!document.getElementById('lfs-bar'); }), 'still in the reading mode');
+    assert.strictEqual(await ipad.evaluate(function () { return scrollY; }), y0, 'no jump to the top');
+    // ✕ leaves and keeps the place too
+    const before = await r.mark();
+    await ipad.click('#lfs-bar .lfs-x'); await ipad.waitForTimeout(300);
+    const after = await r.mark();
+    assert.ok(after && after.t === before.t && Math.abs(after.top - before.top) <= 4, 'leaving keeps the place (' + JSON.stringify([before, after]) + ')');
+    await ipad.context().close();
+    // ---- desktop: the system full screen is still requested, Esc still ends both ----
+    const desk = await page();
+    await run(desk);
+    assert.strictEqual(await desk.evaluate(function () { return window.__fsCalls; }), 1, 'desktop asks for the system full screen');
+    await desk.evaluate(function () { if (document.fullscreenElement) return document.exitFullscreen(); LearnFS.native = true; document.dispatchEvent(new Event('fullscreenchange')); });   // Esc in a desktop full screen
+    await desk.waitForFunction(function () { return !LearnFS.on && !document.getElementById('lfs-bar'); });
+    await desk.context().close();
+    assert.strictEqual(errors.filter(function (e) { return !/ERR_TUNNEL|net::/.test(e); }).length, 0, errors.join('\n'));
+  } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
 });
 
 test('Presentation slide editor: B (and Ctrl+B) bolds / un-bolds the selected words in bullets and subtitle, with a live preview; the slide shows bold', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {

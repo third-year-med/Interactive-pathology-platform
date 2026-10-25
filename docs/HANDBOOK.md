@@ -525,6 +525,18 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   when it is ON. → **Switch versioned content ON** (then Ctrl+F5 in the group's module). Check the label first. The module's Teacher Portal → Students shows only the
   copy that was opened (main `inflcondensed` vs the group's `inflcondensed-<link>`).
 
+- **⛶ Full-screen reading unstable on a new iPad (2026-10-25, Safari, iPadOS 18.5):** the reading mode ended on scroll swipes
+  and after opening a link, and the page jumped to the top; an older iPad was stable. Cause: learn-fs also requested the
+  browser's SYSTEM full screen ("… is in full screen. Swipe down to exit."); Safari on iPad leaves it by itself, and learn-fs
+  ended the reading mode on every `fullscreenchange` exit. The older iPad's browser never entered the system full screen, so
+  only the reading mode ran. Fix: patch `learn-fs-ipad` — touch devices (iPad incl. the desktop-UA iPadOS Safari =
+  Macintosh + maxTouchPoints > 1, iPhone, coarse-pointer tablets) use only the reading mode; a system full screen ending
+  by itself keeps the reading mode on touch devices; switching on/off keeps the paragraph at 40 % of the screen in place
+  (`keepPlace`, instant scroll — the page scrolls smoothly by default). Desktop unchanged. e2e “⛶ Full-screen reading:
+  iPad …” (emulated iPad: UA + touch + maxTouchPoints 5; fails on the old page). **Lessons:** never tie an in-page mode to
+  the browser's system full screen on touch devices; Playwright's click scrolls its target into view (enter with F to test a
+  mid-page position); Chromium's touch emulation reports maxTouchPoints 1, a real iPad 5.
+
 - **Two chats edited `modules/patches/apply.sh` at the same time (2026-10-17):** the picture chat added `picture-import`
   while this chat added `slide-bold`; the slide-bold entry was lost from ORDER (the checker cannot notice a patch missing
   from the list). → Before committing a new patch: `git pull`, append to ORDER, and verify that an OLD module page

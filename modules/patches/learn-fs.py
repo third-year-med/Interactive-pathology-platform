@@ -58,11 +58,12 @@ const LearnFS = {
   },
   toggle() { if (this.on) this.exit(); else this.enter(); }
 };
-Views.explain = {"""),
+Views.explain = {""", """const LearnFS = {"""),   # done-marker: learn-fs-ipad edits lines inside this block
 ]
 for path in sys.argv[1:]:
     s = open(path, encoding='utf-8').read(); n = 0
-    for a, b in R:
-        if b in s: continue
+    for r in R:
+        a, b = r[0], r[1]
+        if b in s or (len(r) > 2 and r[2] in s): continue
         assert s.count(a) == 1, (path, a[:70]); s = s.replace(a, b); n += 1
     open(path, 'w', encoding='utf-8').write(s); print(path, 'changes:', n)
