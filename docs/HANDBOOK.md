@@ -691,7 +691,7 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   (Exam question bank → Import). e2e test "Neoplasia module (neoplasm)…" and the module smoke test include it.
   User's steps: four Code.gs additions for `neoplasm` (and remove the old `neoplasia` line from DEFAULT_QUIZ_PW), platformCheck,
   Deploy, GitHub Pages ON for the repo, front-page card at Chapter 4, Modules → Add + Deliveries, versioned content.
-- **Backend: Portal.gs 2.34 in the repo** (2.34 = user, 2026-10-25, after a student with 1 of 8 quizzes showed 100 %:
+- **Backend: Portal.gs 2.35 in the repo** (2.35 = user, 2026-10-26: module action `teacherWho` — a module teacher session → the name of its personal teacher account (Admin sessions: admin:true, no name); patch `att-teacher-name` puts that name in Attendance → ▶ Start attendance → Teacher (a typed name is kept; nothing changes before 2.35 is deployed); 2.34 = user, 2026-10-25, after a student with 1 of 8 quizzes showed 100 %:
   📈 Pathology Overall Results uses the Annual Assessment's quiz rule — counted assessments = submitted by ≥ 1 student of
   the group and not excluded; per counted assessment the BEST %; a MISSED one = 0 %; excused / excluded from the Annual
   Assessment's settings `ann:<groupId>` (one excuse acts on both reports) — so the module % equals the Annual quiz %;

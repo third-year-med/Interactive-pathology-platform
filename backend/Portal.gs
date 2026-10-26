@@ -198,7 +198,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.34';
+var PORTAL_VERSION = '2.35';
 /** 2.28: the shortest password for teachers AND students on every Portal screen (user, 2026-10-21: 4, was 8). Code.gs checks its own
     (STU_MIN_PW and the module teacher password) — platformCheck warns while they still ask for more. No maximum. */
 var PW_MIN_ = 4;
@@ -233,7 +233,8 @@ function portalHook_(module, p) {
     var ll = learnLockHook_(String(module), act, p); if (ll) return ll;   // 2.18: Learning module locked during assessments (students)
     var ap = assessPwHook_(String(module), act, p); if (ap) return ap;   // 2.19: one password per assessment (asked only to start it)
     if (act === 'aeCopyTargets' || act === 'aeCopyTo') return aeCopyHook_(String(module), act, p);   // 2.21: copy an assessment to other groups
-    if (act === 'attMark' || act === 'attMarks') return attMarkHook_(String(module), act, p);   // 2.25/2.26: Present / Late / Excused in the module report
+    if (act === 'attMark' || act === 'attMarks') return attMarkHook_(String(module), act, p);
+    if (act === 'teacherWho') return teacherWhoHook_(String(module), p);   // 2.35: the name of the teacher account that opened this module   // 2.25/2.26: Present / Late / Excused in the module report
     if (QB_ACTIONS[act]) return qbankHook_(String(module), act, p);   // 2.33: the module's assessment-only question bank (teachers)
     // 2.5 speed: the frequent "anything new?" check is answered from memory when nothing changed for this storage
     if (act === 'getAllContent') { var fast = cvFastUnchanged_(String(module), p); if (fast) return fast; }
@@ -1051,6 +1052,17 @@ function attRecsOf_(sid) { return readAll_(SHEETS.ATT_RECORDS).filter(function (
 function attIsTsSession_(storage, sid) {
   try { if (!dirReadable_()) return false; } catch (e) { return false; }
   return tsRows_().some(function (t) { return t.backendModule === storage && String(t.attSessionId) === String(sid); });
+}
+/** 2.35 (user, 2026-10-26): "the teacher of a new attendance session is the account owner, not Dr. Wesam Alzwawy".
+    A module teacher session → the name of its personal teacher account (PortalUsers.name, else username); the Admin's
+    sessions (dashboard, Edit master draft, module sign-in) answer admin:true with no name — the page keeps its own default. */
+function teacherWhoHook_(storage, p) {
+  return authed_(storage, p, function (token) {
+    var caller = examCaller_(token);
+    if (caller.admin) return { ok: true, admin: true, name: '' };
+    var u = dirFind_(DIR.USERS, 'userId', caller.userId);
+    return { ok: true, admin: false, name: u ? String(u.name || u.username || '') : '' };
+  });
 }
 function attMarkHook_(storage, act, p) {
   return authed_(storage, p, function () {

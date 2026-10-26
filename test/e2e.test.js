@@ -4299,6 +4299,63 @@ test('Attendance tab for a teacher: the short Teacher Portal version — start a
   } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
 });
 
+test('Attendance → Start attendance (patch att-teacher-name, Portal.gs 2.35): the Teacher field shows the name of the teacher account that opened the module; the Admin keeps the author; a typed name stays', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+  groupFixture();
+  const ST = 'cellinjury-tr-a', mod = syntheticModule(CI_PAGE), keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  try {
+    main.call({ module: 'portal', action: 'setup', password: TPW });
+    const at = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+    assert.ok(main.call({ module: 'portal', action: 'tsSettings', token: at, hideModuleLive: false }).ok);   // the module's own Attendance tab is shown
+    const dir = main.call({ module: 'portal', action: 'dirGet', token: at });
+    const g = dir.groups.filter(function (x) { return x.linkCode === 'tr-a'; })[0];
+    const d = dir.deliveries.filter(function (x) { return x.groupId === g.groupId && x.moduleId === 'cellinjury'; })[0];
+    const cr = main.call({ module: 'portal', action: 'teacherSave', token: at, create: true, record: { username: 'att.name', name: 'Dr. Abdelrahman Test', password: 'att-name-1' } });
+    assert.ok(cr.ok, JSON.stringify(cr));
+    assert.ok(main.call({ module: 'portal', action: 'teacherAssign', token: at, userId: cr.teacher.userId, deliveryIds: [d.deliveryId] }).ok);
+    const lg = main.call({ module: 'portal', action: 'teacherLogin', username: 'att.name', password: 'att-name-1' });
+    assert.ok(main.call({ module: 'portal', action: 'teacherChangePassword', ttoken: lg.ttoken, oldPassword: 'att-name-1', newPassword: 'att-name-2' }).ok);
+    const op = main.call({ module: 'portal', action: 'teacherOpen', ttoken: lg.ttoken, deliveryId: d.deliveryId });
+    assert.ok(op.ok, JSON.stringify(op));
+    main.call({ module: ST, action: 'setup', password: 'teacher-' + ST + '-1' });
+    const admTok = main.call({ module: ST, action: 'login', password: 'teacher-' + ST + '-1' }).token;
+    const backendUrl = JSON.parse(/window\.NEO_CONFIG\s*=\s*(\{[\s\S]*?\});/.exec(mod.html)[1]).backendUrl;
+    const open = async function (tok, last) {
+      const t = await page();
+      await t.route('https://third-year-med.github.io/cell-injury-teaching-platform/**', function (route) { return route.fulfill({ status: 200, contentType: 'text/html', body: mod.html }); });
+      await t.addInitScript(function (o) { try { localStorage.setItem('ci_tr-a_backend_token_v1', JSON.stringify({ token: o.tok, expiresAt: Date.now() + 3600e3, url: o.url })); if (o.last) localStorage.setItem('ci_tr-a_att_last_v1', JSON.stringify({ teacher: o.last })); } catch (e) { } }, { tok: tok, url: backendUrl, last: last || '' });
+      await t.goto('https://third-year-med.github.io/cell-injury-teaching-platform/?g=tr-a#/attendance');
+      await t.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+      await t.waitForFunction(function () {   // a teacher's first visit may land on the Teacher Portal: go to the Attendance tab
+        if (location.hash !== '#/attendance') location.hash = '#/attendance';
+        return /Start attendance for a new teaching session/.test((document.querySelector('#view-attendance') || {}).textContent || '');
+      }, null, { timeout: 20000, polling: 500 });
+      await t.waitForSelector('#view-attendance h3:has-text("Start attendance for a new teaching session")', { timeout: 20000 });
+      return t;
+    };
+    const field = '#view-attendance label.field:has-text("Teacher") input';
+    // the personal teacher: their own account name, even after the author's name was used in this browser before
+    let t = await open(op.token, 'Dr. Wesam Alzwawy');
+    await t.waitForFunction(function () { const l = Array.prototype.filter.call(document.querySelectorAll('#view-attendance label.field'), function (x) { return /^Teacher/.test(x.textContent); })[0]; const i = l && l.querySelector('input'); return i && i.value === 'Dr. Abdelrahman Test'; }, null, { timeout: 15000 });
+    if (process.env.SHOTS) await t.screenshot({ path: path.join(process.env.SHOTS, 'attendance-teacher-name.png') });
+    // a name typed by the teacher is kept (the server answer never overwrites it) and is what the session records
+    await t.fill(field, 'Dr. Substitute');
+    await t.fill('#view-attendance input[placeholder^="e.g. Session 2"]', 'Account-name lecture');
+    await t.click('#view-attendance button:has-text("Start attendance")');
+    await t.waitForSelector('#view-attendance button:has-text("Close attendance")', { timeout: 15000 });
+    const s1 = main.ctx.rpRows_('AttendanceSessions').filter(function (r) { return r.module === ST && r.sessionTitle === 'Account-name lecture'; })[0];
+    assert.ok(s1 && s1.teacher === 'Dr. Substitute', JSON.stringify(s1));
+    await t.click('#view-attendance button:has-text("Close attendance")');
+    const cd = await t.$('.modal button:has-text("Close attendance")'); if (cd) await cd.click();
+    await t.context().close();
+    // the Admin (module sign-in): no account name — the page keeps the last name / the author
+    t = await open(admTok);
+    await t.waitForTimeout(1500);
+    assert.strictEqual(await t.inputValue(field), 'Test Author', 'the author of the (test) course');
+    assert.strictEqual(errors.filter(function (e) { return !/ERR_TUNNEL|net::/.test(e); }).length, 0, errors.join('\n'));
+    await t.context().close();
+  } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
+});
+
 test('Learning lock (2.18): Teacher Dashboard 🔒 Lock → the student sees only Assessments, every other address is blocked, the server refuses learning data; 🔓 Unlock opens it again', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
   groupFixture();
   const mod = syntheticModule(CI_PAGE), keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;

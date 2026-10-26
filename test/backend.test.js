@@ -695,6 +695,12 @@ test('teacher sees and opens ONLY the assigned group + module combinations (the 
   assert.ok(o.ok, JSON.stringify(o)); assert.strictEqual(o.backendModule, 'cellinjury-razi-a-26');
   assert.strictEqual(S.call({ module: 'cellinjury-razi-a-26', action: 'studentSession', token: o.token }).role, 'teacher', 'a real teacher session of that delivery');
   assert.ok(S.call({ module: 'cellinjury-razi-a-26', action: 'listStudents', token: o.token }).ok, 'module management works');
+  // 2.35 teacherWho: a personal teacher's module session names that account (the Attendance form's Teacher field); the Admin's has no name
+  assert.deepStrictEqual(S.call({ module: 'cellinjury-razi-a-26', action: 'teacherWho', token: o.token }), { ok: true, admin: false, name: 'Dr. Ahmed' });
+  const adm = S.call({ module: 'cellinjury-razi-a-26', action: 'login', password: 'teacher-cellinjury-razi-a-26' }).token;
+  if (adm) assert.deepStrictEqual(S.call({ module: 'cellinjury-razi-a-26', action: 'teacherWho', token: adm }), { ok: true, admin: true, name: '' });
+  assert.strictEqual(S.call({ module: 'cellinjury-razi-a-26', action: 'teacherWho' }).ok, false, 'teachers only');
+  assert.strictEqual(S.call({ module: 'cellinjury-misrata-a-26', action: 'teacherWho', token: o.token }).ok, false, 'only in its own storage');
   // never anywhere else
   ['cellinjury', 'cellinjury-misrata-a-26', 'inflhealing-razi-a-26', 'portal'].forEach(function (m) {
     assert.strictEqual(S.call({ module: m, action: 'listStudents', token: o.token }).ok, false, m);
@@ -2720,7 +2726,7 @@ test('2.34 Pathology Overall Results: the user\'s case — 8 topic quizzes; one 
   // the dashboard action reads the Annual Assessment's settings of the group
   X.setSetting_('ann:' + S.ra.groupId, JSON.stringify({ excluded: {}, excused: {} }));
   assert.ok(S.ts('resOverall', { groupId: S.ra.groupId }).ok);
-  assert.strictEqual(X.PORTAL_VERSION, '2.34');
+  assert.ok(parseFloat(X.PORTAL_VERSION) >= 2.34, X.PORTAL_VERSION);
 });
 
 test('2.33 assessment-only question bank: teachers of every group read it, only the Admin changes it from the main copy, students never receive it nor any published assessment version — attempts still work', function () {
