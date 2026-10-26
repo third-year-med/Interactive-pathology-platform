@@ -5011,6 +5011,15 @@ test('Neoplasia module (neoplasm): every topic, section, view and slide renders 
     await q.waitForSelector('#view-teacher', { state: 'visible', timeout: 10000 });
     const plan = await q.evaluate(function () { return AssessUI.topicQuizPlan().topics.filter(function (x) { return x.ok; }).length; });
     assert.ok(plan >= 15, '⚡ Topic quizzes: every topic has ≥ 5 practice questions (' + plan + ')');
+    // rs-sticky-leave patch: Results' sticky "ASSESSMENT … Change" bar never stays on top of Learn / ⛶ Full screen (user, 2026-10-26)
+    await q.evaluate(function () { location.hash = '#/teacher/results'; });
+    await q.waitForSelector('.rs-sticky', { state: 'attached', timeout: 15000 });
+    await q.evaluate(function () { document.querySelector('.rs-sticky').classList.add('show'); });   // as after scrolling down
+    await q.evaluate(function () { location.hash = '#/explain/t05'; });
+    await q.waitForSelector('#view-explain [data-a=learn-fs]');
+    await q.click('#view-explain [data-a=learn-fs]'); await q.waitForSelector('#lfs-bar');
+    await q.waitForFunction(function () { return !document.querySelector('.rs-sticky'); }, null, { timeout: 5000 });
+    await q.click('#view-explain [data-a=learn-fs]');
     await q.context().close();
     assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
   } finally {
