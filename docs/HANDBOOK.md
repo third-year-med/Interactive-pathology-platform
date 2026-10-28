@@ -551,7 +551,7 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   published; picture plan 52/52. Re-checked on the REAL cellcondensed course: the condensed Practical topic merged s1703 into
   s1702 and s1709 into s1708 — 8 pictures had no section → the condensed file maps them there; full rehearsal (test server):
   52/52 pictures added, 16 practicals with 52 pictures published. **Source note:** many pictures are WebPath / WebPathology / Science Photo Library
-  (link-only sources in §4.3) — the user's own choice for the class; flagged to the user.
+  (link-only sources in §4.3) — flagged; the user decided (2026-10-28) to KEEP all of them for the class.
 
 - **Two chats edited `modules/patches/apply.sh` at the same time (2026-10-17):** the picture chat added `picture-import`
   while this chat added `slide-bold`; the slide-bold entry was lost from ORDER (the checker cannot notice a patch missing
