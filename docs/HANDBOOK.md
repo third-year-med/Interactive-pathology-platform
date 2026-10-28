@@ -548,7 +548,9 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   (`importKey`, re-import skips), **✅ Approve & publish all** publishes those without QC errors. Do it inside ✏️ Edit
   master draft (`practicalpub` is versioned master content). Real files checked on a synthetic course with the real
   section IDs: 16 drafts, 52 uploads, 0 QC errors (warnings: pictures < print resolution, empty gross/micro slots), 16
-  published; picture plan 52/52. **Source note:** many pictures are WebPath / WebPathology / Science Photo Library
+  published; picture plan 52/52. Re-checked on the REAL cellcondensed course: the condensed Practical topic merged s1703 into
+  s1702 and s1709 into s1708 — 8 pictures had no section → the condensed file maps them there; full rehearsal (test server):
+  52/52 pictures added, 16 practicals with 52 pictures published. **Source note:** many pictures are WebPath / WebPathology / Science Photo Library
   (link-only sources in §4.3) — the user's own choice for the class; flagged to the user.
 
 - **Two chats edited `modules/patches/apply.sh` at the same time (2026-10-17):** the picture chat added `picture-import`
