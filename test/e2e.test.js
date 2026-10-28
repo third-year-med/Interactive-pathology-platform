@@ -5166,3 +5166,59 @@ test('Genetics and Pediatric Diseases module (genetics): every topic, section, v
     assert.ok(main.call({ module: 'portal', action: 'portalAdminSave', token: t, modules: reg }).ok);   // other tests keep their module list
   }
 });
+
+/* 📦 Import a practical file (patch prac-file-import, user 2026-10-28): a practical-import file adds ready-made practicals
+   as drafts WITH their real pictures (each uploaded once, like "⤒ Upload images"); importing again adds nothing; "✅ Approve &
+   publish all" publishes them; a file for another module is refused. Synthetic course in the real module page (no key). */
+test('📦 Import a practical file: practicals with their pictures → drafts (pictures uploaded) → approve & publish all (published copies keep the pictures) → again adds nothing; a file for another module is refused', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const mod = syntheticModule(CI_PAGE), keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['cellinjury'] }).modules.cellinjury;
+  const img = 'data:image/png;base64,' + PNG1;
+  const rec = function (n, title, dx, imgs) { return { key: 'tst-pr-' + n, title: title, objectives: ['Recognise ' + dx + '.'], specimen: { organ: 'Liver', type: 'Gross specimen and slide' },
+    gross: 'Enlarged, yellow, greasy liver.', microscopic: 'Hepatocytes with clear fat vacuoles.', keyFeatures: ['Clear vacuoles', 'Nucleus pushed aside'], diagnosis: dx, diagnosisSource: 'stated',
+    questions: [{ type: 'diagnosis', q: 'What is the diagnosis?', a: dx }], viva: [{ q: 'Which stain shows fat?', a: 'Oil Red O on a frozen section.' }], imageSlots: [{ slot: 'gross' }, { slot: 'micro' }], images: imgs }; };
+  const data = { format: 'neo-practical-import', version: 1, module: 'cellinjury', title: 'Cell Injury — Practical pictures', practicals: [
+    rec('01', 'Fatty change of the liver', 'Fatty change (steatosis) of the liver', [{ slot: 'gross', kind: 'gross', caption: 'Fatty liver — gross', credit: 'WebPath', image: img }, { slot: 'micro', kind: 'micro', caption: 'Fatty liver — H&E', image: img }]),
+    rec('02', 'Renal infarct', 'Coagulative necrosis — renal infarct', [{ slot: 'gross', kind: 'gross', caption: 'Wedge-shaped infarct', image: img }])] };
+  const file = function (d) { return { name: 'practicals.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(d)) }; };
+  const calls = [], start = errors.length;
+  try {
+    const p = await page();
+    await p.route('https://third-year-med.github.io/cell-injury-teaching-platform/**', function (route) { return route.fulfill({ status: 200, contentType: 'text/html', body: mod.html }); });
+    p.on('request', function (r) { if (/script\.google\.com/.test(r.url())) { try { calls.push(JSON.parse(r.postData() || '{}')); } catch (e) { } } });
+    await p.addInitScript(function (v) { localStorage.setItem('ci_backend_token_v1', v); }, JSON.stringify({ token: tt.token, expiresAt: tt.expiresAt }));
+    await p.goto('https://third-year-med.github.io/cell-injury-teaching-platform/#/practical/import');
+    await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+    await p.waitForSelector('.prac-file input[type=file]', { timeout: 15000 });
+    // another module's file is refused
+    await p.setInputFiles('.prac-file input[type=file]', file(Object.assign({}, data, { module: 'neoplasm' })));
+    await p.waitForFunction(function () { return /This file is for another module \(neoplasm\)/.test(document.querySelector('.prac-file').textContent); });
+    assert.ok(await p.$eval('[data-a=prac-file-go]', function (b) { return b.disabled; }));
+    // the right file: plan → import
+    await p.setInputFiles('.prac-file input[type=file]', file(data));
+    await p.waitForFunction(function () { return /2 of 2 practicals will be added as drafts/.test(document.querySelector('.prac-file').textContent); });
+    assert.match(await p.textContent('.prac-file .prac-file-list'), /Fatty change of the liver — 2 pictures[\s\S]*Renal infarct — 1 picture/);
+    await p.click('[data-a=prac-file-go]');
+    await p.waitForFunction(function () { return /✓ 2 practicals added as drafts with 3 pictures\./.test(document.querySelector('.prac-file').textContent); }, null, { timeout: 30000 });
+    assert.strictEqual(calls.filter(function (c) { return c.action === 'uploadImage'; }).length, 3, 'each picture uploaded once');
+    const drafts = await p.evaluate(function () { return PracData.list().filter(function (d) { return /^tst-pr-/.test(d.importKey || ''); }).map(function (d) {
+      return { key: d.importKey, title: d.title, status: d.status, dx: d.diagnosis, verified: d.diagnosisVerified, q: d.questions.length, v: d.viva.length,
+        imgs: d.images.map(function (im) { return [im.slot, im.caption, /^https:\/\/drive\.google\.com\//.test(im.url), im.active]; }) }; }); });
+    assert.deepStrictEqual(drafts.map(function (d) { return [d.key, d.status, d.verified, d.q, d.v]; }), [['tst-pr-01', 'draft', true, 1, 1], ['tst-pr-02', 'draft', true, 1, 1]]);
+    assert.deepStrictEqual(drafts[0].imgs, [['gross', 'Fatty liver — gross — WebPath', true, true], ['micro', 'Fatty liver — H&E', true, true]], 'pictures in their slots, caption + credit, Drive address');
+    assert.strictEqual(calls.filter(function (c) { return c.action === 'upsert' && c.collection === 'priv:pracdrafts'; }).length >= 2, true, 'saved to the class server');
+    // approve & publish all
+    await p.click('[data-a=prac-file-publish]');
+    await p.waitForFunction(function () { return /🚀 2 practicals published/.test(document.querySelector('.prac-file').textContent); }, null, { timeout: 20000 });
+    const pub = await p.evaluate(function () { return PracData.published().filter(function (x) { return /Fatty change|Renal infarct/.test(x.title); }).map(function (x) { return [x.title, (x.images || []).length]; }); });
+    assert.deepStrictEqual(pub, [['Fatty change of the liver', 2], ['Renal infarct', 1]]);
+    // the same file again adds nothing
+    await p.setInputFiles('.prac-file input[type=file]', file(data));
+    await p.waitForFunction(function () { return /Nothing to add — all 2 practicals are already imported\./.test(document.querySelector('.prac-file').textContent); });
+    if (process.env.SHOTS) await (await p.$('.prac-file')).screenshot({ path: path.join(process.env.SHOTS, 'practical-file-import.png') });
+    await p.context().close();
+    assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
+  } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
+});

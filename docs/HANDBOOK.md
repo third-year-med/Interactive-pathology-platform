@@ -536,6 +536,20 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   iPad …” (emulated iPad: UA + touch + maxTouchPoints 5; fails on the old page). **Lessons:** never tie an in-page mode to
   the browser's system full screen on touch devices; Playwright's click scrolls its target into view (enter with F to test a
   mid-page position); Chromium's touch emulation reports maxTouchPoints 1, a real iPad 5.
+- **📦 Practical file import (2026-10-28, user: "build the practical part automatically from my folder"):** Drive folder
+  "Cell injury Practical pictures" = 12 subfolders numbered like the Practical topic's specimens (s1701–s1711; 6 + 7 both
+  s1706). 54 files → 52 pictures (2 exact duplicates; 2 kidney-folder files were anthracosis → moved to pigments). Two
+  deliverables per module (`cellcondensed`, `cellinjury`; never committed): (1) picture-import file `<module>-practical-pictures.json`
+  (keys `cc-prac-01…52` / `ci-prac-…`) → Learn Practical topic sections, imported in ✏️ Edit master draft; (2) NEW format
+  `neo-practical-import` (`<module>-practical-cases.json`, keys `cc-pr-01…16`): 16 structured practicals (one per lesion;
+  objectives, specimen, gross, microscopic, key features, stated diagnosis, differential, clinical, 5–6 questions, 3 viva)
+  with their pictures as data URLs. Patch `prac-file-import` (43): Apply → Practical → ✨ Create from PDF → **📦 Import a
+  practical file** — pictures uploaded via `PracImages.upload` (like ⤒ Upload images), drafts saved one by one
+  (`importKey`, re-import skips), **✅ Approve & publish all** publishes those without QC errors. Do it inside ✏️ Edit
+  master draft (`practicalpub` is versioned master content). Real files checked on a synthetic course with the real
+  section IDs: 16 drafts, 52 uploads, 0 QC errors (warnings: pictures < print resolution, empty gross/micro slots), 16
+  published; picture plan 52/52. **Source note:** many pictures are WebPath / WebPathology / Science Photo Library
+  (link-only sources in §4.3) — the user's own choice for the class; flagged to the user.
 
 - **Two chats edited `modules/patches/apply.sh` at the same time (2026-10-17):** the picture chat added `picture-import`
   while this chat added `slide-bold`; the slide-bold entry was lost from ORDER (the checker cannot notice a patch missing
