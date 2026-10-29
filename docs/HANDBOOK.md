@@ -579,6 +579,12 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   message is kept on `PracSettingsUI` because saving the settings repaints the page. **Lesson (again):** patch 46 edited
   text inserted by patch 45 → 45 lost idempotency and `apply.sh` stopped on already-patched pages; 45 now has done-markers.
   Run `apply.sh --check` on the real module pages after every new patch.
+- **✏️ Editing the practical part (2026-10-29, user):** Learn Practical topic = header ✎ Edit mode (existing); practical
+  cases = ✎ Edit (teacher) on a practical → full editor (pictures, text, questions, viva) → Approve → Publish (existing);
+  Pathology Spotter = NEW patch `spotter-edit` (48): question list with ✎ Edit / 🗑 Delete / + New question in the teacher
+  card; picture picker offers ONLY the Practical topic's pictures (real course: 66 = 52 teacher + 14 atlas); teacher pictures
+  without an import key are stored as `key: "media:<id>"`. It WRAPS Spotter methods instead of editing the spotter patch's
+  text (keeps both idempotent). The teacher card's open/closed state is kept across repaints (saving repaints).
 
 - **Two chats edited `modules/patches/apply.sh` at the same time (2026-10-17):** the picture chat added `picture-import`
   while this chat added `slide-bold`; the slide-bold entry was lost from ORDER (the checker cannot notice a patch missing

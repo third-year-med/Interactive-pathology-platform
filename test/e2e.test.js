@@ -5436,3 +5436,64 @@ test('📄 Practical handout options: answers ticked in Settings → Apply to al
     assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
   } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
 });
+
+/* ✏️ Spotter question editor (patch spotter-edit, user 2026-10-29): the teacher adds a question choosing a picture from the
+   Learn Practical topic only (a teacher picture without an import key = "media:<id>"), the form refuses incomplete
+   questions, edits change the saved question, delete removes it. Synthetic course (no key). */
+test('✏️ Spotter question editor: add with a Practical picture, validation, edit, delete; pictures outside the Practical topic are not offered', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const sec = function (id) { return { id: id, heading: 'Section ' + id, body: 'Text', tables: [], figures: [], keyPoints: [] }; };
+  const mod = syntheticModule(CI_PAGE, { topics: [{ id: 't01', title: 'Cell injury', summary: 's', sections: [sec('s0101')] }, { id: 't17', title: 'Practical Pathology', summary: 's', sections: [sec('s1701')] }], images: [] });   // a real (empty) image registry, as real courses have
+  const keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['cellinjury'] }).modules.cellinjury;
+  main.call({ module: 'cellinjury', action: 'upsert', token: tt.token, collection: 'practicalcfg', id: 'spotter', data: { v: 1, items: [] } });
+  main.call({ module: 'cellinjury', action: 'upsert', token: tt.token, collection: 'custommedia', id: 's1701', data: { items: [
+    { id: 'm_keyed', type: 'image', url: 'https://drive.google.com/thumbnail?id=EDITKEYEDXXXXXX&sz=w2000', caption: 'Fatty liver keyed', importKey: 'tst-ed-1' },
+    { id: 'm_plain', type: 'image', url: 'https://drive.google.com/thumbnail?id=EDITPLAINXXXXXX&sz=w2000', caption: 'Renal infarct plain' }] } });
+  main.call({ module: 'cellinjury', action: 'upsert', token: tt.token, collection: 'custommedia', id: 's0101', data: { items: [{ id: 'm_out', type: 'image', url: 'https://drive.google.com/thumbnail?id=EDITOUTXXXXXXXX&sz=w2000', caption: 'Outside picture' }] } });
+  const start = errors.length;
+  try {
+    const p = await page();
+    await p.route('https://drive.google.com/**', function (route) { return route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from(PNG1, 'base64') }); });
+    await p.route('https://third-year-med.github.io/cell-injury-teaching-platform/**', function (route) { return route.fulfill({ status: 200, contentType: 'text/html', body: mod.html }); });
+    await p.addInitScript(function (v) { localStorage.setItem('ci_backend_token_v1', v); }, JSON.stringify({ token: tt.token, expiresAt: tt.expiresAt }));
+    await p.goto('https://third-year-med.github.io/cell-injury-teaching-platform/#/study/challenge');
+    await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+    await p.waitForSelector('[data-a=spe-new]');
+    assert.match(await p.textContent('.spe-panel'), /Questions \(0\)/);
+    await p.click('[data-a=spe-new]'); await p.waitForSelector('.spe-form');
+    const pics = await p.$$eval('.spe-pic', function (b) { return b.map(function (x) { return x.textContent; }); });
+    assert.deepStrictEqual(pics, ['Fatty liver keyed', 'Renal infarct plain'], 'only pictures of the Practical topic');
+    await p.fill('.spe-form textarea[aria-label="Question stem"]', 'Which process explains this kidney lesion?');
+    await p.click('.modal-foot .btn-primary');
+    assert.match(await p.textContent('.spe-form .msg'), /Choose the picture\./);
+    await p.click('.spe-pic:nth-child(2)');
+    for (let k = 0; k < 4; k++) await p.fill('.spe-opt:nth-child(' + (k + 1) + ') input[type=text]', 'Option ' + 'ABCD'[k]);
+    await p.click('.modal-foot .btn-primary');
+    assert.match(await p.textContent('.spe-form .msg'), /Fill in all five options\./);
+    await p.fill('.spe-opt:nth-child(5) input[type=text]', 'Option E');
+    await p.click('.spe-opt:nth-child(3) input[type=radio]');
+    await p.fill('.spe-form details textarea >> nth=0', 'Wedge-shaped pale infarct.');
+    await p.click('.modal-foot .btn-primary');
+    await p.waitForSelector('.modal', { state: 'detached' });
+    await p.waitForFunction(function () { return /Questions \(1\)/.test((document.querySelector('.spe-panel') || {}).textContent || ''); });
+    let it = await p.evaluate(function () { return Spotter.all()[0]; });
+    assert.deepStrictEqual([it.key, it.section, it.answer, it.options.length, it.explanation.finding, it.stem], ['media:m_plain', 's1701', 2, 5, 'Wedge-shaped pale infarct.', 'Which process explains this kidney lesion?']);
+    assert.ok(await p.evaluate(function () { const pc = Spotter.picture(Spotter.all()[0]); return !!pc && /EDITPLAIN/.test(pc.url); }), 'the media:<id> picture resolves');
+    // edit: new stem and another picture
+    await p.click('[data-a=spe-edit]'); await p.waitForSelector('.spe-form');
+    assert.strictEqual(await p.inputValue('.spe-form textarea[aria-label="Question stem"]'), 'Which process explains this kidney lesion?');
+    await p.fill('.spe-form textarea[aria-label="Question stem"]', 'Which process explains this liver?'); await p.click('.spe-pic:nth-child(1)');
+    await p.click('.modal-foot .btn-primary'); await p.waitForSelector('.modal', { state: 'detached' });
+    await p.waitForFunction(function () { return Spotter.all()[0] && Spotter.all()[0].key === 'tst-ed-1'; });
+    it = await p.evaluate(function () { return Spotter.all()[0]; });
+    assert.deepStrictEqual([it.stem, it.key, it.answer], ['Which process explains this liver?', 'tst-ed-1', 2]);
+    assert.ok(main.sheets.Content._rows.some(function (r) { return r[1] === 'practicalcfg' && r[2] === 'spotter' && r.slice(6).join('').indexOf('Which process explains this liver?') >= 0; }), 'saved on the class server');
+    // delete
+    await p.click('[data-a=spe-del]'); await p.waitForSelector('.modal'); await p.click('.modal-foot .btn-danger, .modal-foot .btn-primary');
+    await p.waitForFunction(function () { return /Questions \(0\)/.test((document.querySelector('.spe-panel') || {}).textContent || ''); });
+    await p.context().close();
+    assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
+  } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
+});
