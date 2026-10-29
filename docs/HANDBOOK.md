@@ -424,6 +424,18 @@ from scratch in `third-year-med/neoplasia` (empty, created 2026-10-19) with modu
 **`nm_`** — nothing is reused from the test (no code, content, key or storage). Its four Code.gs additions use `neoplasm`;
 the user removes the old `neoplasia` line from DEFAULT_QUIZ_PW and retires any old card / directory record.
 
+### 4.2.2 Inflammation (New) — the user's own syllabus, NOT condensed (user, 2026-10-29)
+Repository `third-year-med/inflammation-new` (the user named it Inflammation-New), title **"Inflammation (New)"**, module key
+**`inflnew`**, prefix **`in_`**, build `new-1.0`, own content key (env `IN_CONTENT_KEY`). Written from the user's docx
+"Chapter (Inflammation)" exactly as it is — the user asked for this module NOT to be condensed (an exception to §4.2).
+12 topics t01–t12 / 47 sections in the syllabus order; the six syllabus figures are embedded (SVG-wrapped JPEG, credit via
+`figures[id].credit`, patch `fig-credit`); the four syllabus tables are section tables. Reused from inflammation-healing only
+what the syllabus covers, edited to its wording: 73 of 229 questions (explanations rewritten), 26 atlas pictures, 40
+picture links; new: 70 questions, 91 glossary terms, 8 cases, 8 flowcharts, 9 comparisons. No practical topic (patch
+`ux-practical-optional`). Robbins batch: 21 pictures `in-robbins1-01…21` (file `inflnew-pictures-robbins1.json`, not
+committed). **Healing** syllabus to follow → new topics t13+ (the ~55 healing questions and healing pictures of
+inflammation-healing are the pool for it). e2e test "Inflammation (New) module (inflnew)…".
+
 ### 4.3 Picture sources (user, 2026-10-19): use ALL of them, each under its own rules
 
 A new module searches every source for every section and practical specimen. Pictures are registered in the course's

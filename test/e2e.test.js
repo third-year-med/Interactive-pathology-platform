@@ -695,6 +695,8 @@ const REAL = [['cellinjury', 'cell-injury-teaching-platform', process.env.CI_MOD
 const IC = ['inflcondensed', 'third-year-med-inflammation-condensed', process.env.IC_MODULE_HTML || '/home/user/third-year-med-inflammation-condensed/index.html', process.env.IC_CONTENT_KEY];
 // Cell Injury & Cell Death — Condensed (2026-10-18): its own repository, module key and content key (CC_CONTENT_KEY, env only).
 const CC = ['cellcondensed', 'cell-injury-condensed', process.env.CC_MODULE_HTML || '/home/user/cell-injury-condensed/index.html', process.env.CC_CONTENT_KEY];
+// Inflammation (New) (2026-10-29): a new module written from the user's syllabus; key in IN_CONTENT_KEY (env only).
+const IN = ['inflnew', 'inflammation-new', process.env.IN_MODULE_HTML || '/home/user/inflammation-new/index.html', process.env.IN_CONTENT_KEY];
 // Neoplasia (2026-10-19): a NEW module built condensed from the start (module key neoplasm, prefix nm_, NM_CONTENT_KEY, env only).
 const NM = ['neoplasm', 'neoplasia', process.env.NM_MODULE_HTML || '/home/user/neoplasia/index.html', process.env.NM_CONTENT_KEY];
 // Genetics and Pediatric Diseases (2026-10-23): a NEW condensed module (module key genetics, prefix gen_, GEN_CONTENT_KEY, env only).
@@ -718,7 +720,7 @@ async function realPage(M, calls, ctxOpts) {
   await p.route('https://third-year-med.github.io/**', function (route) {
     const u = new URL(route.request().url());
     if (u.pathname.indexOf('/pathology-exams/') === 0) return route.fulfill({ status: 200, contentType: 'text/html', body: fs.readFileSync(EXAM_HTML) });
-    const own = REAL.concat([IC, CC, NM, GEN]).filter(function (R) { return u.pathname.indexOf('/' + R[1] + '/') === 0; })[0];
+    const own = REAL.concat([IC, CC, NM, GEN, IN]).filter(function (R) { return u.pathname.indexOf('/' + R[1] + '/') === 0; })[0];
     if (own) {
       const sub = /\/preview\/(index\.html)?$/.test(u.pathname) ? own[1] + '/preview/' : own[1] + '/';
       if (SERVE[sub] === null || (sub !== own[1] + '/' && !SERVE[sub])) return route.fulfill({ status: 404, body: '' });
@@ -4892,6 +4894,100 @@ test('condensed Cell Injury module (cellcondensed): every topic, section, view a
     await q.waitForSelector('#view-teacher', { state: 'visible', timeout: 10000 });
     const plan = await q.evaluate(function () { return AssessUI.topicQuizPlan().topics.filter(function (x) { return x.ok; }).length; });
     assert.ok(plan >= 15, '⚡ Topic quizzes: most topics still have ≥ 5 practice questions (' + plan + ')');
+    await q.context().close();
+    assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
+  } finally {
+    assert.ok(main.call({ module: 'portal', action: 'portalAdminSave', token: t, modules: reg }).ok);   // other tests keep their module list
+  }
+});
+
+/* ---------------- Inflammation (New): the REAL page with its REAL course — every topic, section, view and slide;
+   student and teacher. Needs IN_CONTENT_KEY (env only). */
+test('Inflammation (New) module (inflnew): every topic, section, view and slide renders with the real course; student and teacher', { skip: SKIP || ((!fs.existsSync(IN[2]) || !IN[3]) && 'condensed module page or IN_CONTENT_KEY not available') }, async function () {
+  main.ctx.STUDENT_AUTH_MODULES.inflnew = true; main.ctx.CONTENT_KEYS.inflnew = IN[3];
+  main.ctx.DEFAULT_QUIZ_PW.inflnew = 'INFLNEW-2026'; main.ctx.DEFAULT_LIVE_PW.inflnew = 'CLASSROOM-2026';
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const reg = main.call({ module: 'portal', action: 'portalInfo' }).modules;
+  assert.ok(main.call({ module: 'portal', action: 'portalAdminSave', token: t, modules: reg.concat([{ id: 'inflnew', title: 'Inflammation (New)', icon: '🔥', status: 'available',
+    url: 'https://third-year-med.github.io/' + IN[1] + '/', moduleKey: 'inflnew', handoff: 'neo', storagePrefix: 'in_' }]) }).ok);
+  main.addStudents('inflnew', [{ username: 'in1', name: 'Condensed Student', password: PW, mustChange: false }]);
+  const start = errors.length;
+  try {
+    // ---- student: sign in on the module page, then every topic, section and view ----
+    const p = await realPage(IN, []);
+    await p.goto('https://third-year-med.github.io/' + IN[1] + '/');
+    await p.waitForSelector('#nb-user'); await p.fill('#nb-user', 'in1'); await p.fill('#nb-pass', PW); await p.click('#neo-boot button[type=submit]');
+    await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'student'; }, null, { timeout: 20000 });
+    const info = await p.evaluate(function () { return { cfg: window.NEO_CONFIG, course: COURSE.title, topics: DATA.topics.map(function (t) { return { id: t.id, title: t.title, sections: t.sections.map(function (s) { return { id: s.id, heading: s.heading, tables: s.tables.length, figures: s.figures.length }; }) }; }) }; });
+    assert.strictEqual(info.cfg.moduleKey, 'inflnew'); assert.strictEqual(info.cfg.storagePrefix, 'in_');
+    assert.strictEqual(info.course, 'Inflammation (New)');
+    assert.strictEqual(info.topics.length, 12);
+    assert.ok(await p.evaluate(function () { return !!sessionStorage.getItem('in_stu_session_v1') || !!localStorage.getItem('in_stu_session_v1'); }), 'its own storage prefix');
+    for (const tp of info.topics) {
+      for (const sc of tp.sections) {
+        await p.evaluate(function (h) { location.hash = h; }, '#/explain/' + tp.id + '/' + sc.id);
+        await p.waitForFunction(function (h) { const v = document.querySelector('#view-explain'); return v && v.offsetParent !== null && v.textContent.indexOf(h) >= 0; }, sc.heading, { timeout: 10000 });
+        const txt = await p.textContent('#view-explain');
+        assert.ok(!/undefined|\[object Object\]|\[!(DEF|FLOW|EXAM|RECALL|CONFUSION|HIGHYIELD|PRACTICAL|CLINICAL|REMEMBER|DX|MUSTKNOW)\]/.test(txt), sc.id + ': raw markup or undefined on the page');
+      }
+    }
+    const check = await p.evaluate(function () { return uxValidatePathway(); });
+    assert.deepStrictEqual(check.errors, [], 'the learning-unit links (UX_UNITS, UX_FLOW) all point at existing, matching topics and sections');
+    const views = ['#/learn', '#/practise', '#/apply', '#/progress', '#/revision', '#/review', '#/review/facts', '#/review/compare', '#/review/morph', '#/review/traps', '#/review/quick',
+      '#/cases', '#/practical', '#/study/recall', '#/study/sequence', '#/study/compare', '#/study/glossary', '#/study/challenge', '#/study/connect', '#/quiz'];
+    for (const h of views) {
+      await p.evaluate(function (x) { location.hash = x; }, h);
+      await p.waitForTimeout(350);
+      const shown = await p.evaluate(function () { const v = Array.prototype.filter.call(document.querySelectorAll('[id^="view-"]'), function (e) { return e.offsetParent !== null; })[0]; return v ? { id: v.id, n: v.textContent.trim().length, t: v.textContent } : null; });
+      assert.ok(shown && shown.n > 40, h + ' shows a view with content');
+      assert.ok(!/undefined|\[object Object\]/.test(shown.t), h + ': no undefined');
+    }
+    // media-print patch: a wide 3000-px picture added to a section prints fitted to the page (no overflow, nothing shrunk)
+    const pr = await p.evaluate(function () {
+      const c = document.createElement('canvas'); c.width = 3000; c.height = 700; const g = c.getContext('2d'); g.fillStyle = '#c33'; g.fillRect(0, 0, 3000, 700);
+      State.customMedia.s0703 = [{ id: 'mp1', type: 'image', url: c.toDataURL('image/jpeg', .5), caption: 'Wide test picture', credit: 'test' }];
+      let html = ''; const o = window.open; window.open = function () { return { document: { write: function (x) { html += x; }, close: function () {} } }; };
+      try { Views.explain.printChapter(); } finally { window.open = o; delete State.customMedia.s0703; }
+      return html.replace(/<script>window\.onload[\s\S]*?<\/script>/, '');
+    });
+    const pp = await p.context().newPage(); await pp.setViewportSize({ width: 794, height: 1123 }); await pp.setContent(pr, { waitUntil: 'load' });
+    const fit = await pp.evaluate(function () { const im = document.querySelector('.media-item img'), b = document.querySelector('.print-body'); return { img: im ? im.getBoundingClientRect().width : -1, body: b.getBoundingClientRect().width, over: document.documentElement.scrollWidth - document.documentElement.clientWidth, fs: getComputedStyle(document.documentElement).fontSize, links: document.querySelectorAll('.links-card').length, linksShown: Array.prototype.filter.call(document.querySelectorAll('.links-card'), function (x) { return x.offsetParent !== null; }).length, atlasBtn: Array.prototype.filter.call(document.querySelectorAll('button.atl-imgbtn'), function (x) { return getComputedStyle(x).display !== 'none'; }).length, mirror: (function () { const c = document.querySelector('.callout'); return !!c && getComputedStyle(c).backgroundColor !== 'rgba(0, 0, 0, 0)'; })() }; });
+    assert.strictEqual(fit.fs, '17px', 'print-mirror patch: larger print text');
+    assert.ok(fit.mirror, 'print-mirror patch: the printed page carries the screen look (callout colours)');
+    assert.ok(fit.links > 0 && fit.linksShown === 0 && fit.atlasBtn > 0, 'print-clean patch: picture link cards left out, atlas pictures printed: ' + JSON.stringify(fit));
+    assert.ok(fit.img > 100 && fit.img <= fit.body + 1 && fit.over <= 0, 'an added picture prints within the page width: ' + JSON.stringify(fit));
+    await pp.close();
+    const lmr = await p.evaluate(function () { const d = LMR.data(); return { facts: d.facts.length, comparisons: d.comparisons.length, traps: d.traps.length, morph: d.morphology.length }; });
+    assert.ok(lmr.facts > 40 && lmr.comparisons >= 2 && lmr.morph >= 5, 'Last-Minute Review is built from the course: ' + JSON.stringify(lmr));
+    await p.context().close();
+
+    // ---- teacher: a fresh teacher pass as the dashboard gives it → every slide of the deck ----
+    const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['inflnew'] }).modules.inflnew;
+    assert.ok(tt && tt.token, 'the front-page card makes the module openable from the dashboard');
+    const q = await realPage(IN, []);
+    await q.addInitScript(function (v) { localStorage.setItem('in_backend_token_v1', v); }, JSON.stringify({ token: tt.token, expiresAt: tt.expiresAt }));
+    await q.goto('https://third-year-med.github.io/' + IN[1] + '/#/present/slide/1');
+    await q.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+    await q.waitForSelector('#pres-stage .slide', { timeout: 15000 });
+    const n = await q.evaluate(function () { return Views.present.list().length; });
+    assert.ok(n > 80 && n < 200, 'the deck is generated from the 12 topics: ' + n);
+    const bad = await q.evaluate(function () {
+      const out = [], V = Views.present;
+      for (let i = 0; i < V.list().length; i++) {
+        V.go(i); const s = V.cur(), st = document.querySelector('#pres-stage .slide'), tx = st ? st.textContent : '';
+        if (!st) out.push(i + ' no slide');
+        else if (/no longer in the course content|Flowchart not found|Question unavailable|undefined/.test(tx)) out.push(i + ' ' + s.type + ': ' + tx.slice(0, 80));
+        else if (s.type === 'table' && !st.querySelector('table')) out.push(i + ' table missing');
+        else if (s.type === 'content' && !(s.bullets || []).length) out.push(i + ' content without bullets');
+      }
+      return out;
+    });
+    assert.deepStrictEqual(bad, [], 'every slide renders');
+    await q.evaluate(function () { location.hash = '#/teacher'; });
+    await q.waitForSelector('#view-teacher', { state: 'visible', timeout: 10000 });
+    const plan = await q.evaluate(function () { return AssessUI.topicQuizPlan().topics.filter(function (x) { return x.ok; }).length; });
+    assert.ok(plan === 12, '⚡ Topic quizzes: every topic has ≥ 5 practice questions (' + plan + ')');
     await q.context().close();
     assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
   } finally {
