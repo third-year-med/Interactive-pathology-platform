@@ -572,6 +572,13 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   see the Image Bank (tab, guide button + sentence, empty-Practicals hint) only when it has items; `#/practical/bank` sends
   them to the Practicals while empty; teachers always see it. Its role is now covered by Practicals, Image atlas and the
   Spotter; nothing deleted (other groups/modules may hold items; the old automatic challenge still reads it).
+- **"Answers ticked, but the printed sheet has none" (2026-10-29):** the handout options live PER PRACTICAL (frozen in the
+  published copy); Settings' "Defaults for new practicals" were used only by "+ Blank practical". Patch `prac-defaults-apply`
+  (47): every new practical (PDF, Claude, import file, blank) starts with the saved options; **📄 Apply to all existing
+  practicals** copies them and re-publishes published practicals without other pending edits (others listed). Its result
+  message is kept on `PracSettingsUI` because saving the settings repaints the page. **Lesson (again):** patch 46 edited
+  text inserted by patch 45 → 45 lost idempotency and `apply.sh` stopped on already-patched pages; 45 now has done-markers.
+  Run `apply.sh --check` on the real module pages after every new patch.
 
 - **Two chats edited `modules/patches/apply.sh` at the same time (2026-10-17):** the picture chat added `picture-import`
   while this chat added `slide-bold`; the slide-bold entry was lost from ORDER (the checker cannot notice a patch missing

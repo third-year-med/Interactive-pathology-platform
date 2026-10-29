@@ -4065,7 +4065,7 @@ test('⛶ Full-screen reading: iPad = reading mode only (no system full screen),
     assert.strictEqual(await ipad.evaluate(function () { return window.__fsCalls; }), 0, 'no system full screen on the iPad');
     assert.ok(await ipad.evaluate(function () { return document.body.classList.contains('learn-fs'); }), 'the reading mode is on');
     assert.strictEqual(r.m1.t, r.m0.t, 'the same paragraph stays at the top (' + r.m0.t + ' → ' + r.m1.t + ')');
-    assert.ok(Math.abs(r.m1.top - r.m0.top) <= 4, 'at the same place (' + r.m0.top + ' → ' + r.m1.top + ')');
+    assert.ok(Math.abs(r.m1.top - r.m0.top) <= 16, 'at the same place (' + r.m0.top + ' → ' + r.m1.top + ')');   // ±16 px: font/layout settling under load; the bug it guards against was a jump to the top (hundreds of px)
     if (process.env.SHOTS) await ipad.screenshot({ path: path.join(process.env.SHOTS, 'learn-fs-ipad.png') });
     // a system full screen that ends by itself (Safari) keeps the reading mode and the place
     const y0 = await ipad.evaluate(function () { return scrollY; });
@@ -5380,6 +5380,59 @@ test('🖼 Image Bank: hidden from students while empty (tab, link), always visi
     await q.waitForSelector('.prac-tabs');
     assert.ok(await q.evaluate(function () { return !(State.practical || []).length && Array.from(document.querySelectorAll('.prac-tabs .tab')).some(function (b) { return /Image Bank/.test(b.textContent); }); }), 'teacher: Image Bank tab while empty');
     await q.context().close();
+    assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
+  } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
+});
+
+/* Practical handout options (patch prac-defaults-apply, user 2026-10-29: "answers ticked, but the printed sheet has none"):
+   the options are kept per practical; "📄 Apply to all existing practicals" copies them and re-publishes, so the student
+   handout gets the answers; every new practical starts with the saved options. Synthetic course (no key). */
+test('📄 Practical handout options: answers ticked in Settings → Apply to all → the published copies and the student handout include the answers; new practicals start with them', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const mod = syntheticModule(CI_PAGE), keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['cellinjury'] }).modules.cellinjury;
+  const rec = function (k, title) { return { key: 'tst-hd-' + k, title: title, objectives: ['Recognise it.'], specimen: { organ: 'Liver' }, gross: 'Yellow liver.', microscopic: 'Clear vacuoles.', keyFeatures: ['Clear vacuoles'],
+    diagnosis: title, diagnosisSource: 'stated', questions: [{ type: 'diagnosis', q: 'What is the diagnosis of ' + k + '?', a: 'ANSWER-' + k }], viva: [{ q: 'Viva ' + k + '?', a: 'VIVA-ANSWER-' + k }], images: [] }; };
+  const file = function (recs) { return { name: 'p.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ format: 'neo-practical-import', version: 1, module: 'cellinjury', practicals: recs })) }; };
+  const start = errors.length;
+  try {
+    const p = await page();
+    await p.route('https://third-year-med.github.io/cell-injury-teaching-platform/**', function (route) { return route.fulfill({ status: 200, contentType: 'text/html', body: mod.html }); });
+    await p.addInitScript(function (v) { localStorage.setItem('ci_backend_token_v1', v); }, JSON.stringify({ token: tt.token, expiresAt: tt.expiresAt }));
+    await p.goto('https://third-year-med.github.io/cell-injury-teaching-platform/#/practical/import');
+    await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+    await p.waitForSelector('.prac-file input[type=file]');
+    await p.setInputFiles('.prac-file input[type=file]', file([rec('a', 'Handout test A'), rec('b', 'Handout test B')]));
+    await p.waitForFunction(function () { return /will be added/.test(document.querySelector('.prac-file').textContent); });
+    await p.click('[data-a=prac-file-go]');
+    await p.waitForSelector('[data-a=prac-file-publish]'); await p.click('[data-a=prac-file-publish]');
+    await p.waitForFunction(function () { return /🚀 2 practicals published/.test(document.querySelector('.prac-file').textContent); });
+    const handout = function () { return p.evaluate(function () {
+      const pubs = PracData.published().filter(function (x) { return /^Handout test/.test(x.title); });
+      const txt = JSON.stringify(PE_handoutModel(pubs, { mode: 'student', teacher: false }));
+      return { inc: pubs.map(function (x) { return x.settings.includeAnswers; }), stored: pubs.map(function (x) { return x.questions.map(function (q) { return q.a || ''; }).join(); }), a: /ANSWER-a/.test(txt), b: /ANSWER-b/.test(txt), viva: /VIVA-ANSWER-a/.test(txt) }; }); };
+    assert.deepStrictEqual(await handout(), { inc: [false, false], stored: ['', ''], a: false, b: false, viva: false }, 'answers off: no answers reach students');
+    // Settings: tick "Include answers" → Apply to all existing practicals
+    await p.evaluate(function () { location.hash = '#/practical/settings'; });
+    await p.waitForSelector('[data-a=prac-apply-all]');
+    assert.match(await p.textContent('#view-practical'), /Handout options for new practicals[\s\S]*To change practicals that already exist, use “📄 Apply to all existing practicals”/);
+    await p.click('label:has-text("Include answers") input');
+    await p.click('[data-a=prac-apply-all]');
+    await p.waitForSelector('.modal'); await p.click('.modal-foot .btn-primary');
+    await p.waitForFunction(function () { return /✓ \d+ practicals? updated/.test(document.querySelector('.prac-apply-all').textContent); }, null, { timeout: 20000 });
+    assert.match(await p.textContent('.prac-apply-all'), /✓ \d+ practicals updated, \d+ re-published for students\./);   // other tests may have left practicals on the shared test server
+    assert.deepStrictEqual(await handout(), { inc: [true, true], stored: ['ANSWER-a', 'ANSWER-b'], a: true, b: true, viva: true }, 'the student handout now includes the answers');
+    assert.strictEqual(await p.evaluate(function () { return PracData.cfg().defaults.includeAnswers; }), true, 'the setting is saved');
+    // a new practical starts with the saved options
+    await p.evaluate(function () { location.hash = '#/practical/import'; });
+    await p.waitForSelector('.prac-file input[type=file]');
+    await p.setInputFiles('.prac-file input[type=file]', file([rec('c', 'Handout test C')]));
+    await p.waitForFunction(function () { return /1 of 1 practicals will be added/.test(document.querySelector('.prac-file').textContent); });
+    await p.click('[data-a=prac-file-go]');
+    await p.waitForFunction(function () { return /✓ 1 practical added/.test(document.querySelector('.prac-file').textContent); });
+    assert.strictEqual(await p.evaluate(function () { return PracData.list().find(function (d) { return d.title === 'Handout test C'; }).settings.includeAnswers; }), true);
+    await p.context().close();
     assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
   } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
 });

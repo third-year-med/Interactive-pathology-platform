@@ -48,7 +48,7 @@ for path in sys.argv[1:]:
         if b in s: continue
         assert s.count(a) == 1, (path, a[:70]); s = s.replace(a, b); n += 1
     if 'function pracGuideCard(' in s:
-        for a, b in GUIDE:
-            if b in s: continue
+        for (a, b), done in zip(GUIDE, ["'practise in the 🔬 Pathology Spotter (Practice mode)", "'data-a': 'prac-guide-spotter'"]):
+            if b in s or done in s: continue   # done-marker: patch bank-hide-empty edits these lines later
             assert s.count(a) == 1, (path, a[:70]); s = s.replace(a, b); n += 1
     open(path, 'w', encoding='utf-8').write(s); print(path, 'changes:', n)
