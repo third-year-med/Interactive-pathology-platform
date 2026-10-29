@@ -617,6 +617,11 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   (added / changed / removed, groups whose local copies hide the update), asks for the optional notes, publishes, and shows
   the new version number beside the button. It uses the Admin sign-in of Platform Home (`pp_teacher_v1`, same site and same
   browser tab); without it, it explains how to open the draft from Platform Home. Not shown in a new-build PREVIEW.
+- **▦ Image atlas with every picture (2026-10-29, user):** patch `atlas-all-pictures` (53). The atlas used only the packaged
+  image library (`DATA.images`), so pictures added in Learn (`State.customMedia`, e.g. the 52 Practical pictures) were
+  missing. `ATLAS.module()` = library + those pictures (links and videos left out, duplicates of a library file skipped);
+  only the Image atlas uses it — Learning Blocks, Spotter, LMR keep `ATLAS.all()`. Name = caption before the first “:”
+  without “(gross)”, “(high power, H&E)”…; kind guessed from the caption (Cell Injury set: 20 gross, 30 micro, 2 clinical).
 
 - **Two chats edited `modules/patches/apply.sh` at the same time (2026-10-17):** the picture chat added `picture-import`
   while this chat added `slide-bold`; the slide-bold entry was lost from ORDER (the checker cannot notice a patch missing

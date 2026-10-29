@@ -5721,3 +5721,44 @@ test('⬆ Publish draft from the module banner: publishes the master draft for e
     main.ctx.CONTENT_KEYS.cellinjury = keep;
   }
 });
+
+/* Image atlas with every picture of the module (patch atlas-all-pictures, user 2026-10-29): the pictures added to the
+   Learning Blocks appear in Practical → Image atlas (by topic, Gross / Microscopic, "Module pictures"), with a details page. */
+test('▦ Image atlas: includes the pictures added to the Learning Blocks (diagnosis from the caption, gross/micro filter, details, credit)', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+  groupFixture();
+  const mod = syntheticModule(CI_PAGE, { topics: [{ id: 't18', title: 'Atlas pictures', summary: 's', sections: [{ id: 's1801', heading: 'Specimens', body: 'Text', tables: [], figures: [], keyPoints: [] }] }], images: [] });
+  const keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const tok = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: [{ module: 'cellinjury', group: 'tr-a' }] }).modules['cellinjury-tr-a'];
+  assert.ok(main.call({ module: 'cellinjury-tr-a', action: 'upsert', token: tok.token, collection: 'custommedia', id: 's1801', data: { items: [
+    { id: 'ma1', type: 'image', url: 'data:image/png;base64,' + PNG1, caption: 'Fatty liver (gross): enlarged, pale yellow, greasy cut surface.', credit: 'WebPath (Dr E. C. Klatt)' },
+    { id: 'ma2', type: 'image', url: 'data:image/png;base64,' + PNG1 + '=', caption: 'Coagulative necrosis (microscopic, H&E): ghost outlines of tubules.' },
+    { id: 'ma3', type: 'link', url: 'https://example.org/x', caption: 'A link, not a picture' }] } }).ok);
+  const start = errors.length;
+  try {
+    const p = await page();
+    await openSyntheticModule(p, mod, [], { stubAssess: false });
+    await p.evaluate(function () { location.hash = '#/practical/atlas'; });
+    await p.waitForSelector('#view-practical .atl-card');
+    const cards = function () { return p.evaluate(function () { return Array.from(document.querySelectorAll('#view-practical .atl-card .atl-dx')).map(function (b) { return b.textContent; }); }); };
+    assert.deepStrictEqual(await cards(), ['Fatty liver', 'Coagulative necrosis'], 'both pictures, the link left out');
+    assert.match(await p.textContent('#view-practical'), /Topic \d+ · Atlas pictures[\s\S]*Module pictures/);
+    await p.click('#view-practical .atl-bar button:has-text("Gross")');
+    await p.waitForFunction(function () { return document.querySelectorAll('#view-practical .atl-card').length === 1; });
+    assert.deepStrictEqual(await cards(), ['Fatty liver']);
+    await p.click('#view-practical .atl-bar button:has-text("Microscopic")');
+    await p.waitForFunction(function () { const b = document.querySelector('#view-practical .atl-card .atl-dx'); return b && b.textContent === 'Coagulative necrosis'; });
+    await p.evaluate(function () { location.hash = '#/practical/atlas/m-ma1'; });
+    await p.waitForSelector('#view-practical .atl-detail');
+    assert.match(await p.textContent('#view-practical .atl-detail'), /Fatty liver[\s\S]*enlarged, pale yellow, greasy cut surface[\s\S]*Taught inTopic \d+ · Specimens[\s\S]*Image: WebPath \(Dr E\. C\. Klatt\)/);
+    await p.evaluate(function () { location.hash = '#/explain/t18'; });
+    await p.waitForSelector('#view-explain .topic-hero');
+    assert.strictEqual(await p.$('#view-explain .atl-block'), null, 'the Learning Block does not show the pictures a second time');
+    await p.context().close();
+    assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
+  } finally {
+    main.call({ module: 'cellinjury-tr-a', action: 'upsert', token: tok.token, collection: 'custommedia', id: 's1801', data: { items: [] } });
+    main.ctx.CONTENT_KEYS.cellinjury = keep;
+  }
+});
