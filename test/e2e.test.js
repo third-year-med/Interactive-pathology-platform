@@ -5324,11 +5324,11 @@ test('🔬 Pathology Spotter: renamed; teacher imports questions; only Learn Pra
     await p2.waitForSelector('#view-apply .ux-h2');
     const ap = await p2.evaluate(function () { return { h2: Array.from(document.querySelectorAll('#view-apply .ux-h2')).map(function (h) { return h.textContent; }),
       items: Array.from(document.querySelectorAll('#view-apply .ux-h2')).map(function (h) { let n = h.nextElementSibling, out = []; while (n && !n.matches('.ux-h2')) { out = out.concat(Array.from(n.querySelectorAll('.ux-list li a')).map(function (x) { const m = x.querySelector('.ux-list-m'); return x.querySelector('b').textContent + (m ? ' · ' + m.textContent : ''); })); if (/Try a case/.test(n.textContent) && !n.querySelector('.ux-list')) out.push('Try a case'); n = n.nextElementSibling; } return out; }) }; });
-    assert.deepStrictEqual(ap.h2, ['🔬 Practical: specimens, slides and Spotter', '✚ Clinical reasoning']);
-    assert.match(ap.items[0].join(' | '), /^Practical pathology \| OSPE exam \| Pathology Spotter · 5 questions/);   // OSPE line: patch ospe
-    assert.ok(ap.items[0].every(function (t) { return !/^Clinical cases/.test(t); }) && ap.items[1].some(function (t) { return /^Clinical cases/.test(t); }), 'clinical cases only in their own section: ' + JSON.stringify(ap.items));
+    assert.deepStrictEqual(ap.h2, ['1 · Practical cases', '2 · Test yourself and exams', '3 · Pictures']);   // menu "Practical" (patch nav-review-practical)
+    assert.match(ap.items[1].join(' | '), /^Pathology Spotter · 5 questions \| OSPE exam/);
+    assert.ok(ap.items.every(function (l) { return l.every(function (t) { return !/^Clinical cases/.test(t); }); }), 'clinical cases are in Review, not in Practical: ' + JSON.stringify(ap.items));
     const sub = await p2.evaluate(function () { return UX_AREAS.find(function (a) { return a.id === 'apply'; }).items.map(function (x) { return x[0]; }); });
-    assert.deepStrictEqual(sub, ['Practical pathology', 'Pathology Spotter', 'Clinical cases'], 'Apply sub-navigation order');
+    assert.deepStrictEqual(sub, ['Practical cases', 'Pathology Spotter', 'OSPE exam', 'Image atlas'], 'Practical sub-navigation');
     await p2.evaluate(function () { location.hash = '#/explain/t17'; });
     await p2.waitForSelector('#view-explain [data-a=prac-guide]');
     assert.match(await p2.textContent('#view-explain [data-a=prac-guide]'), /After the session — practise in the 🔬 Pathology Spotter \(Practice mode\)[\s\S]*Before the exam — take a Spotter exam \(Exam mode: 20 pictures/);
@@ -5593,6 +5593,40 @@ test('📝 OSPE exam: teacher imports stations; timed stations, forward only, an
     await p.click('.modal-foot .btn-primary'); await p.waitForSelector('.modal', { state: 'detached' });
     await p.waitForFunction(function () { return PracOspe.all().length === 5; });
     assert.deepStrictEqual(await p.evaluate(function () { const s = PracOspe.all()[4]; return [s.pics[0].key, s.parts.length, s.scenario, PracOspe.total(s), PracOspe.ready().length]; }), ['tst-os-1', 3, 'A new scenario.', 3, 4]);
+    await p.context().close();
+    assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
+  } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
+});
+
+/* Main menu Learn · Review · Practical (patch nav-review-practical, user 2026-10-29): "Practise" → Review (questions, clinical
+   cases, other revision tools, Last-Minute Review inside), "Apply" → Practical (cases, Spotter, OSPE, atlas); old routes work. */
+test('🧭 Main menu Learn · Review · Practical: labels, Review sections (questions, clinical cases, other tools, Last-Minute Review), Practical sections, old routes and active tabs', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+  groupFixture();
+  const mod = syntheticModule(CI_PAGE, { topics: [{ id: 't17', title: 'Practical Pathology', summary: 's', sections: [{ id: 's1701', heading: 'Specimen 1', body: 'Text', tables: [], figures: [], keyPoints: [] }] }], images: [] });
+  const keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  const start = errors.length;
+  try {
+    const p = await page();
+    await openSyntheticModule(p, mod, [], { stubAssess: false });
+    const nav = await p.evaluate(function () { return Array.from(document.querySelectorAll('.nav-btn.nav-area .nl-full')).map(function (x) { return x.textContent; }); });
+    assert.deepStrictEqual(nav, ['Learn', 'Review', 'Practical', 'My Progress'], 'main menu (no separate Last-Minute Review button)');
+    const active = function (hash) { return p.evaluate(function (h) { location.hash = h; return new Promise(function (r) { setTimeout(function () { const b = document.querySelector('.nav-btn.active .nl-full'); r(b ? b.textContent : ''); }, 400); }); }, hash); };
+    await p.evaluate(function () { location.hash = '#/practise'; }); await p.waitForSelector('#view-practise .ux-h2');
+    const rv = await p.evaluate(function () { return { h1: document.querySelector('#view-practise h1, #view-practise .ux-head h2, #view-practise .ux-title') ? document.querySelector('#view-practise h1, #view-practise .ux-head h2, #view-practise .ux-title').textContent : '', h2: Array.from(document.querySelectorAll('#view-practise .ux-h2')).map(function (h) { return h.textContent; }), items: Array.from(document.querySelectorAll('#view-practise .ux-list li b')).map(function (b) { return b.textContent; }) }; });
+    assert.deepStrictEqual(rv.h2, ['1 · Questions and clinical cases', '2 · Other ways to revise', '3 · Before the exam']);
+    assert.deepStrictEqual(rv.items, ['Questions', 'Clinical cases', 'Recall', 'Sequencing', 'Concept maps', 'Comparisons', 'Spaced review', 'Last-Minute Review']);
+    assert.match(await p.textContent('#view-practise'), /^\s*\S*\s*Review/);
+    await p.evaluate(function () { location.hash = '#/apply'; }); await p.waitForSelector('#view-apply .ux-h2');
+    const bank = await p.evaluate(function () { return (State.practical || []).length > 0; });   // the Image Bank shows only when it has items (another test may have added one)
+    assert.deepStrictEqual(await p.evaluate(function () { return Array.from(document.querySelectorAll('#view-apply .ux-list li b')).map(function (b) { return b.textContent; }); }), ['Practical cases', 'How to answer a practical', 'Pathology Spotter', 'OSPE exam', 'Image atlas'].concat(bank ? ['Image Bank'] : []));
+    assert.strictEqual(await active('#/cases'), 'Review', 'clinical cases belong to Review');
+    assert.strictEqual(await active('#/review'), 'Review', 'the Last-Minute Review is inside Review');
+    assert.strictEqual(await active('#/revision'), 'Review');
+    assert.strictEqual(await active('#/practical'), 'Practical');
+    assert.strictEqual(await active('#/practical/ospe'), 'Practical');
+    assert.strictEqual(await active('#/study/challenge'), 'Practical');
+    const pills = await p.evaluate(function () { location.hash = '#/practical/ospe'; return new Promise(function (r) { setTimeout(function () { r(Array.from(document.querySelectorAll('#area-bar .area-pill')).map(function (a) { return (a.classList.contains('on') ? '*' : '') + a.textContent.trim(); })); }, 500); }); });
+    assert.ok(pills.some(function (x) { return /^\*.*OSPE exam$/.test(x); }) && pills.some(function (x) { return /^[^*].*Practical cases$/.test(x); }), 'OSPE pill active, not Practical cases: ' + pills.join(', '));
     await p.context().close();
     assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
   } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }

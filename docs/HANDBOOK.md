@@ -599,6 +599,14 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   history source "ospe"). Students see it with ≥ 3 ready stations. Cell Injury set: 16 stations (one per practical case,
   4 parts × 1 mark), `<module>-ospe-stations.json` (never committed); real-course rehearsal: 16/16 ready. apply-practical
   got done-markers (ospe adds a line to its list).
+- **🧭 Main menu Learn · Review · Practical (2026-10-29, user):** patch `nav-review-practical` (51). Practise is renamed
+  **Review** (1 · Questions and clinical cases — Clinical cases moved here from Apply; 2 · Other ways to revise — guided
+  session, recall, sequencing, concept maps, comparisons, spaced review; 3 · Before the exam — ⚡ Last-Minute Review, no longer
+  its own menu tab). Apply is renamed **Practical** (1 · Practical cases + How to answer a practical; 2 · Test yourself and
+  exams — Pathology Spotter, OSPE exam; 3 · Pictures — Image atlas, Image Bank). Area ids stay `practise`/`apply`/`review`
+  (review area `hidden: true`), so every old link (#/cases, #/review, #/study/challenge…) still opens and lights the right tab.
+  apply-practical's done-markers became tuples (this patch rewrites its sub-nav line). Genetics (no practical topic) gets
+  the same menu.
 
 - **Two chats edited `modules/patches/apply.sh` at the same time (2026-10-17):** the picture chat added `picture-import`
   while this chat added `slide-bold`; the slide-bold entry was lost from ORDER (the checker cannot notice a patch missing
