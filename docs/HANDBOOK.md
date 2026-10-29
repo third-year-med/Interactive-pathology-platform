@@ -607,6 +607,10 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   (review area `hidden: true`), so every old link (#/cases, #/review, #/study/challenge…) still opens and lights the right tab.
   apply-practical's done-markers became tuples (this patch rewrites its sub-nav line). Genetics (no practical topic) gets
   the same menu.
+- **🧹 Practical page without repeated links (2026-10-29, user's screenshot):** patch `practical-declutter` (52). Students no
+  longer see, on the Practical pages, the “‹ Back to Module” bar, the Practicals · Image atlas · OSPE exam tab row, or the
+  buttons under “🧭 How to use the practical” — the Practical sub-menu already has those places. The bar still shows on the
+  Review pages; teachers keep the tab row (Handbook, Settings, drafts); the guide in Learn keeps “🔬 Open the Practicals”.
 
 - **Two chats edited `modules/patches/apply.sh` at the same time (2026-10-17):** the picture chat added `picture-import`
   while this chat added `slide-bold`; the slide-bold entry was lost from ORDER (the checker cannot notice a patch missing

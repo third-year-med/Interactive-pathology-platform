@@ -4937,8 +4937,9 @@ test('Neoplasia module (neoplasm): every topic, section, view and slide renders 
     await p.click('#view-explain [data-a=prac-guide] >> text=🔬 Open the Practicals');
     await p.waitForSelector('#view-practical [data-a=prac-guide]');
     assert.match(await p.textContent('#view-practical [data-a=prac-guide]'), /read “Practical Pathology — Specimens & Slides” in Learn/);
-    await p.click('#view-practical [data-a=prac-guide] >> text=📖 Read the topic in Learn');
-    await p.waitForFunction(function () { return location.hash.indexOf('#/explain/t15') === 0; });
+    assert.strictEqual(await p.$('#view-practical [data-a=prac-guide] .row'), null, 'practical-declutter: no button row under the guide on the Practical page');
+    await p.evaluate(function () { location.hash = '#/explain/t15'; });
+    await p.waitForSelector('#view-explain [data-a=prac-guide]');
     await p.click('#view-explain [data-a=prac-guide] summary');   // folding is remembered
     await p.evaluate(function () { location.hash = '#/practical'; });
     await p.waitForSelector('#view-practical [data-a=prac-guide]:not([open])');
@@ -5357,7 +5358,8 @@ test('🖼 Image Bank: hidden from students while empty (tab, link), always visi
     const p = await page();
     await openSyntheticModule(p, mod, [], { stubAssess: false });
     const tabs = function () { return p.evaluate(function () { return Array.from(document.querySelectorAll('.prac-tabs .tab')).map(function (b) { return b.textContent.trim(); }); }); };
-    await p.evaluate(function () { location.hash = '#/practical'; }); await p.waitForSelector('.prac-tabs');
+    await p.evaluate(function () { location.hash = '#/practical'; }); await p.waitForSelector('.prac-tabs', { state: 'attached' });
+    assert.ok(await p.$eval('.prac-tabs', function (n) { return n.offsetParent === null; }), 'practical-declutter: students do not see the tab row');
     assert.ok(!(await tabs()).some(function (t) { return /Image Bank/.test(t); }), 'student: no Image Bank tab while empty — ' + (await tabs()).join(', '));
     await p.evaluate(function () { location.hash = '#/practical/bank'; });
     await p.waitForFunction(function () { return location.hash === '#/practical'; });
@@ -5377,7 +5379,7 @@ test('🖼 Image Bank: hidden from students while empty (tab, link), always visi
     await q.addInitScript(function (v) { localStorage.setItem('ci_backend_token_v1', v); }, JSON.stringify({ token: tt.token, expiresAt: tt.expiresAt }));
     await q.goto('https://third-year-med.github.io/cell-injury-teaching-platform/#/practical');
     await q.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
-    await q.waitForSelector('.prac-tabs');
+    await q.waitForSelector('.prac-tabs');   // visible: teachers keep the row (Handbook, Settings)
     assert.ok(await q.evaluate(function () { return !(State.practical || []).length && Array.from(document.querySelectorAll('.prac-tabs .tab')).some(function (b) { return /Image Bank/.test(b.textContent); }); }), 'teacher: Image Bank tab while empty');
     await q.context().close();
     assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
@@ -5627,6 +5629,36 @@ test('🧭 Main menu Learn · Review · Practical: labels, Review sections (ques
     assert.strictEqual(await active('#/study/challenge'), 'Practical');
     const pills = await p.evaluate(function () { location.hash = '#/practical/ospe'; return new Promise(function (r) { setTimeout(function () { r(Array.from(document.querySelectorAll('#area-bar .area-pill')).map(function (a) { return (a.classList.contains('on') ? '*' : '') + a.textContent.trim(); })); }, 500); }); });
     assert.ok(pills.some(function (x) { return /^\*.*OSPE exam$/.test(x); }) && pills.some(function (x) { return /^[^*].*Practical cases$/.test(x); }), 'OSPE pill active, not Practical cases: ' + pills.join(', '));
+    await p.context().close();
+    assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
+  } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
+});
+
+/* Practical page without repeated links (patch practical-declutter, user 2026-10-29): on the Practical pages students do not see
+   the "‹ Back to Module" bar, the Practicals · Image atlas · OSPE tab row or the button row under the practical guide. */
+test('🧹 Practical page: no Back-to-Module bar, no tab row, no guide buttons for students (the bar stays on Review pages; Learn guide keeps its button)', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+  groupFixture();
+  const mod = syntheticModule(CI_PAGE, { topics: [{ id: 't17', title: 'Practical Pathology', summary: 's', sections: [{ id: 's1701', heading: 'Specimen 1', body: 'Text', tables: [], figures: [], keyPoints: [] }] }], images: [] });
+  const keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  const start = errors.length;
+  try {
+    const p = await page();
+    await openSyntheticModule(p, mod, [], { stubAssess: false });
+    const barShown = function () { return p.evaluate(function () { const b = document.getElementById('ux-return'); return !!b && !b.classList.contains('hidden') && b.offsetParent !== null; }); };
+    await p.evaluate(function () { location.hash = '#/explain/t17'; });
+    await p.waitForSelector('#view-explain [data-a=prac-guide] .row');
+    assert.ok(await p.$('#view-explain [data-a=prac-guide] >> text=🔬 Open the Practicals'), 'the guide in Learn keeps its button');
+    await p.evaluate(function () { location.hash = '#/practical'; });
+    await p.waitForSelector('#view-practical [data-a=prac-guide]');
+    assert.ok(await p.evaluate(function () { return !!Store.sget(UXR_KEY, null); }), 'the return place is still remembered');
+    assert.strictEqual(await barShown(), false, 'no Back-to-Module bar on the Practical page');
+    assert.strictEqual(await p.$('#view-practical [data-a=prac-guide] .row'), null, 'no button row under the guide');
+    assert.ok(await p.$eval('#view-practical .prac-tabs', function (n) { return n.offsetParent === null; }), 'no tab row');
+    await p.evaluate(function () { location.hash = '#/practical/ospe'; }); await p.waitForTimeout(300);
+    assert.strictEqual(await barShown(), false, 'no bar on the OSPE page');
+    await p.evaluate(function () { location.hash = '#/revision'; });
+    await p.waitForFunction(function () { const b = document.getElementById('ux-return'); return b && !b.classList.contains('hidden'); });
+    assert.match(await p.textContent('#ux-return'), /Back to Module/, 'the bar stays on the Review pages');
     await p.context().close();
     assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
   } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
