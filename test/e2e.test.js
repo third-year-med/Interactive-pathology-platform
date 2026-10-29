@@ -4922,7 +4922,7 @@ test('Inflammation (New) module (inflnew): every topic, section, view and slide 
     const info = await p.evaluate(function () { return { cfg: window.NEO_CONFIG, course: COURSE.title, topics: DATA.topics.map(function (t) { return { id: t.id, title: t.title, sections: t.sections.map(function (s) { return { id: s.id, heading: s.heading, tables: s.tables.length, figures: s.figures.length }; }) }; }) }; });
     assert.strictEqual(info.cfg.moduleKey, 'inflnew'); assert.strictEqual(info.cfg.storagePrefix, 'in_');
     assert.strictEqual(info.course, 'Inflammation (New)');
-    assert.strictEqual(info.topics.length, 12);
+    assert.strictEqual(info.topics.length, 13);
     assert.ok(await p.evaluate(function () { return !!sessionStorage.getItem('in_stu_session_v1') || !!localStorage.getItem('in_stu_session_v1'); }), 'its own storage prefix');
     for (const tp of info.topics) {
       for (const sc of tp.sections) {

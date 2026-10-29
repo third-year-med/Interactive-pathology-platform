@@ -435,6 +435,17 @@ picture links; new: 70 questions, 91 glossary terms, 8 cases, 8 flowcharts, 9 co
 `ux-practical-optional`). Robbins batch: 21 pictures `in-robbins1-01…21` (file `inflnew-pictures-robbins1.json`, not
 committed). **Healing** syllabus to follow → new topics t13+ (the ~55 healing questions and healing pictures of
 inflammation-healing are the pool for it). e2e test "Inflammation (New) module (inflnew)…".
+**Practical + assessment bank (2026-10-29/30):** build `new-1.1` adds Learn topic **t13 "Practical Pathology — Inflammation
+Cases"** (s1301 how to answer; s1302–s1310 = the 19 cases of the user's Drive PDF "Practical inflammation cases.pdf", one
+picture each, grouped by lesion; healing cases 11, 18, 19 in s1310). Deliverables (never committed): `inflnew-practical-pictures.json`
+(picture import, keys `in-prac-01…19` → t13 sections), `inflnew-practical-cases.json` (`neo-practical-import`, `in-pr-01…19`),
+`inflnew-spotter-questions.json` (38: the case's own question + one more per picture, answers A–E 8/8/7/8/7), `inflnew-ospe-stations.json`
+(19 × 4 parts). Real-page rehearsal: 19/19 pictures, 19/19 practicals, 38/38 Spotter ready, 19/19 OSPE ready. 🔒 Assessment bank
+`inflnew-assessment-bank.json` from the user's scanned "Inflammation (from … mcq book)" (137 items, no key → answers from the
+syllabus): 91 items `aqb_in_NNN[letter]` (MCQ, T/F as 2 options, matching → one MCQ per matchable pair; "All/None of the above"
+→ "of these"); left out: ambiguous keys (Q7, Q9), outside the syllabus (Q22, Q23, Q48, Q90, Q93, Q128, Q129, unmatched matching
+items) and all healing items (Q64–88, 94–100, 102–121, 124–125, 131–132, 134–135 → for the Healing topics). Topic quizzes from
+the bank: t05–t08, t11, t12 (≥ 5 each); others from practice questions. "How to answer a practical" link → t13 (module-local).
 
 ### 4.3 Picture sources (user, 2026-10-19): use ALL of them, each under its own rules
 
