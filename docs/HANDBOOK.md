@@ -624,11 +624,14 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   without “(gross)”, “(high power, H&E)”…; kind guessed from the caption (Cell Injury set: 20 gross, 30 micro, 2 clinical).
 - **📋 Module Report (2026-10-29, user; Portal.gs 2.36):** a Teacher Dashboard card for the Admin AND every personal
   teacher (their own groups, same rule as reportOverview/reportDelivery): choose group + module → one line per CURRENT
-  student (removed = inactive members left out), sorted by name: Student name · Attendance % · Assessments done % (done of
-  given) — nothing else; ⬇ Excel (CSV with those three columns) and 🖨 Print. Attendance % = reportDelivery's attendedPct
-  (present + late of the sessions that count; excused left out). Given (`rpAssessGiven_`) = active assignments of the
-  storage (to all, or only to the students / module group they target) + assessments someone submitted there, minus the
-  teacher's exclusions (`ann:<groupId>`); excused per student left out of that student's given. The detailed Results &
+  student (removed = inactive members left out), sorted by name: Student name · Attendance % · Assessment score % written
+  “82% (5/5)” (user: score + done/held in ONE column) — nothing else; ⬇ Excel (same three columns) and 🖨 Print. Score =
+  mean of the best attempt over the assessments HELD in the class, missed = 0. Red (screen AND print, print-color-adjust:
+  exact; the row tinted): attendance < 75 % or score < 60 %. Attendance % = reportDelivery's attendedPct
+  (present + late of the sessions that count; excused left out). Held (`rpAssessGiven_`, user: "count only what we have done
+  in the class") = assessments at least one person of the delivery submitted — an assignment cancelled or never taken does
+  not count — minus the teacher's exclusions (`ann:<groupId>`); one whose assignments all target chosen students / a module
+  group counts only for them; excused per student left out of that student's total. The detailed Results &
   attendance (Directory, Overall Pathology Attendance) keeps all its columns and adds "Assessments done" there too.
 
 - **Two chats edited `modules/patches/apply.sh` at the same time (2026-10-17):** the picture chat added `picture-import`

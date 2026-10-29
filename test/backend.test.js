@@ -1096,7 +1096,8 @@ test('overviews: per delivery, read-only; teachers see only their own groups; st
   ins('AttendanceRecords', { sessionId: 'S1', recordId: 'r1', studentName: 'Ahmed', studentId: 'AHMED', status: 'present' });
   ins('AttendanceRecords', { sessionId: 'S2', recordId: 'r2', studentName: 'Ahmed', studentId: 'ahmed', status: 'present' });
   ins('AttendanceRecords', { sessionId: 'S2', recordId: 'r3', studentName: 'basma one', studentId: '', status: 'present' });
-  // 2.36 assessments given: A2 to everyone, A3 only to Basma, A4 cancelled, A5 excluded by the teacher (A1: submitted, no assignment)
+  // 2.36 assessments held = submitted by someone: A1 (no assignment) counts; A2 assigned but never taken, A3 only for Basma and
+  // not taken, A4 cancelled, A5 excluded by the teacher → not counted
   const ast = X.assessStore_(st);
   ast.put('assignment', 'g2', { id: 'g2', assessmentId: 'A2', assessmentTitle: 'Quiz week 2', targetType: 'all', emails: [], status: 'active' });
   ast.put('assignment', 'g3', { id: 'g3', assessmentId: 'A3', assessmentTitle: 'Make-up', targetType: 'students', emails: ['Basma@uni.ly'], status: 'active' });
@@ -1117,9 +1118,11 @@ test('overviews: per delivery, read-only; teachers see only their own groups; st
   const ah = r.students.filter(function (x) { return x.studentId === 'ahmed'; })[0], bs = r.students.filter(function (x) { return x.studentId === 'b1'; })[0];
   assert.deepStrictEqual(ah.quiz, { attempts: 2, best: 80, avg: 70 }); assert.deepStrictEqual(ah.exams, { submitted: 1, avg: 70 });
   assert.strictEqual(ah.attended, 2); assert.strictEqual(ah.attendedPct, 100); assert.ok(ah.lastLogin > 0);
-  assert.deepStrictEqual(bs.assess, { submitted: 1, avg: 90, done: 1, given: 3, donePct: 33 }, 'Basma: A1 done of A1, A2, A3');
-  assert.deepStrictEqual(ah.assess, { submitted: 0, avg: null, done: 0, given: 2, donePct: 0 }, 'Ahmed: A1, A2 (not A3, cancelled A4, excluded A5); in-progress is not done');
-  assert.deepStrictEqual(r.assessGiven.map(function (g) { return g.id; }).sort(), ['A1', 'A2', 'A3']); assert.deepStrictEqual(bs.sessions, ['S2']); assert.strictEqual(bs.attendedPct, 50);
+  assert.deepStrictEqual(bs.assess, { submitted: 1, avg: 90, done: 1, given: 1, donePct: 100, marks: 90, fullMarks: 100, score: 90 }, 'Basma: A1 is the only assessment held (no marks stored → % of 100)');
+  assert.deepStrictEqual(ah.assess, { submitted: 0, avg: null, done: 0, given: 1, donePct: 0, marks: 0, fullMarks: 100, score: 0 }, 'Ahmed: missed A1 (in-progress is not done)');
+  assert.deepStrictEqual([ah.attCount, ah.attTotal, bs.attCount, bs.attTotal], [2, 2, 1, 2]);
+  assert.deepStrictEqual(r.assessGiven.map(function (g) { return g.id; }), ['A1']);
+  assert.deepStrictEqual(bs.sessions, ['S2']); assert.strictEqual(bs.attendedPct, 50);
   assert.deepStrictEqual(r.others, [{ label: 'Visitor', quiz: 1, assess: 0, exams: 0, attendance: 0 }]);
   assert.deepStrictEqual(r.sessions.map(function (s) { return s.title + ':' + s.present; }), ['Lecture 1:1', 'Lecture 2:2']);
   assert.deepStrictEqual(r.assessments, [{ id: 'A1', title: 'Quiz week 1', submitted: 1, avg: 90 }]);
@@ -1133,6 +1136,12 @@ test('overviews: per delivery, read-only; teachers see only their own groups; st
   assert.strictEqual(S.call({ module: 'portal', action: 'reportOverview' }).ok, false, 'no session → nothing');
   assert.strictEqual(S.call({ module: 'portal', action: 'reportOverview', token: S.ahmed.tok }).ok, false, 'a teacher token is not an Admin token');
   assert.strictEqual(JSON.stringify(Object.keys(S.b.sheets).sort().map(function (n) { return [n, S.b.sheets[n]._rows]; })), before, 'read-only');
+  // an assessment held only by chosen students counts only for them
+  ast.put('assignment', 'g6', { id: 'g6', assessmentId: 'A6', assessmentTitle: 'Make-up', targetType: 'students', emails: ['basma@uni.ly'], status: 'closed' });
+  ins('AssessRecords', Object.assign({ module: st, kind: 'attempt', id: 'att6', ref: 'A6', email: 'basma@uni.ly', status: 'submitted' }, X.packJson_({ assessmentId: 'A6', assessmentTitle: 'Make-up', email: 'basma@uni.ly', status: 'submitted', percent: 50, score: 5, total: 10 })));
+  const r6 = S.dir('reportDelivery', { deliveryId: D[st].deliveryId }), st6 = function (id) { return r6.students.filter(function (x) { return x.studentId === id; })[0].assess; };
+  assert.deepStrictEqual([st6('b1').done, st6('b1').given, st6('b1').marks, st6('b1').fullMarks, st6('b1').score], [2, 2, 95, 110, 86.4], 'Basma: marks 90/100 + 5/10 = 95/110');
+  assert.deepStrictEqual([st6('ahmed').done, st6('ahmed').given], [0, 1], 'Ahmed: A6 was not for him');
 });
 
 /* ---------------- packaged releases (new build of a module) ---------------- */

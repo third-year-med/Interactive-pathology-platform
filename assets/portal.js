@@ -520,7 +520,7 @@
     modules: ['📚', 'Teaching Modules', 'Open a module in teacher mode or its Teacher Portal; lock the Learning module during an assessment.'],
     sessions: ['🎓', 'Teaching Sessions', 'Schedule or start lectures, live attendance, Live Classroom, history.'],
     overall: ['📊', 'Overall Pathology Attendance', 'All modules together: attendance and absence % per student, module breakdown, below-75% warnings, Excel and print; results of every module.'],
-    modreport: ['📋', 'Module Report', 'For a finished module: each student’s attendance % and assessments done % — one line per student, Excel and print.'],
+    modreport: ['📋', 'Module Report', 'For a finished module: each student’s attendance % and assessment score % (with assessments done of those held, e.g. 5/5) — one line per student, red below 75 % / 60 %, Excel and print.'],
     results: ['📈', 'Pathology Overall Results & Analytics', 'Assessment results of every module together: overall % per student (equal or weighted), module-by-module marks, completion, CSV.'],
     annual: ['🏅', 'Annual Assessment (30)', 'Topic quizzes /20 + two presentations /10 for every student of the year: one class table, presentation marking, Excel and print.'],
     exams: ['📝', 'Official Exams', 'Module and combined exams, exam banks, student exam pages, results.'],
@@ -603,9 +603,11 @@
    *  students are left out) with only the attendance % and the assessments done % (done of given). Admin: every group;
    *  a personal teacher: their own groups (reportOverview / reportDelivery apply the same rule). Loaded when opened. */
   function modReportSection(call) {
-    var sec = h('<section class="t-sec" id="t-modrep"><p class="small muted">Choose the group and module. Students removed from the group are not listed. Attendance % counts present and late (excused sessions are left out); assessments done % = assessments the student submitted of those given to them.</p><div class="mr-pick"><p class="muted small">Loading…</p></div><div class="mr-out"></div></section>');
+    var sec = h('<section class="t-sec" id="t-modrep"><p class="small muted">Choose the group and module. Students removed from the group are not listed. Attendance % counts present and late (excused sessions are left out); assessment score % = the mean of the student’s best attempt over the assessments HELD in the class (taken by at least one student — cancelled or never-taken ones do not count; a missed one counts 0), with the number done of those held, e.g. 82% (5/5).</p><div class="mr-pick"><p class="muted small">Loading…</p></div><div class="mr-out"></div></section>');
     var pick = $('.mr-pick', sec), out = $('.mr-out', sec), loaded = false, KEY = 'pp_modrep';
     var pc = function (v) { return v == null ? '—' : v + '%'; };
+    var done = function (a) { return a && a.given ? a.done + '/' + a.given : ''; };
+    var lowAtt = function (s) { return s.attendedPct != null && s.attendedPct < 75; }, lowSc = function (s) { var a = s.assess || {}; return a.score != null && a.score < 60; };   // shown in red
     function load() {
       if (loaded) return; loaded = true;
       call('reportOverview').then(function (r) {
@@ -626,27 +628,28 @@
         if (!x.ok) { out.innerHTML = '<p class="err">' + esc(x.error) + '</p>'; return; }
         var st = x.students.filter(function (s) { return s.active; }).sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
         var given = (x.assessGiven || []).length, title = d.institution + ' · ' + d.groupName + ' — ' + d.title;
-        var w = h('<div class="note roster-res mr-res"><b>' + esc(title) + '</b><div class="small muted">' + st.length + ' student(s) · ' + x.sessions.length + ' attendance session(s) · ' + given + ' assessment(s) given</div>' +
+        var w = h('<div class="note roster-res mr-res"><b>' + esc(title) + '</b><div class="small muted">' + st.length + ' student(s) · ' + x.sessions.length + ' attendance session(s) · ' + given + ' assessment(s) held in the class</div>' +
           '<div class="roster-tools"><button class="btn" type="button" data-a="mr-csv">⬇ Download (Excel)</button><button class="btn" type="button" data-a="mr-print">🖨 Print</button></div>' +
-          '<div class="tbl-wrap"><table class="dir-tbl mr-tbl"><thead><tr><th>#</th><th>Student name</th><th class="n">Attendance %</th><th class="n">Assessments done %</th></tr></thead><tbody>' +
+          '<div class="tbl-wrap"><table class="dir-tbl mr-tbl"><thead><tr><th>#</th><th>Student name</th><th class="n">Attendance %</th><th class="n">Assessment score %</th></tr></thead><tbody>' +
           st.map(function (s, i) {
             var a = s.assess || {};
-            return '<tr data-student="' + esc(s.studentId) + '"><td>' + (i + 1) + '</td><td>' + esc(s.name) + '</td>' +
-              '<td class="n' + (s.attendedPct != null && s.attendedPct < 75 ? ' warn-t' : '') + '"><b>' + pc(s.attendedPct) + '</b></td>' +
-              '<td class="n"><b>' + pc(a.donePct) + '</b>' + (a.given ? ' <span class="small muted">(' + a.done + ' of ' + a.given + ')</span>' : '') + '</td></tr>';
-          }).join('') + '</tbody></table></div>' + (st.length ? '' : '<p class="muted small">No current students in this group.</p>') + '</div>');
+            return '<tr data-student="' + esc(s.studentId) + '"' + (lowAtt(s) || lowSc(s) ? ' class="mr-low"' : '') + '><td>' + (i + 1) + '</td><td>' + esc(s.name) + '</td>' +
+              '<td class="n' + (lowAtt(s) ? ' mr-red' : '') + '"><b>' + pc(s.attendedPct) + '</b></td>' +
+              '<td class="n' + (lowSc(s) ? ' mr-red' : '') + '"><b>' + pc(a.score) + '</b>' + (a.given ? ' <span class="mr-n">(' + done(a) + ')</span>' : '') + '</td></tr>';
+          }).join('') + '</tbody></table></div>' + (st.length ? '<p class="small muted"><span class="mr-red"><b>Red</b></span> = attendance below 75 % or assessment score below 60 %.</p>' : '<p class="muted small">No current students in this group.</p>') + '</div>');
         $('[data-a=mr-csv]', w).onclick = function () {
           var q = function (v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
-          var rows = [['Student name', 'Attendance %', 'Assessments done %']].concat(st.map(function (s) { return [s.name, s.attendedPct, (s.assess || {}).donePct]; }));
+          var rows = [['Student name', 'Attendance %', 'Assessment score %']].concat(st.map(function (s) { var a = s.assess || {}; return [s.name, s.attendedPct, a.score == null ? '' : a.score + '%' + (a.given ? ' (' + done(a) + ')' : '')]; }));
           var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['\ufeff' + rows.map(function (r) { return r.map(q).join(','); }).join('\r\n')], { type: 'text/csv;charset=utf-8' }));
           a.download = 'module-report-' + d.storage + '.csv';
           document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
         };
         $('[data-a=mr-print]', w).onclick = function () {
           var pw = window.open('', '_blank'); if (!pw) return toast('Allow pop-ups to print.');
-          pw.document.write('<!doctype html><meta charset="utf-8"><title>' + esc(title) + '</title><style>body{font:14px system-ui,sans-serif;margin:24px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #999;padding:5px 8px;text-align:left}td.n,th.n{text-align:center}</style>' +
-            '<h2>' + esc(title) + '</h2><p>Attendance % and assessments done % · ' + new Date().toISOString().slice(0, 10) + '</p><table><thead><tr><th>#</th><th>Student name</th><th class="n">Attendance %</th><th class="n">Assessments done %</th></tr></thead><tbody>' +
-            st.map(function (s, i) { return '<tr><td>' + (i + 1) + '</td><td>' + esc(s.name) + '</td><td class="n">' + pc(s.attendedPct) + '</td><td class="n">' + pc((s.assess || {}).donePct) + '</td></tr>'; }).join('') + '</tbody></table>');
+          pw.document.write('<!doctype html><meta charset="utf-8"><title>' + esc(title) + '</title><style>body{font:14px system-ui,sans-serif;margin:24px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #999;padding:5px 8px;text-align:left}td.n,th.n{text-align:center}tr.low td{background:#fdecec}td.red{color:#c62828;font-weight:700}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}</style>' +
+            '<h2>' + esc(title) + '</h2><p>Attendance % and assessment score % (assessments done / held in the class) · ' + new Date().toISOString().slice(0, 10) + '</p><table><thead><tr><th>#</th><th>Student name</th><th class="n">Attendance %</th><th class="n">Assessment score %</th></tr></thead><tbody>' +
+            st.map(function (s, i) { return '<tr' + (lowAtt(s) || lowSc(s) ? ' class="low"' : '') + '><td>' + (i + 1) + '</td><td>' + esc(s.name) + '</td><td class="n' + (lowAtt(s) ? ' red' : '') + '">' + pc(s.attendedPct) + '</td><td class="n' + (lowSc(s) ? ' red' : '') + '">' + pc((s.assess || {}).score) + ((s.assess || {}).given ? ' (' + done(s.assess) + ')' : '') + '</td></tr>'; }).join('') + '</tbody></table>' +
+            '<p style="font-size:12px"><span style="color:#c62828;font-weight:700">Red</span> = attendance below 75 % or assessment score below 60 %.</p>');
           pw.document.close(); pw.focus(); pw.print();
         };
         out.innerHTML = ''; out.appendChild(w);

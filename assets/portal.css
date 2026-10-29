@@ -453,3 +453,6 @@ code.pw{font-size:14px;font-weight:700;letter-spacing:.03em}
 .an-rub summary{cursor:pointer;margin-top:6px}
 .an-tp{border:1px solid var(--line);border-radius:10px;padding:6px 10px;margin:0;max-height:220px;overflow:auto}.an-tp legend label{flex-direction:row;gap:6px}
 .an-dlg label.an-rb select{flex:0 0 auto;width:4.6em;padding:4px 6px}
+
+/* 📋 Module Report: below 75 % attendance / 60 % score in red (also when printed) */
+.mr-tbl tr.mr-low td{background:#fdecec}.mr-red,.mr-red b{color:#c62828;font-weight:700}.mr-n{font-size:.85em;color:inherit;opacity:.8}

@@ -1114,7 +1114,8 @@ test('Step 10: Results & attendance — Admin tab (all groups) and a personal te
   ins('Results', { module: 'cellinjury-tr-a', id: 'rq1', name: 'Student Ahmed', email: 'ahmed@student.local', percent: 75, submittedAt: Date.now() });
   ins('AttendanceSessions', { module: 'cellinjury-tr-a', sessionId: 'RS1', sessionTitle: 'Lecture One', status: 'closed', createdAt: Date.UTC(2026, 9, 1) });
   ins('AttendanceRecords', { sessionId: 'RS1', recordId: 'rr1', studentName: 'Student Ahmed', studentId: 'ahmed', status: 'present' });
-  X.assessStore_('cellinjury-tr-a').put('assignment', 'rep-asg', { id: 'rep-asg', assessmentId: 'REP-A1', assessmentTitle: 'Report quiz', targetType: 'all', emails: [], status: 'active' });   // 2.36: given, not done
+  X.assessStore_('cellinjury-tr-a').put('assignment', 'rep-asg', { id: 'rep-asg', assessmentId: 'REP-A1', assessmentTitle: 'Report quiz', targetType: 'all', emails: [], status: 'active' });
+  ins('AssessRecords', Object.assign({ module: 'cellinjury-tr-a', kind: 'attempt', id: 'rep-att1', ref: 'REP-A1', email: 'someone@uni.ly', status: 'submitted' }, X.packJson_({ assessmentId: 'REP-A1', assessmentTitle: 'Report quiz', email: 'someone@uni.ly', status: 'submitted', percent: 80 })));   // 2.36: held in the class (someone took it); Ahmed did not
   const un = 'rep.teacher', cr = main.call({ module: 'portal', action: 'teacherSave', token: t, create: true, record: { username: un, name: 'Dr. Report', password: 'rep-teacher-1' } });
   assert.ok(cr.ok, JSON.stringify(cr));
   assert.ok(main.call({ module: 'portal', action: 'teacherAssign', token: t, userId: cr.teacher.userId, deliveryIds: [d.deliveryId] }).ok);
@@ -1143,13 +1144,22 @@ test('Step 10: Results & attendance — Admin tab (all groups) and a personal te
   const gone = { studentId: 'mr-gone', name: 'Removed Student' };
   assert.ok(main.call({ module: 'portal', action: 'rosterSetActive', token: t, groupId: g.groupId, studentId: gone.studentId, active: false }).ok);
   const mrCheck = async function (q) {
-    assert.deepStrictEqual(await q.$$eval('#t-modrep .mr-tbl thead th', function (x) { return x.map(function (y) { return y.textContent; }); }), ['#', 'Student name', 'Attendance %', 'Assessments done %']);
-    assert.match(await q.textContent('#t-modrep .mr-tbl tr[data-student="ahmed"]'), /Student Ahmed\s*100%\s*0% \(0 of [1-9]\d*\)/);
+    assert.deepStrictEqual(await q.$$eval('#t-modrep .mr-tbl thead th', function (x) { return x.map(function (y) { return y.textContent; }); }), ['#', 'Student name', 'Attendance %', 'Assessment score %']);
+    assert.match(await q.textContent('#t-modrep .mr-tbl tr[data-student="ahmed"]'), /Student Ahmed\s*100%\s*0% \(0\/[1-9]\d*\)/);
     assert.strictEqual(await q.$('#t-modrep .mr-tbl tr[data-student="' + gone.studentId + '"]'), null, 'removed student not listed');
+    // red: score below 60 % (Ahmed 0 %), attendance 100 % not red; the row is highlighted — on screen and in the printout
+    assert.deepStrictEqual(await q.$eval('#t-modrep .mr-tbl tr[data-student="ahmed"]', function (tr) { return [tr.classList.contains('mr-low'), tr.cells[2].classList.contains('mr-red'), tr.cells[3].classList.contains('mr-red'), getComputedStyle(tr.cells[3].querySelector('b')).color]; }), [true, false, true, 'rgb(198, 40, 40)']);
+    const printed = await q.evaluate(function () {
+      let html = ''; const w0 = window.open;
+      window.open = function () { return { document: { write: function (x) { html += x; }, close: function () { } }, focus: function () { }, print: function () { } }; };
+      document.querySelector('#t-modrep [data-a=mr-print]').click(); window.open = w0; return html;
+    });
+    assert.match(printed, /print-color-adjust:exact/);
+    assert.match(printed, /<tr class="low"><td>\d+<\/td><td>Student Ahmed<\/td><td class="n">100%<\/td><td class="n red">0% \(0\/[1-9]\d*\)<\/td>/);
     assert.ok(!/Exam|Quiz|Practice/.test(await q.textContent('#t-modrep .mr-res')), 'nothing else');
     const [mdl] = await Promise.all([q.waitForEvent('download'), q.click('#t-modrep [data-a=mr-csv]')]);
     const mcsv = fs.readFileSync(await mdl.path(), 'utf8');
-    assert.match(mcsv, /^\ufeff?Student name,Attendance %,Assessments done %\r\n[\s\S]*Student Ahmed,100,0/);
+    assert.match(mcsv, /^\ufeff?Student name,Attendance %,Assessment score %\r\n[\s\S]*Student Ahmed,100,0% \(0\/[1-9]\d*\)/);
     assert.ok(mcsv.indexOf(gone.name) < 0);
   };
   {
