@@ -591,6 +591,14 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   to use ✏️ Edit master draft then ⬆ Publish draft; and it now compares with the PUBLISHED copy (a draft already on but a
   stale students' copy was skipped), re-publishing when only the options differ (`pracSameContent`), listing others.
   prac-defaults-apply got done-markers. **Lesson:** practical work (import, settings, publishing) belongs in Edit master draft.
+- **📝 OSPE exam (2026-10-29, user; format from the user's PDF "OSPE: Discussion of 100 Cases", content from the module's
+  own practical cases):** patch `ospe` (50) — Apply → Practical tab `#/practical/ospe` + a line in Apply's practical section.
+  Stations = Content `practicalcfg/ospe` (`neo-ospe-import` or the teacher's station editor): 1–2 pictures (Learn Practical
+  pictures only, via `Spotter.picture`), clinical scenario, parts {q, marks, answer}. Timed (off/1/2/3/5 min), forward only,
+  answers kept while typing; review = answer beside model answer, self-marked 0/½/full → score + % (`ospe_last_v1`, study
+  history source "ospe"). Students see it with ≥ 3 ready stations. Cell Injury set: 16 stations (one per practical case,
+  4 parts × 1 mark), `<module>-ospe-stations.json` (never committed); real-course rehearsal: 16/16 ready. apply-practical
+  got done-markers (ospe adds a line to its list).
 
 - **Two chats edited `modules/patches/apply.sh` at the same time (2026-10-17):** the picture chat added `picture-import`
   while this chat added `slide-bold`; the slide-bold entry was lost from ORDER (the checker cannot notice a patch missing

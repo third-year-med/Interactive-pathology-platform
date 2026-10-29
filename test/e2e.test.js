@@ -5325,7 +5325,7 @@ test('🔬 Pathology Spotter: renamed; teacher imports questions; only Learn Pra
     const ap = await p2.evaluate(function () { return { h2: Array.from(document.querySelectorAll('#view-apply .ux-h2')).map(function (h) { return h.textContent; }),
       items: Array.from(document.querySelectorAll('#view-apply .ux-h2')).map(function (h) { let n = h.nextElementSibling, out = []; while (n && !n.matches('.ux-h2')) { out = out.concat(Array.from(n.querySelectorAll('.ux-list li a')).map(function (x) { const m = x.querySelector('.ux-list-m'); return x.querySelector('b').textContent + (m ? ' · ' + m.textContent : ''); })); if (/Try a case/.test(n.textContent) && !n.querySelector('.ux-list')) out.push('Try a case'); n = n.nextElementSibling; } return out; }) }; });
     assert.deepStrictEqual(ap.h2, ['🔬 Practical: specimens, slides and Spotter', '✚ Clinical reasoning']);
-    assert.match(ap.items[0].join(' | '), /^Practical pathology \| Pathology Spotter · 5 questions/);
+    assert.match(ap.items[0].join(' | '), /^Practical pathology \| OSPE exam \| Pathology Spotter · 5 questions/);   // OSPE line: patch ospe
     assert.ok(ap.items[0].every(function (t) { return !/^Clinical cases/.test(t); }) && ap.items[1].some(function (t) { return /^Clinical cases/.test(t); }), 'clinical cases only in their own section: ' + JSON.stringify(ap.items));
     const sub = await p2.evaluate(function () { return UX_AREAS.find(function (a) { return a.id === 'apply'; }).items.map(function (x) { return x[0]; }); });
     assert.deepStrictEqual(sub, ['Practical pathology', 'Pathology Spotter', 'Clinical cases'], 'Apply sub-navigation order');
@@ -5514,6 +5514,85 @@ test('✏️ Spotter question editor: add with a Practical picture, validation, 
     // delete
     await p.click('[data-a=spe-del]'); await p.waitForSelector('.modal'); await p.click('.modal-foot .btn-danger, .modal-foot .btn-primary');
     await p.waitForFunction(function () { return /Questions \(0\)/.test((document.querySelector('.spe-panel') || {}).textContent || ''); });
+    await p.context().close();
+    assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
+  } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
+});
+
+/* 📝 OSPE exam for the practical cases (patch ospe, user 2026-10-29): stations with pictures from the Learn Practical topic only
+   (a station whose picture is missing is left out), a clinical scenario and short-answer parts with marks; timed, forward
+   only, answers kept while typing; self-marking against model answers → score and %; teacher import + station editor. */
+test('📝 OSPE exam: teacher imports stations; timed stations, forward only, answers kept; time-up moves on; self-marking gives the score; station editor', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const sec = function (id) { return { id: id, heading: 'Section ' + id, body: 'Text', tables: [], figures: [], keyPoints: [] }; };
+  const mod = syntheticModule(CI_PAGE, { topics: [{ id: 't17', title: 'Practical Pathology', summary: 's', sections: [sec('s1701')] }], images: [] });
+  const keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['cellinjury'] }).modules.cellinjury;
+  main.call({ module: 'cellinjury', action: 'upsert', token: tt.token, collection: 'practicalcfg', id: 'ospe', data: { v: 1, items: [] } });
+  const pic = function (k) { return { id: 'm_o' + k, type: 'image', url: 'https://drive.google.com/thumbnail?id=OSPE' + k + 'XXXXXXXX&sz=w2000', caption: 'Picture ' + k, importKey: 'tst-os-' + k }; };
+  main.call({ module: 'cellinjury', action: 'upsert', token: tt.token, collection: 'custommedia', id: 's1701', data: { items: [pic(1), pic(2), pic(3)] } });
+  const stn = function (k, keys) { return { id: 'os-t' + k, title: 'Station title ' + k, pics: keys.map(function (x) { return { key: 'tst-os-' + x }; }), scenario: 'Scenario ' + k + ': a patient presents.',
+    parts: [{ q: 'Identify the lesion ' + k + '.', marks: 1, answer: 'MODEL-' + k + '-A' }, { q: 'Give two features ' + k + '.', marks: 2, answer: 'MODEL-' + k + '-B' }] }; };
+  const data = { format: 'neo-ospe-import', version: 1, module: 'cellinjury', items: [stn(1, [1, 2]), stn(2, [2]), stn(3, [3]), stn(4, [9])] };   // 4: picture missing
+  const start = errors.length;
+  try {
+    const p = await page();
+    await p.route('https://drive.google.com/**', function (route) { return route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from(PNG1, 'base64') }); });
+    await p.route('https://third-year-med.github.io/cell-injury-teaching-platform/**', function (route) { return route.fulfill({ status: 200, contentType: 'text/html', body: mod.html }); });
+    await p.addInitScript(function (v) { localStorage.setItem('ci_backend_token_v1', v); }, JSON.stringify({ token: tt.token, expiresAt: tt.expiresAt }));
+    await p.goto('https://third-year-med.github.io/cell-injury-teaching-platform/#/practical');
+    await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+    await p.waitForSelector('[data-a=ospe-tab]'); await p.click('[data-a=ospe-tab]');
+    await p.waitForSelector('.ospe-teacher input[type=file]');
+    assert.match(await p.textContent('.ospe'), /No OSPE stations yet/);
+    await p.setInputFiles('.ospe-teacher input[type=file]', { name: 'o.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(data)) });
+    await p.waitForSelector('.modal'); assert.match(await p.textContent('.modal'), /Save 4 OSPE stations\? 3 of them have their pictures/); await p.click('.modal-foot .btn-primary');
+    await p.waitForSelector('[data-a=ospe-start]', { timeout: 15000 });
+    assert.match(await p.textContent('.ospe-teacher summary'), /3 of 4 ready/);
+    assert.match(await p.textContent('.ospe-home'), /3 stations ready/);
+    // exam: 3 stations, 2 minutes each
+    await p.selectOption('.ospe-home select[aria-label="Time per station"]', '120');
+    await p.click('[data-a=ospe-start]'); await p.waitForSelector('.ospe-card');
+    const cur = function () { return p.evaluate(function () { const R = PracOspe.run; return R.done ? null : { id: R.ids[R.i], head: document.querySelector('.ospe-top b').textContent, time: (document.querySelector('[data-a=ospe-time]') || {}).textContent, imgs: document.querySelectorAll('.ospe-card .ospe-img').length, parts: document.querySelectorAll('[data-a=ospe-ans]').length, scn: document.querySelector('.ospe-scn').textContent }; }); };
+    let c = await cur();
+    assert.strictEqual(c.head, '📝 Station 1 of 3'); assert.match(c.time, /^[12]:\d\d$/); assert.strictEqual(c.parts, 2); assert.match(c.scn, /^Scenario \d: a patient presents\.$/);
+    assert.ok(!(await p.$('.ospe-card button:has-text("Previous")')), 'forward only');
+    await p.fill('[data-a=ospe-ans] >> nth=0', 'my answer A1'); await p.fill('[data-a=ospe-ans] >> nth=1', 'my answer B1');
+    await p.evaluate(function () { Views.practical.render(); });   // a repaint keeps what was typed
+    assert.strictEqual(await p.inputValue('[data-a=ospe-ans] >> nth=0'), 'my answer A1');
+    const first = c.id;
+    await p.click('[data-a=ospe-submit]');
+    c = await cur(); assert.strictEqual(c.head, '📝 Station 2 of 3'); assert.notStrictEqual(c.id, first);
+    await p.fill('[data-a=ospe-ans] >> nth=0', 'typed before time ran out');
+    await p.evaluate(function () { PracOspe.run.left = 1; });   // time runs out → the station is locked and the exam moves on
+    await p.waitForFunction(function () { const R = PracOspe.run; return R && R.i === 2; }, null, { timeout: 5000 });
+    assert.deepStrictEqual(await p.evaluate(function (id) { return PracOspe.run.answers[PracOspe.run.ids[1]]; }), ['typed before time ran out', '']);
+    await p.click('[data-a=ospe-submit]');   // last station, empty answers
+    await p.waitForSelector('.ospe-result');
+    assert.strictEqual(await p.textContent('[data-a=ospe-score]'), '0 / 9');
+    assert.strictEqual(await p.$$eval('.ospe-rev', function (e) { return e.length; }), 3);
+    assert.match(await p.textContent('.ospe-rev'), /my answer A1[\s\S]*MODEL-\d-A/);
+    assert.ok(await p.$eval('[data-a=ospe-save]', function (b) { return b.disabled; }), 'save only when every part is marked');
+    // mark: station 1 full (1 + 2), others 0 and ½
+    const marks = await p.$$('[data-a=ospe-mark]');
+    assert.strictEqual(marks.length, 18);   // 3 stations × 2 parts × 3 buttons
+    for (const idx of [2, 5, 6, 9, 12, 15]) { await p.click('[data-a=ospe-mark] >> nth=' + idx); }   // S1: A full, B full; S2: A 0, B full… (by position)
+    const score = await p.textContent('[data-a=ospe-score]');
+    assert.match(score, /^\d+(\.5)? \/ 9$/);
+    await p.click('[data-a=ospe-save]');
+    const last = await p.evaluate(function () { return Store.get('ospe_last_v1'); });
+    assert.deepStrictEqual([last.max, last.n, last.score + ' / 9'], [9, 3, score]);
+    assert.ok(await p.evaluate(function () { return StudyEngine.events.filter(function (e) { return e.s === 'ospe'; }).length === 3; }), 'results in the study history');
+    // station editor: validation and a new station
+    await p.click('[data-a=ospe-new]'); await p.waitForSelector('.ospe-form');
+    await p.click('.modal-foot .btn-primary'); assert.match(await p.textContent('.ospe-form .msg'), /Choose at least one picture\./);
+    await p.click('.ospe-form .spe-pic:nth-child(1)');
+    for (let k = 0; k < 3; k++) { await p.fill('.ospe-prow >> nth=' + k + ' >> input[type=text]', 'New part ' + k); await p.fill('.ospe-prow >> nth=' + k + ' >> textarea', 'Answer ' + k); }
+    await p.fill('.ospe-form textarea[aria-label="Clinical scenario"]', 'A new scenario.');
+    await p.click('.modal-foot .btn-primary'); await p.waitForSelector('.modal', { state: 'detached' });
+    await p.waitForFunction(function () { return PracOspe.all().length === 5; });
+    assert.deepStrictEqual(await p.evaluate(function () { const s = PracOspe.all()[4]; return [s.pics[0].key, s.parts.length, s.scenario, PracOspe.total(s), PracOspe.ready().length]; }), ['tst-os-1', 3, 'A new scenario.', 3, 4]);
     await p.context().close();
     assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
   } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }

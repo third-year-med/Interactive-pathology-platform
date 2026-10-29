@@ -42,10 +42,11 @@ GUIDE = [   # only where the practical guide exists (patch prac-guide)
       quiz,
       el('button', { class: 'btn btn-sm', onclick: () => Router.go('practical', ['bank']) }, '🖼 Image Bank')));"""),
 ]
+DONE = ["'🔬 Practical: specimens, slides and Spotter'", "'✚ Clinical reasoning'", "['Pathology Spotter', '◆', 'study', ['challenge']], ['Clinical cases'"]   # patch ospe edits these lines later
 for path in sys.argv[1:]:
     s = open(path, encoding='utf-8').read(); n = 0
-    for a, b in R:
-        if b in s: continue
+    for (a, b), done in zip(R, DONE):
+        if b in s or done in s: continue
         assert s.count(a) == 1, (path, a[:70]); s = s.replace(a, b); n += 1
     if 'function pracGuideCard(' in s:
         for (a, b), done in zip(GUIDE, ["'practise in the 🔬 Pathology Spotter (Practice mode)", "'data-a': 'prac-guide-spotter'"]):
