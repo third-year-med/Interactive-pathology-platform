@@ -622,17 +622,23 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   missing. `ATLAS.module()` = library + those pictures (links and videos left out, duplicates of a library file skipped);
   only the Image atlas uses it — Learning Blocks, Spotter, LMR keep `ATLAS.all()`. Name = caption before the first “:”
   without “(gross)”, “(high power, H&E)”…; kind guessed from the caption (Cell Injury set: 20 gross, 30 micro, 2 clinical).
-- **📋 Module Report (2026-10-29, user; Portal.gs 2.36):** a Teacher Dashboard card for the Admin AND every personal
-  teacher (their own groups, same rule as reportOverview/reportDelivery): choose group + module → one line per CURRENT
-  student (removed = inactive members left out), sorted by name: Student name · Attendance % · Assessment score % written
-  “82% (5/5)” (user: score + done/held in ONE column) — nothing else; ⬇ Excel (same three columns) and 🖨 Print. Score =
-  mean of the best attempt over the assessments HELD in the class, missed = 0. Red (screen AND print, print-color-adjust:
-  exact; the row tinted): attendance < 75 % or score < 60 %. Attendance % = reportDelivery's attendedPct
-  (present + late of the sessions that count; excused left out). Held (`rpAssessGiven_`, user: "count only what we have done
-  in the class") = assessments at least one person of the delivery submitted — an assignment cancelled or never taken does
-  not count — minus the teacher's exclusions (`ann:<groupId>`); one whose assignments all target chosen students / a module
-  group counts only for them; excused per student left out of that student's total. The detailed Results &
-  attendance (Directory, Overall Pathology Attendance) keeps all its columns and adds "Assessments done" there too.
+- **📋 Module Report + marks (2026-10-29, user; Portal.gs 2.36):** a Teacher Dashboard card for the Admin AND every
+  personal teacher (their own groups, same rule as reportOverview/reportDelivery): choose group + module → one line per
+  CURRENT student (removed = inactive members left out), sorted by name, three columns only: Student name · **Attendance %
+  (sessions attended / total sessions)**, e.g. 90% (9/10) · **Assessment score % (marks obtained / total marks)**, e.g.
+  82% (41/50). The bracket meanings are a second line under each heading (screen, print, Excel); a note says late counts as
+  attended, excused sessions are left out, missed assessment = 0 of its marks. Red (screen AND printed PDF,
+  print-color-adjust: exact; the row tinted): attendance < 75 % or score < 60 %. ⬇ Excel = the same three + "Assessments
+  done (done / held)". Held (`rpAssessGiven_`, user: "count only what we have done in the class") = assessments at least
+  one person of the delivery submitted — cancelled / never-taken ones do not count — minus the teacher's exclusions
+  (`ann:<groupId>`); one whose assignments all target chosen students / a module group counts only for them; excused per
+  student left out of that student's total. **Marks (user):** best attempt's score/total (`rpMarks_`; an attempt without
+  stored marks = its % of 100), a missed assessment 0 of its full marks (the highest total any attempt of it has);
+  score % = marks ÷ full marks, so a longer assessment counts more. **Pathology Overall Results uses the same marks rule
+  inside each module** (module % = marks ÷ full marks; details show "80% · 80/100 marks" and the module's marks); ACROSS
+  modules it keeps equal / weighted (user agreed: summing all marks would let the module with most tests dominate). The
+  Annual Assessment (30) keeps its own rule. The detailed Results & attendance (Directory) keeps all its columns and adds
+  "Assessments done".
 
 - **Two chats edited `modules/patches/apply.sh` at the same time (2026-10-17):** the picture chat added `picture-import`
   while this chat added `slide-bold`; the slide-bold entry was lost from ORDER (the checker cannot notice a patch missing

@@ -2745,6 +2745,15 @@ test('2.34 Pathology Overall Results: the user\'s case — 8 topic quizzes; one 
   X.setSetting_('ann:' + S.ra.groupId, JSON.stringify({ excluded: {}, excused: {} }));
   assert.ok(S.ts('resOverall', { groupId: S.ra.groupId }).ok);
   assert.ok(parseFloat(X.PORTAL_VERSION) >= 2.34, X.PORTAL_VERSION);
+  // 2.36 marks inside the module: Q1 /10 and Q2 /30 — Wesal 8/10 + 15/30 = 23/40 = 57.5 % (not the 65 % mean of percentages);
+  // Taha missed Q1 (0 of 10) and got 30/30 → 30/40 = 75 %
+  const MK = [{ deliveryId: 'd-mk', moduleId: 'modmk', title: 'Marks', icon: '📏', storage: 'modmk-tg', active: true }];
+  const mk = function (id, ref, score, total) { n++; X.assessStore_('modmk-tg').put('attempt', 'm' + n, { id: 'm' + n, assessmentId: ref, assessmentTitle: ref, email: id + '@student.local', name: '', status: 'submitted', percent: Math.round(score / total * 1000) / 10, score: score, total: total, submittedAt: n }); };
+  mk('w1', 'Q1', 8, 10); mk('w1', 'Q2', 15, 30); mk('t1x', 'Q2', 30, 30);
+  const rm = X.resOverallCompute_({ groupId: 'g-mk', label: 'G', linkCode: 'tg', academicYear: '', modules: MK }, members, { method: 'equal', weights: {} });
+  const om = {}; rm.students.forEach(function (x) { om[x.studentId] = x.modules[0]; });
+  assert.deepStrictEqual([om.w1.pct, om.w1.marks, om.w1.fullMarks, om.t1x.pct, om.t1x.marks, om.t1x.fullMarks], [57.5, 23, 40, 75, 30, 40]);
+  assert.deepStrictEqual(om.t1x.assessments.map(function (a) { return a.state + ':' + a.marks + '/' + a.full; }), ['missed:0/10', 'done:30/30']);
 });
 
 test('2.33 assessment-only question bank: teachers of every group read it, only the Admin changes it from the main copy, students never receive it nor any published assessment version — attempts still work', function () {

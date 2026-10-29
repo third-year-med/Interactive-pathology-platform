@@ -3058,7 +3058,9 @@ function attOverall_(who, p) {
  * .excused that 🎓 Annual Assessment sets). Before 2.34: the mean of the attempts the student happened to submit.
  * One row per student of the group (the roster = StudentMemberships; the stable Student ID is the key; inactive members are
  * listed and marked, never merged or dropped). For every teaching module of the group (the deliveries the caller teaches —
- * Admin: all; personal teacher: the assigned ones), the student's MODULE ASSESSMENT % is the existing per-module rule of
+ * Admin: all; personal teacher: the assigned ones), the student's MODULE ASSESSMENT % — 2.36 (user, 2026-10-29): MARKS,
+ *   marks obtained ÷ full marks over the counted assessments (best attempt; missed = 0 of its full marks; excused left
+ *   out), the same rule as the Module Report; until 2.35 it was the per-module rule of
  * the Results & attendance sheet: the mean of the percentages of all the student's SUBMITTED assessment attempts in that
  * delivery (AssessRecords kind "attempt", status "submitted", each attempt counted once by its record id). Practice
  * quizzes (Results), official exams (kind "exattempt") and attendance are NOT part of it. Attempts are matched to the
@@ -3107,7 +3109,7 @@ function resOverallCompute_(g, members, set, ann) {
     var key = r.module + '|' + r.id; if (seenAtt[key]) return; seenAtt[key] = 1;   // each attempt once
     var x = unpackJson_(r); if (!x || x.status !== 'submitted') return;
     var pc = Number(x.percent); if (!isFinite(pc)) return;
-    att[r.module].push({ ref: String(x.assessmentId || ''), title: String(x.assessmentTitle || x.assessmentId || ''), email: String(x.email || '').trim().toLowerCase(), name: String(x.name || ''), percent: pc, at: Number(x.submittedAt) || 0 });
+    att[r.module].push({ ref: String(x.assessmentId || ''), title: String(x.assessmentTitle || x.assessmentId || ''), email: String(x.email || '').trim().toLowerCase(), name: String(x.name || ''), percent: pc, at: Number(x.submittedAt) || 0, score: x.score, total: x.total });
   });
   var list = members.slice().sort(function (a, b) { return String(a.studentId).localeCompare(String(b.studentId)); });
   var nameCount = {}; list.forEach(function (m) { var k = String(m.name || '').trim().toLowerCase(); if (k) nameCount[k] = (nameCount[k] || 0) + 1; });
@@ -3127,10 +3129,12 @@ function resOverallCompute_(g, members, set, ann) {
       var row = (q.email && idx['em:' + q.email]) || (q.email && /@student\.local$/.test(q.email) && idx['id:' + q.email.replace(/@student\.local$/, '')]) || (q.name && idx['nm:' + q.name.trim().toLowerCase()]) || null;
       if (!row) { var k = (q.email || q.name || '?') + '|' + m.storage; var o = others[k] || (others[k] = { label: q.name || q.email || '?', module: m.title, attempts: 0 }); o.attempts++; return; }
       subs++; withRes[row.studentId] = 1;
-      var b = row.by[m.deliveryId] || (row.by[m.deliveryId] = { percents: [], per: {} });
+      var b = row.by[m.deliveryId] || (row.by[m.deliveryId] = { percents: [], per: {} }), mk = rpMarks_(q);
       b.percents.push(q.percent);
-      var e = b.per[q.ref] || (b.per[q.ref] = { id: q.ref, title: q.title, percents: [] }); e.percents.push(q.percent);
-      var c = counted[q.ref] || (counted[q.ref] = { id: q.ref, title: q.title, at: q.at }); if (q.at && (!c.at || q.at < c.at)) c.at = q.at;
+      var e = b.per[q.ref] || (b.per[q.ref] = { id: q.ref, title: q.title, percents: [], marks: null }); e.percents.push(q.percent);
+      if (!e.marks || mk.pct > e.marks.pct) e.marks = mk;   // best attempt's marks
+      var c = counted[q.ref] || (counted[q.ref] = { id: q.ref, title: q.title, at: q.at, full: 0 }); if (q.at && (!c.at || q.at < c.at)) c.at = q.at;
+      if (mk.total > c.full) c.full = mk.total;   // full marks of the assessment
     });
     var assigned = Object.keys(asg[m.storage]).length;
     var cnt = Object.keys(counted).filter(function (k) { return !ann.excluded[m.storage + '|' + k]; }).map(function (k) { return counted[k]; })
@@ -3149,20 +3153,23 @@ function resOverallCompute_(g, members, set, ann) {
   var students = rows.map(function (row) {
     var sumW = 0, sum = 0, nRes = 0, nInc = 0, missedAll = 0, subsAll = 0, exc = ann.excused[row.studentId] || {};
     var mm = modules.map(function (m) {
-      var b = row.by[m.deliveryId] || { percents: [], per: {} }, n = b.percents.length, tot = 0, k = 0, missed = 0, excused = 0;
-      var per = m.counted.map(function (c) {   // every counted assessment: best % if submitted, missed = 0 %, excused = left out
-        var e = b.per[c.id];
-        if (e) { var best = Math.max(0, Math.min(100, Math.max.apply(null, e.percents))); tot += best; k++;
-          return { id: c.id, title: c.title, state: 'done', attempts: e.percents.length, avg: resR1_(e.percents.reduce(function (x, y) { return x + y; }, 0) / e.percents.length), best: resR1_(best), pct: resR1_(best) }; }
-        if (exc[m.storage + '|' + c.id]) { excused++; return { id: c.id, title: c.title, state: 'excused', attempts: 0, avg: null, best: null, pct: null }; }
-        k++; missed++; return { id: c.id, title: c.title, state: 'missed', attempts: 0, avg: null, best: null, pct: 0 };
+      var b = row.by[m.deliveryId] || { percents: [], per: {} }, n = b.percents.length, got = 0, full = 0, k = 0, missed = 0, excused = 0;
+      // 2.36 (user, 2026-10-29): MARKS inside the module — best attempt's marks summed, a missed assessment 0 of its full
+      // marks, excused left out; module % = marks ÷ full marks (the Module Report uses the same rule)
+      var per = m.counted.map(function (c) {
+        var e = b.per[c.id], F = c.full || 100;
+        if (e) { var best = Math.max(0, Math.min(100, Math.max.apply(null, e.percents))), mk = e.marks || { score: best, total: 100 };
+          got += mk.score * F / mk.total; full += F; k++;
+          return { id: c.id, title: c.title, state: 'done', attempts: e.percents.length, avg: resR1_(e.percents.reduce(function (x, y) { return x + y; }, 0) / e.percents.length), best: resR1_(best), pct: resR1_(best), marks: resR1_(mk.score * F / mk.total), full: F }; }
+        if (exc[m.storage + '|' + c.id]) { excused++; return { id: c.id, title: c.title, state: 'excused', attempts: 0, avg: null, best: null, pct: null, marks: null, full: F }; }
+        full += F; k++; missed++; return { id: c.id, title: c.title, state: 'missed', attempts: 0, avg: null, best: null, pct: 0, marks: 0, full: F };
       });
-      var pct = k ? tot / k : null;
+      var pct = full ? got / full * 100 : null;
       var included = pct != null && m.weight > 0;
       if (pct != null) nRes++;
       if (included) { nInc++; sum += m.weight * pct; sumW += m.weight; }
       missedAll += missed; subsAll += n;
-      return { deliveryId: m.deliveryId, moduleId: m.moduleId, module: m.title, icon: m.icon, pct: resR1_(pct), attempts: n, assessments: per, counted: k, missed: missed, excused: excused, included: included, weight: m.weight };
+      return { deliveryId: m.deliveryId, moduleId: m.moduleId, module: m.title, icon: m.icon, pct: resR1_(pct), marks: full ? resR1_(got) : null, fullMarks: full || null, attempts: n, assessments: per, counted: k, missed: missed, excused: excused, included: included, weight: m.weight };
     });
     var overall = sumW > 0 ? resR1_(sum / sumW) : null;
     var done = assessed.filter(function (m) { var x = row.by[m.deliveryId]; return x && x.percents.length; }).length;

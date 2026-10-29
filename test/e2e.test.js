@@ -1115,7 +1115,7 @@ test('Step 10: Results & attendance — Admin tab (all groups) and a personal te
   ins('AttendanceSessions', { module: 'cellinjury-tr-a', sessionId: 'RS1', sessionTitle: 'Lecture One', status: 'closed', createdAt: Date.UTC(2026, 9, 1) });
   ins('AttendanceRecords', { sessionId: 'RS1', recordId: 'rr1', studentName: 'Student Ahmed', studentId: 'ahmed', status: 'present' });
   X.assessStore_('cellinjury-tr-a').put('assignment', 'rep-asg', { id: 'rep-asg', assessmentId: 'REP-A1', assessmentTitle: 'Report quiz', targetType: 'all', emails: [], status: 'active' });
-  ins('AssessRecords', Object.assign({ module: 'cellinjury-tr-a', kind: 'attempt', id: 'rep-att1', ref: 'REP-A1', email: 'someone@uni.ly', status: 'submitted' }, X.packJson_({ assessmentId: 'REP-A1', assessmentTitle: 'Report quiz', email: 'someone@uni.ly', status: 'submitted', percent: 80 })));   // 2.36: held in the class (someone took it); Ahmed did not
+  ins('AssessRecords', Object.assign({ module: 'cellinjury-tr-a', kind: 'attempt', id: 'rep-att1', ref: 'REP-A1', email: 'someone@uni.ly', status: 'submitted' }, X.packJson_({ assessmentId: 'REP-A1', assessmentTitle: 'Report quiz', email: 'someone@uni.ly', status: 'submitted', percent: 80, score: 16, total: 20 })));   // 2.36: held in the class (someone took it); Ahmed did not
   const un = 'rep.teacher', cr = main.call({ module: 'portal', action: 'teacherSave', token: t, create: true, record: { username: un, name: 'Dr. Report', password: 'rep-teacher-1' } });
   assert.ok(cr.ok, JSON.stringify(cr));
   assert.ok(main.call({ module: 'portal', action: 'teacherAssign', token: t, userId: cr.teacher.userId, deliveryIds: [d.deliveryId] }).ok);
@@ -1144,8 +1144,8 @@ test('Step 10: Results & attendance — Admin tab (all groups) and a personal te
   const gone = { studentId: 'mr-gone', name: 'Removed Student' };
   assert.ok(main.call({ module: 'portal', action: 'rosterSetActive', token: t, groupId: g.groupId, studentId: gone.studentId, active: false }).ok);
   const mrCheck = async function (q) {
-    assert.deepStrictEqual(await q.$$eval('#t-modrep .mr-tbl thead th', function (x) { return x.map(function (y) { return y.textContent; }); }), ['#', 'Student name', 'Attendance %', 'Assessment score %']);
-    assert.match(await q.textContent('#t-modrep .mr-tbl tr[data-student="ahmed"]'), /Student Ahmed\s*100%\s*0% \(0\/[1-9]\d*\)/);
+    assert.deepStrictEqual(await q.$$eval('#t-modrep .mr-tbl thead th', function (x) { return x.map(function (y) { return y.textContent; }); }), ['#', 'Student name', 'Attendance %(sessions attended / total sessions)', 'Assessment score %(marks obtained / total marks)']);
+    assert.match(await q.textContent('#t-modrep .mr-tbl tr[data-student="ahmed"]'), /Student Ahmed\s*100% \(1\/1\)\s*0% \(0\/20\)/);
     assert.strictEqual(await q.$('#t-modrep .mr-tbl tr[data-student="' + gone.studentId + '"]'), null, 'removed student not listed');
     // red: score below 60 % (Ahmed 0 %), attendance 100 % not red; the row is highlighted — on screen and in the printout
     assert.deepStrictEqual(await q.$eval('#t-modrep .mr-tbl tr[data-student="ahmed"]', function (tr) { return [tr.classList.contains('mr-low'), tr.cells[2].classList.contains('mr-red'), tr.cells[3].classList.contains('mr-red'), getComputedStyle(tr.cells[3].querySelector('b')).color]; }), [true, false, true, 'rgb(198, 40, 40)']);
@@ -1155,11 +1155,12 @@ test('Step 10: Results & attendance — Admin tab (all groups) and a personal te
       document.querySelector('#t-modrep [data-a=mr-print]').click(); window.open = w0; return html;
     });
     assert.match(printed, /print-color-adjust:exact/);
-    assert.match(printed, /<tr class="low"><td>\d+<\/td><td>Student Ahmed<\/td><td class="n">100%<\/td><td class="n red">0% \(0\/[1-9]\d*\)<\/td>/);
+    assert.match(printed, /<tr class="low"><td>\d+<\/td><td>Student Ahmed<\/td><td class="n">100% \(1\/1\)<\/td><td class="n red">0% \(0\/20\)<\/td>/);
+    assert.match(printed, /Attendance %<small>\(sessions attended \/ total sessions\)<\/small>[\s\S]*Assessment score %<small>\(marks obtained \/ total marks\)<\/small>/);
     assert.ok(!/Exam|Quiz|Practice/.test(await q.textContent('#t-modrep .mr-res')), 'nothing else');
     const [mdl] = await Promise.all([q.waitForEvent('download'), q.click('#t-modrep [data-a=mr-csv]')]);
     const mcsv = fs.readFileSync(await mdl.path(), 'utf8');
-    assert.match(mcsv, /^\ufeff?Student name,Attendance %,Assessment score %\r\n[\s\S]*Student Ahmed,100,0% \(0\/[1-9]\d*\)/);
+    assert.match(mcsv, /^\ufeff?Student name,Attendance % \(sessions attended \/ total sessions\),Assessment score % \(marks obtained \/ total marks\),Assessments done \(done \/ held\)\r\n[\s\S]*Student Ahmed,100% \(1\/1\),0% \(0\/20\),0\/1/);
     assert.ok(mcsv.indexOf(gone.name) < 0);
   };
   {
@@ -3395,7 +3396,7 @@ test('Pathology Overall Results & Analytics (2.22, rule 2.34): one row per stude
   assert.deepStrictEqual(r3.slice(3, 9), ['2 / 2', '2', '0%', '0%', '0%', 'Nothing submitted'], 'absent from every assessment the group took → 0 %');
   const kpi = await p.textContent('#t-results .ov-kpis');
   assert.match(kpi, /Enrolled students3[\s\S]*With an overall result3[\s\S]*Incomplete \(missed some\)1[\s\S]*1 submitted nothing[\s\S]*Cohort mean33\.3%[\s\S]*Highest · lowest75% · 0%[\s\S]*Modules contributing2 \/ 2/);
-  assert.match(await p.textContent('#t-results .ov-method'), /Equal weighting[\s\S]*a missed assessment = 0 %/);
+  assert.match(await p.textContent('#t-results .ov-method'), /Equal weighting[\s\S]*marks obtained ÷ total marks[\s\S]*a missed assessment adds 0 of its marks/);
   if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'overall-results.png'), fullPage: true });
   // filters, search, sort
   await p.selectOption('#t-results .rs-show', 'partial');
@@ -3413,7 +3414,7 @@ test('Pathology Overall Results & Analytics (2.22, rule 2.34): one row per stude
   // drill-down
   await p.click('#t-results tr[data-student="27010001"] button');
   await p.waitForSelector('#t-results .rs-stu');
-  assert.match(await p.textContent('#t-results .rs-stu'), /Overall assessment75%[\s\S]*Topic q1 \(60%\)[\s\S]*Topic q2 \(80%\)[\s\S]*70%/);
+  assert.match(await p.textContent('#t-results .rs-stu'), /Overall assessment75%[\s\S]*Topic q1 \(60% · 60\/100 marks\)[\s\S]*Topic q2 \(80% · 80\/100 marks\)[\s\S]*70% \(140\/200\)/);
   // CSV = table
   const dl = function (sel) { return Promise.all([p.waitForEvent('download'), p.click(sel)]).then(function (x) { return x[0].path(); }).then(function (f) { return fs.readFileSync(f, 'utf8').replace(/^﻿/, ''); }); };
   const all = (await dl('#t-results [data-a=csv]')).split(/\r\n/);
@@ -3424,7 +3425,7 @@ test('Pathology Overall Results & Analytics (2.22, rule 2.34): one row per stude
   const one = await dl('#t-results .rs-stu [data-a=c]');
   assert.match(one, /27010001,Amina Full,OVERALL,,equal,75,/);
   const basel = await (async function () { await p.click('#t-results tr[data-student="27010002"] button'); await p.waitForFunction(function () { return /Basel/.test((document.querySelector('#t-results .rs-stu') || {}).textContent || ''); }); return p.textContent('#t-results .rs-stu'); })();
-  assert.match(basel, /Missed assessments2[\s\S]*Topic q1 \(missed · 0%\)[\s\S]*Topic q2 \(missed · 0%\)/);
+  assert.match(basel, /Missed assessments2[\s\S]*Topic q1 \(missed · 0%[^)]*\)[\s\S]*Topic q2 \(missed · 0%[^)]*\)/);
   // weighted: Cell Injury ×3 → (240 + 70) / 4 = 77.5
   await p.click('#t-results .rs-set summary');
   await p.check('#t-results input[name=rs-m][value=weighted]');
