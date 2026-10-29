@@ -4945,8 +4945,14 @@ test('Neoplasia module (neoplasm): every topic, section, view and slide renders 
     await p.click('#view-practical [data-a=prac-guide] summary');
     await p.evaluate(function () { location.hash = '#/explain/t15'; });
     await p.waitForSelector('#view-explain [data-a=prac-guide][open]');
-    await p.click('#view-explain [data-a=prac-guide] >> text=🖼 Image Bank');
-    await p.waitForFunction(function () { return location.hash.indexOf('#/practical/bank') === 0; });
+    if (await p.evaluate(function () { return (State.practical || []).length; })) {
+      await p.click('#view-explain [data-a=prac-guide] >> text=🖼 Image Bank');
+      await p.waitForFunction(function () { return location.hash.indexOf('#/practical/bank') === 0; });
+    } else {   // bank-hide-empty: an empty Image Bank is not offered to students
+      assert.strictEqual(await p.$('#view-explain [data-a=prac-guide] >> text=🖼 Image Bank'), null, 'no Image Bank button while it is empty');
+      await p.evaluate(function () { location.hash = '#/practical/bank'; });
+      await p.waitForFunction(function () { return location.hash === '#/practical'; });
+    }
     await p.evaluate(function () { location.hash = '#/explain/t15'; });
     await p.waitForSelector('#view-explain [data-a=prac-guide][open]');
     await p.click('#view-explain [data-a=prac-guide] >> text=🧠 Topic quiz');
@@ -5336,6 +5342,44 @@ test('🔬 Pathology Spotter: renamed; teacher imports questions; only Learn Pra
     assert.ok(await m.evaluate(function () { return document.documentElement.scrollWidth <= innerWidth + 1; }), 'no horizontal scrolling on a phone');
     if (process.env.SHOTS) await m.screenshot({ path: path.join(process.env.SHOTS, 'spotter-phone.png'), fullPage: true });
     await m.context().close();
+    assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
+  } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
+});
+
+/* 🖼 Image Bank hidden while empty (patch bank-hide-empty, user 2026-10-29): a student sees no Image Bank tab and is sent from
+   #/practical/bank to the Practicals while it is empty; a teacher always sees it; with one item students see it again. */
+test('🖼 Image Bank: hidden from students while empty (tab, link), always visible to the teacher, back for students once it has an item', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+  groupFixture();
+  const mod = syntheticModule(CI_PAGE, { topics: [{ id: 't17', title: 'Practical Pathology', summary: 's', sections: [{ id: 's1701', heading: 'Specimen 1', body: 'Text', tables: [], figures: [], keyPoints: [] }] }] });
+  const keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  const start = errors.length;
+  try {
+    const p = await page();
+    await openSyntheticModule(p, mod, [], { stubAssess: false });
+    const tabs = function () { return p.evaluate(function () { return Array.from(document.querySelectorAll('.prac-tabs .tab')).map(function (b) { return b.textContent.trim(); }); }); };
+    await p.evaluate(function () { location.hash = '#/practical'; }); await p.waitForSelector('.prac-tabs');
+    assert.ok(!(await tabs()).some(function (t) { return /Image Bank/.test(t); }), 'student: no Image Bank tab while empty — ' + (await tabs()).join(', '));
+    await p.evaluate(function () { location.hash = '#/practical/bank'; });
+    await p.waitForFunction(function () { return location.hash === '#/practical'; });
+    // the teacher adds an item (backend) → the student sees the tab again after the next sync
+    main.call({ module: 'portal', action: 'setup', password: TPW });
+    const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+    const tok = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: [{ module: 'cellinjury', group: 'tr-a' }] }).modules['cellinjury-tr-a'];
+    assert.ok(main.call({ module: 'cellinjury-tr-a', action: 'upsert', token: tok.token, collection: 'practical', id: 'pr_1', data: { id: 'pr_1', title: 'Fatty liver', diagnosis: 'Fatty change', images: [] } }).ok);
+    await p.evaluate(function () { return Backend.syncFromBackend({ full: true }); });
+    await p.evaluate(function () { location.hash = '#/practical/bank'; }); await p.waitForTimeout(300); await p.evaluate(function () { location.hash = '#/practical'; });
+    await p.waitForFunction(function () { return Array.from(document.querySelectorAll('.prac-tabs .tab')).some(function (b) { return /Image Bank/.test(b.textContent); }); }, null, { timeout: 10000 });
+    await p.context().close();
+    // a teacher always sees it, even when empty
+    const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['cellinjury'] }).modules.cellinjury;
+    const q = await page();
+    await q.route('https://third-year-med.github.io/cell-injury-teaching-platform/**', function (route) { return route.fulfill({ status: 200, contentType: 'text/html', body: mod.html }); });
+    await q.addInitScript(function (v) { localStorage.setItem('ci_backend_token_v1', v); }, JSON.stringify({ token: tt.token, expiresAt: tt.expiresAt }));
+    await q.goto('https://third-year-med.github.io/cell-injury-teaching-platform/#/practical');
+    await q.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+    await q.waitForSelector('.prac-tabs');
+    assert.ok(await q.evaluate(function () { return !(State.practical || []).length && Array.from(document.querySelectorAll('.prac-tabs .tab')).some(function (b) { return /Image Bank/.test(b.textContent); }); }), 'teacher: Image Bank tab while empty');
+    await q.context().close();
     assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
   } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
 });

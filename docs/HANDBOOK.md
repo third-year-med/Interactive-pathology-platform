@@ -568,6 +568,10 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   case · Clinical cases · Cases by unit); sub-navigation Practical pathology · Pathology Spotter · Clinical cases; the Spotter
   line counts ready questions. The 🧭 practical guide: after the session = Spotter Practice mode (+ Image Bank), before the
   exam = Spotter Exam mode; new 🔬 Pathology Spotter button. Genetics (no practical topic) gets only the Apply changes.
+- **🖼 Image Bank hidden while empty (2026-10-29, user chose this over deleting):** patch `bank-hide-empty` (46) — students
+  see the Image Bank (tab, guide button + sentence, empty-Practicals hint) only when it has items; `#/practical/bank` sends
+  them to the Practicals while empty; teachers always see it. Its role is now covered by Practicals, Image atlas and the
+  Spotter; nothing deleted (other groups/modules may hold items; the old automatic challenge still reads it).
 
 - **Two chats edited `modules/patches/apply.sh` at the same time (2026-10-17):** the picture chat added `picture-import`
   while this chat added `slide-bold`; the slide-bold entry was lost from ORDER (the checker cannot notice a patch missing
