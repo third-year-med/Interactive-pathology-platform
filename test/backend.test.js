@@ -1096,6 +1096,13 @@ test('overviews: per delivery, read-only; teachers see only their own groups; st
   ins('AttendanceRecords', { sessionId: 'S1', recordId: 'r1', studentName: 'Ahmed', studentId: 'AHMED', status: 'present' });
   ins('AttendanceRecords', { sessionId: 'S2', recordId: 'r2', studentName: 'Ahmed', studentId: 'ahmed', status: 'present' });
   ins('AttendanceRecords', { sessionId: 'S2', recordId: 'r3', studentName: 'basma one', studentId: '', status: 'present' });
+  // 2.36 assessments given: A2 to everyone, A3 only to Basma, A4 cancelled, A5 excluded by the teacher (A1: submitted, no assignment)
+  const ast = X.assessStore_(st);
+  ast.put('assignment', 'g2', { id: 'g2', assessmentId: 'A2', assessmentTitle: 'Quiz week 2', targetType: 'all', emails: [], status: 'active' });
+  ast.put('assignment', 'g3', { id: 'g3', assessmentId: 'A3', assessmentTitle: 'Make-up', targetType: 'students', emails: ['Basma@uni.ly'], status: 'active' });
+  ast.put('assignment', 'g4', { id: 'g4', assessmentId: 'A4', assessmentTitle: 'Cancelled', targetType: 'all', emails: [], status: 'cancelled' });
+  ast.put('assignment', 'g5', { id: 'g5', assessmentId: 'A5', assessmentTitle: 'Excluded', targetType: 'all', emails: [], status: 'active' });
+  X.setSetting_('ann:' + D[st].groupId, JSON.stringify({ excluded: { [st + '|A5']: 1 }, excused: {} }));
   const before = JSON.stringify(Object.keys(S.b.sheets).sort().map(function (n) { return [n, S.b.sheets[n]._rows]; }));
   // Admin: every delivery
   const o = S.dir('reportOverview'); assert.ok(o.ok, JSON.stringify(o));
@@ -1110,7 +1117,9 @@ test('overviews: per delivery, read-only; teachers see only their own groups; st
   const ah = r.students.filter(function (x) { return x.studentId === 'ahmed'; })[0], bs = r.students.filter(function (x) { return x.studentId === 'b1'; })[0];
   assert.deepStrictEqual(ah.quiz, { attempts: 2, best: 80, avg: 70 }); assert.deepStrictEqual(ah.exams, { submitted: 1, avg: 70 });
   assert.strictEqual(ah.attended, 2); assert.strictEqual(ah.attendedPct, 100); assert.ok(ah.lastLogin > 0);
-  assert.deepStrictEqual(bs.assess, { submitted: 1, avg: 90 }); assert.deepStrictEqual(bs.sessions, ['S2']); assert.strictEqual(bs.attendedPct, 50);
+  assert.deepStrictEqual(bs.assess, { submitted: 1, avg: 90, done: 1, given: 3, donePct: 33 }, 'Basma: A1 done of A1, A2, A3');
+  assert.deepStrictEqual(ah.assess, { submitted: 0, avg: null, done: 0, given: 2, donePct: 0 }, 'Ahmed: A1, A2 (not A3, cancelled A4, excluded A5); in-progress is not done');
+  assert.deepStrictEqual(r.assessGiven.map(function (g) { return g.id; }).sort(), ['A1', 'A2', 'A3']); assert.deepStrictEqual(bs.sessions, ['S2']); assert.strictEqual(bs.attendedPct, 50);
   assert.deepStrictEqual(r.others, [{ label: 'Visitor', quiz: 1, assess: 0, exams: 0, attendance: 0 }]);
   assert.deepStrictEqual(r.sessions.map(function (s) { return s.title + ':' + s.present; }), ['Lecture 1:1', 'Lecture 2:2']);
   assert.deepStrictEqual(r.assessments, [{ id: 'A1', title: 'Quiz week 1', submitted: 1, avg: 90 }]);

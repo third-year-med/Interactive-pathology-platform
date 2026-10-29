@@ -1114,6 +1114,7 @@ test('Step 10: Results & attendance — Admin tab (all groups) and a personal te
   ins('Results', { module: 'cellinjury-tr-a', id: 'rq1', name: 'Student Ahmed', email: 'ahmed@student.local', percent: 75, submittedAt: Date.now() });
   ins('AttendanceSessions', { module: 'cellinjury-tr-a', sessionId: 'RS1', sessionTitle: 'Lecture One', status: 'closed', createdAt: Date.UTC(2026, 9, 1) });
   ins('AttendanceRecords', { sessionId: 'RS1', recordId: 'rr1', studentName: 'Student Ahmed', studentId: 'ahmed', status: 'present' });
+  X.assessStore_('cellinjury-tr-a').put('assignment', 'rep-asg', { id: 'rep-asg', assessmentId: 'REP-A1', assessmentTitle: 'Report quiz', targetType: 'all', emails: [], status: 'active' });   // 2.36: given, not done
   const un = 'rep.teacher', cr = main.call({ module: 'portal', action: 'teacherSave', token: t, create: true, record: { username: un, name: 'Dr. Report', password: 'rep-teacher-1' } });
   assert.ok(cr.ok, JSON.stringify(cr));
   assert.ok(main.call({ module: 'portal', action: 'teacherAssign', token: t, userId: cr.teacher.userId, deliveryIds: [d.deliveryId] }).ok);
@@ -1131,14 +1132,41 @@ test('Step 10: Results & attendance — Admin tab (all groups) and a personal te
   assert.match(await p.textContent(row), /Test Razi · Group A[\s\S]*1 attempt\(s\)[\s\S]*average 75%[\s\S]*1 session\(s\)/);
   await p.click(row + ' [data-a=det]');
   await p.waitForSelector('#t-dir .rep-stu tr[data-student="ahmed"]');
-  assert.match(await p.textContent('#t-dir .rep-stu tr[data-student="ahmed"]'), /Student Ahmed[\s\S]*1 · 75% · 75%[\s\S]*1 \(100%\)/);
+  assert.match(await p.textContent('#t-dir .rep-stu tr[data-student="ahmed"]'), /Student Ahmed[\s\S]*1 · 75% · 75%[\s\S]*0 of [1-9]\d* \(0%\)[\s\S]*1 \(100%\)/);
+  assert.match(await p.textContent('#t-dir .rep-stu thead'), /Assessments donedone of given \(%\)/);
   await p.click('#t-dir .rep-reg summary');
   assert.match(await p.textContent('#t-dir .rep-reg'), /2026-10-01[\s\S]*Lecture One[\s\S]*Student Ahmed\s*✓/);
   if (process.env.SHOTS) await (await p.$('#t-dir')).screenshot({ path: path.join(process.env.SHOTS, 'results-admin.png') });
+  // 📋 Module Report for the Admin: a student removed from the group (inactive) is not listed
+  const ad = main.call({ module: 'portal', action: 'rosterAdd', token: t, groupId: g.groupId, students: [{ studentId: 'mr-gone', name: 'Removed Student', password: 'removed-pw-1' }] });
+  assert.ok(ad.ok, JSON.stringify(ad));
+  const gone = { studentId: 'mr-gone', name: 'Removed Student' };
+  assert.ok(main.call({ module: 'portal', action: 'rosterSetActive', token: t, groupId: g.groupId, studentId: gone.studentId, active: false }).ok);
+  const mrCheck = async function (q) {
+    assert.deepStrictEqual(await q.$$eval('#t-modrep .mr-tbl thead th', function (x) { return x.map(function (y) { return y.textContent; }); }), ['#', 'Student name', 'Attendance %', 'Assessments done %']);
+    assert.match(await q.textContent('#t-modrep .mr-tbl tr[data-student="ahmed"]'), /Student Ahmed\s*100%\s*0% \(0 of [1-9]\d*\)/);
+    assert.strictEqual(await q.$('#t-modrep .mr-tbl tr[data-student="' + gone.studentId + '"]'), null, 'removed student not listed');
+    assert.ok(!/Exam|Quiz|Practice/.test(await q.textContent('#t-modrep .mr-res')), 'nothing else');
+    const [mdl] = await Promise.all([q.waitForEvent('download'), q.click('#t-modrep [data-a=mr-csv]')]);
+    const mcsv = fs.readFileSync(await mdl.path(), 'utf8');
+    assert.match(mcsv, /^\ufeff?Student name,Attendance %,Assessments done %\r\n[\s\S]*Student Ahmed,100,0/);
+    assert.ok(mcsv.indexOf(gone.name) < 0);
+  };
+  {
+    await p.goto(url + '#/teacher'); await dash(p, 'modreport');
+    await p.waitForSelector('#t-modrep [data-a=mr-sel]');
+    await p.selectOption('#t-modrep [data-a=mr-sel]', d.deliveryId);
+    await p.waitForSelector('#t-modrep .mr-res b >> text=Group A');
+    await p.waitForSelector('#t-modrep .mr-tbl tr[data-student="ahmed"]');
+    await mrCheck(p);
+    if (process.env.SHOTS) await (await p.$('#t-modrep')).screenshot({ path: path.join(process.env.SHOTS, 'module-report.png') });
+  }
+  await p.goto(url + '#/teacher'); await dash(p, 'directory'); await p.click('#t-dir .dir-tab[data-t=results]'); await p.waitForSelector(row); await p.click(row + ' [data-a=det]'); await p.waitForSelector('#t-dir .rep-stu tr[data-student="ahmed"]');
   const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#t-dir .rep-detail [data-a=csv]')]);
   const csv = fs.readFileSync(await dl.path(), 'utf8');
   assert.strictEqual(dl.suggestedFilename(), 'results-attendance-cellinjury-tr-a.csv');
-  assert.match(csv, /Student ID,Name,Active,Last sign-in,Quiz attempts[\s\S]*2026-10-01 Lecture One\r\n[\s\S]*ahmed,Student Ahmed,yes,[^,]*,1,75,75,0,,0,,1,100,0,0,present/);
+  assert.match(csv, /Student ID,Name,Active,Last sign-in,Quiz attempts[\s\S]*2026-10-01 Lecture One\r\n[\s\S]*ahmed,Student Ahmed,yes,[^,]*,1,75,75,[1-9]\d*,0,0,0,,0,,1,100,0,0,present/);
+  assert.match(csv, /Quiz average %,Assessments given,Assessments done,Assessments done %,Assessments submitted/);
   await p.context().close();
   // personal teacher: only the assigned group + module
   p = await page();
@@ -1154,6 +1182,11 @@ test('Step 10: Results & attendance — Admin tab (all groups) and a personal te
   await p.click('#t-report [data-a=det]');
   await p.waitForSelector('#t-report .rep-stu tr[data-student="ahmed"]');
   if (process.env.SHOTS) await (await p.$('#t-report')).screenshot({ path: path.join(process.env.SHOTS, 'results-teacher.png') });
+  // 📋 Module Report (2.36): only name, attendance %, assessments done %; current students only; for the teacher too
+  await p.goto(url + '#/teacher'); await dash(p, 'modreport');
+  await p.waitForSelector('#t-modrep .mr-tbl tr[data-student="ahmed"]');
+  assert.deepStrictEqual(await p.$$eval('#t-modrep [data-a=mr-sel] option', function (o) { return o.map(function (x) { return x.value; }); }), [d.deliveryId], 'the teacher sees only their group');
+  await mrCheck(p);
   await p.context().close();
   main.call({ module: 'portal', action: 'teacherSetActive', token: t, userId: cr.teacher.userId, active: false });
 });
@@ -2295,7 +2328,7 @@ test('Teacher Dashboard: compact cards first; each card opens its full managemen
   await p.waitForSelector('.dash-grid .dash-card');
   // only the six cards are on screen — no management form or table
   assert.deepStrictEqual(await p.$$eval('.dash-card', function (c) { return c.map(function (x) { return x.dataset.view + '|' + x.querySelector('.dc-t').textContent; }); }),
-    ['modules|Teaching Modules', 'sessions|Teaching Sessions', 'overall|Overall Pathology Attendance', 'results|Pathology Overall Results & Analytics', 'annual|Annual Assessment (30)', 'exams|Official Exams', 'manage|Teacher Management', 'directory|Platform Directory']);
+    ['modules|Teaching Modules', 'sessions|Teaching Sessions', 'overall|Overall Pathology Attendance', 'modreport|Module Report', 'results|Pathology Overall Results & Analytics', 'annual|Annual Assessment (30)', 'exams|Official Exams', 'manage|Teacher Management', 'directory|Platform Directory']);
   assert.strictEqual(await p.$$eval('.dash-view', function (v) { return v.filter(function (x) { return !x.hidden; }).length; }), 0);
   for (const sel of ['#t-modules', '#t-sessions', '#t-overall', '#t-exams', '#t-manage', '#t-dir', 'form.ts-form', '.modrow', 'table']) assert.ok(!(await p.isVisible(sel)), sel + ' hidden on the dashboard');
   // summaries from the data the sections already loaded
@@ -2388,7 +2421,7 @@ test('Teacher Dashboard: compact cards first; each card opens its full managemen
   await q.goto(url + '#/teacher');
   await q.fill('#t-u', un); await q.fill('#t-p', 'dash-teacher-2'); await q.click('form.card button[type=submit]');
   await q.waitForSelector('.dash-card');
-  assert.deepStrictEqual(await q.$$eval('.dash-card', function (c) { return c.map(function (x) { return x.dataset.view; }); }), ['modules', 'sessions', 'overall', 'results', 'annual', 'exams']);
+  assert.deepStrictEqual(await q.$$eval('.dash-card', function (c) { return c.map(function (x) { return x.dataset.view; }); }), ['modules', 'sessions', 'overall', 'modreport', 'results', 'annual', 'exams']);
   await q.waitForFunction(function () { return /1 module in 1 group/.test(document.querySelector('.dash-card[data-view=modules] .dc-sum').textContent); });
   await dash(q, 'modules'); await q.waitForSelector('#t-mine .mod[data-id="cellinjury"] .t-open', { state: 'visible' });
   await q.click('.dash-view[data-view=modules] .dv-back');

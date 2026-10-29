@@ -114,6 +114,7 @@
  *   reportOverview    Admin (token) → every delivery; personal teacher (ttoken) → only the deliveries assigned to them.
  *                     Per group + module: students, sign-ins, practice quizzes, assessments, exams, attendance.
  *   reportDelivery    {deliveryId} → per student (matched to the group's roster) + attendance sessions; same access rule.
+ *                     2.36: + assessments done per student (done of given, %) — see rpAssessGiven_.
  *
  * Group front pages (1.4, Step 2 — …/?g=<link code>):
  *   portalGroupInfo   public   the group's institution, name and its modules (from the directory: active deliveries of
@@ -198,7 +199,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.35';
+var PORTAL_VERSION = '2.36';
 /** 2.28: the shortest password for teachers AND students on every Portal screen (user, 2026-10-21: 4, was 8). Code.gs checks its own
     (STU_MIN_PW and the module teacher password) — platformCheck warns while they still ask for more. No maximum. */
 var PW_MIN_ = 4;
@@ -1861,6 +1862,39 @@ function rpCollect_(storages) {
   rpRows_(SHEETS.ATT_RECORDS).forEach(function (r) { var st = sid[r.sessionId]; if (st) out[st].records.push({ sessionId: String(r.sessionId), id: normUser_(r.studentId), email: String(r.email || '').toLowerCase(), name: String(r.studentName || ''), at: rpNum_(r.scannedAt) }); });
   return out;
 }
+/** 2.36 (user, 2026-10-29): the assessments GIVEN to a delivery = its active assignments (an assignment to chosen students
+ *  or a module group counts only for them) plus every assessment someone submitted there (counted for everyone), minus
+ *  those the teacher excluded (Annual Assessment / Overall Results setting ann:<groupId>.excluded["<storage>|<id>"]).
+ *  Official exams are not assessments. → [{ id, all, emails: {email: 1} }] */
+function rpAssessGiven_(d, x) {
+  var ex = annSettings_(d.groupId).excluded, by = {}, low = function (e) { return String(e || '').trim().toLowerCase(); };
+  function add(id, all, emails) {
+    if (!id || ex[d.storage + '|' + id]) return;
+    var o = by[id] || (by[id] = { id: id, all: false, emails: {} });
+    if (all) o.all = true; (emails || []).forEach(function (e) { if (low(e)) o.emails[low(e)] = 1; });
+  }
+  if (typeof assessStore_ === 'function') {
+    try {
+      var st = assessStore_(d.storage), groups = {};
+      st.list('group').forEach(function (g) { groups[g.id] = g; });
+      st.list('assignment').forEach(function (a) {
+        if (a.status !== 'active') return;
+        var g = a.targetType === 'group' ? groups[a.groupId] : null;
+        add(String(a.assessmentId || ''), a.targetType === 'all', a.targetType === 'students' ? a.emails : g && !g.deleted ? (g.members || []).map(function (m) { return m.email; }) : []);
+      });
+    } catch (e) { }
+  }
+  x.assess.forEach(function (q) { if (!by[q.ref]) add(q.ref, true); });   // submitted, with no active assignment (e.g. ended): everyone's
+  return Object.keys(by).map(function (k) { return by[k]; });
+}
+/** A student's assessments: submitted attempts, average %, and done of given (an assessment the teacher excused for
+ *  this student is left out of their "given"). */
+function rpAssessDone_(r, d, given, ann) {
+  var exc = (ann.excused || {})[r.studentId] || {};
+  var mine = given.filter(function (g) { return !exc[d.storage + '|' + g.id] && (g.all || (r.aref && r.aref[g.id]) || (r.emails || []).some(function (e) { return g.emails[e]; })); });
+  var done = mine.filter(function (g) { return r.aref && r.aref[g.id]; }).length;
+  return { submitted: r.assess.length, avg: rpAvg_(r.assess), done: done, given: mine.length, donePct: mine.length ? Math.round(done / mine.length * 100) : null };
+}
 function rpDeliveryList_(ids) {
   var gr = {}; dirAll_(DIR.GROUP).forEach(function (g) { gr[g.groupId] = g; });
   var ins = {}; dirAll_(DIR.INST).forEach(function (i) { ins[i.institutionId] = i; });
@@ -1904,7 +1938,8 @@ function reportDelivery_(p) {
   var rows = members.map(function (m) {
     var a = acc[m.studentId], row = { studentId: m.studentId, name: m.name, active: !!m.active, lastLogin: a ? rpNum_(a.lastLogin) : 0, hasAccount: !!a, quiz: [], assess: [], exams: [], att: {} };
     idx['id:' + m.studentId] = row;
-    [m.email, a && a.email, String(m.studentId).replace(/[^a-z0-9._-]/g, '') + '@student.local'].forEach(function (e) { e = String(e || '').trim().toLowerCase(); if (e && !idx['em:' + e]) idx['em:' + e] = row; });
+    row.emails = [];
+    [m.email, a && a.email, String(m.studentId).replace(/[^a-z0-9._-]/g, '') + '@student.local'].forEach(function (e) { e = String(e || '').trim().toLowerCase(); if (e) row.emails.push(e); if (e && !idx['em:' + e]) idx['em:' + e] = row; });
     var nk = String(m.name || '').trim().toLowerCase(); if (nk && nameCount[nk] === 1) idx['nm:' + nk] = row;
     return row;
   });
@@ -1914,7 +1949,8 @@ function reportDelivery_(p) {
   }
   function other(it, kind) { var k = it.id || it.email || it.name.trim().toLowerCase() || '?'; var o = others[k] || (others[k] = { label: it.name || it.id || it.email || '?', quiz: 0, assess: 0, exams: 0, attendance: 0 }); o[kind]++; }
   x.quiz.forEach(function (q) { var r = who(q); if (r) r.quiz.push(q.percent); else other(q, 'quiz'); });
-  x.assess.forEach(function (q) { var r = who(q); if (r) r.assess.push(q.percent); else other(q, 'assess'); });
+  x.assess.forEach(function (q) { var r = who(q); if (r) { r.assess.push(q.percent); (r.aref = r.aref || {})[q.ref] = 1; } else other(q, 'assess'); });
+  var given = rpAssessGiven_(d, x), annD = annSettings_(d.groupId);
   x.exams.forEach(function (q) { var r = who(q); if (r) r.exams.push(q.percent); else other(q, 'exams'); });
   x.records.forEach(function (q) { var r = who(q); if (r) { if (!r.att[q.sessionId]) r.att[q.sessionId] = q; } else other(q, 'attendance'); });
   var sessions = x.sessions.slice().sort(function (a, b) { return a.at - b.at; });
@@ -1939,14 +1975,14 @@ function reportDelivery_(p) {
   }
   return { ok: true, serverTime: Date.now(), delivery: d,
     sessions: sessions.map(function (s) { return { sessionId: s.sessionId, title: s.title, at: s.at, status: s.status, present: present[s.sessionId] || 0, teaching: !!tsBy[s.sessionId] }; }),
-    assessments: byRef(x.assess), exams: byRef(x.exams),
+    assessments: byRef(x.assess), exams: byRef(x.exams), assessGiven: given.map(function (g) { return { id: g.id, all: g.all }; }),
     students: rows.map(function (r) {
       var att = Object.keys(r.att), st = {}, c = { present: 0, late: 0, excused: 0, absent: 0, waiting: 0 };
       sessions.forEach(function (s) { var v = statusOf(r, s); st[s.sessionId] = v; c[v]++; });
       var counted = c.present + c.late + c.absent;
       return { studentId: r.studentId, name: r.name, active: r.active, hasAccount: r.hasAccount, lastLogin: r.lastLogin,
         quiz: { attempts: r.quiz.length, best: r.quiz.length ? Math.max.apply(null, r.quiz) : null, avg: rpAvg_(r.quiz) },
-        assess: { submitted: r.assess.length, avg: rpAvg_(r.assess) }, exams: { submitted: r.exams.length, avg: rpAvg_(r.exams) },
+        assess: rpAssessDone_(r, d, given, annD), exams: { submitted: r.exams.length, avg: rpAvg_(r.exams) },
         attended: att.length, attendedPct: counted ? Math.round((c.present + c.late) / counted * 100) : null, sessions: att,
         status: st, late: c.late, excused: c.excused, absent: c.absent };
     }),

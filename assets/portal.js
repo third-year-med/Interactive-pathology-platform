@@ -520,6 +520,7 @@
     modules: ['📚', 'Teaching Modules', 'Open a module in teacher mode or its Teacher Portal; lock the Learning module during an assessment.'],
     sessions: ['🎓', 'Teaching Sessions', 'Schedule or start lectures, live attendance, Live Classroom, history.'],
     overall: ['📊', 'Overall Pathology Attendance', 'All modules together: attendance and absence % per student, module breakdown, below-75% warnings, Excel and print; results of every module.'],
+    modreport: ['📋', 'Module Report', 'For a finished module: each student’s attendance % and assessments done % — one line per student, Excel and print.'],
     results: ['📈', 'Pathology Overall Results & Analytics', 'Assessment results of every module together: overall % per student (equal or weighted), module-by-module marks, completion, CSV.'],
     annual: ['🏅', 'Annual Assessment (30)', 'Topic quizzes /20 + two presentations /10 for every student of the year: one class table, presentation marking, Excel and print.'],
     exams: ['📝', 'Official Exams', 'Module and combined exams, exam banks, student exam pages, results.'],
@@ -598,6 +599,62 @@
     }, 0);
     return true;
   }
+  /** 📋 Module Report (2.36, user 2026-10-29): for one group + module, each CURRENT student of the group (removed = inactive
+   *  students are left out) with only the attendance % and the assessments done % (done of given). Admin: every group;
+   *  a personal teacher: their own groups (reportOverview / reportDelivery apply the same rule). Loaded when opened. */
+  function modReportSection(call) {
+    var sec = h('<section class="t-sec" id="t-modrep"><p class="small muted">Choose the group and module. Students removed from the group are not listed. Attendance % counts present and late (excused sessions are left out); assessments done % = assessments the student submitted of those given to them.</p><div class="mr-pick"><p class="muted small">Loading…</p></div><div class="mr-out"></div></section>');
+    var pick = $('.mr-pick', sec), out = $('.mr-out', sec), loaded = false, KEY = 'pp_modrep';
+    var pc = function (v) { return v == null ? '—' : v + '%'; };
+    function load() {
+      if (loaded) return; loaded = true;
+      call('reportOverview').then(function (r) {
+        if (!r.ok) { loaded = false; pick.innerHTML = '<p class="err">' + esc(r.code === 'badaction' ? 'Update Portal.gs on the backend.' : r.error) + '</p>'; return; }
+        if (!r.deliveries.length) { pick.innerHTML = '<p class="muted">No group and module yet.</p>'; return; }
+        var list = r.deliveries.slice().sort(function (a, b) { return (b.active ? 1 : 0) - (a.active ? 1 : 0); });
+        var sel = h('<label class="field">Group and module <select data-a="mr-sel"></select></label>'), sb = $('select', sel), cur = '';
+        try { cur = sessionStorage.getItem(KEY) || ''; } catch (e) { }
+        list.forEach(function (d) { var o = document.createElement('option'); o.value = d.deliveryId; o.textContent = d.institution + ' · ' + d.groupName + ' — ' + d.title + (d.active ? '' : ' (inactive)'); sb.appendChild(o); });
+        if (list.some(function (d) { return d.deliveryId === cur; })) sb.value = cur;
+        sb.onchange = function () { try { sessionStorage.setItem(KEY, sb.value); } catch (e) { } show(list.filter(function (d) { return d.deliveryId === sb.value; })[0]); };
+        pick.innerHTML = ''; pick.appendChild(sel); sb.onchange();
+      });
+    }
+    function show(d) {
+      out.innerHTML = '<p class="muted small">Loading…</p>';
+      call('reportDelivery', { deliveryId: d.deliveryId }).then(function (x) {
+        if (!x.ok) { out.innerHTML = '<p class="err">' + esc(x.error) + '</p>'; return; }
+        var st = x.students.filter(function (s) { return s.active; }).sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
+        var given = (x.assessGiven || []).length, title = d.institution + ' · ' + d.groupName + ' — ' + d.title;
+        var w = h('<div class="note roster-res mr-res"><b>' + esc(title) + '</b><div class="small muted">' + st.length + ' student(s) · ' + x.sessions.length + ' attendance session(s) · ' + given + ' assessment(s) given</div>' +
+          '<div class="roster-tools"><button class="btn" type="button" data-a="mr-csv">⬇ Download (Excel)</button><button class="btn" type="button" data-a="mr-print">🖨 Print</button></div>' +
+          '<div class="tbl-wrap"><table class="dir-tbl mr-tbl"><thead><tr><th>#</th><th>Student name</th><th class="n">Attendance %</th><th class="n">Assessments done %</th></tr></thead><tbody>' +
+          st.map(function (s, i) {
+            var a = s.assess || {};
+            return '<tr data-student="' + esc(s.studentId) + '"><td>' + (i + 1) + '</td><td>' + esc(s.name) + '</td>' +
+              '<td class="n' + (s.attendedPct != null && s.attendedPct < 75 ? ' warn-t' : '') + '"><b>' + pc(s.attendedPct) + '</b></td>' +
+              '<td class="n"><b>' + pc(a.donePct) + '</b>' + (a.given ? ' <span class="small muted">(' + a.done + ' of ' + a.given + ')</span>' : '') + '</td></tr>';
+          }).join('') + '</tbody></table></div>' + (st.length ? '' : '<p class="muted small">No current students in this group.</p>') + '</div>');
+        $('[data-a=mr-csv]', w).onclick = function () {
+          var q = function (v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+          var rows = [['Student name', 'Attendance %', 'Assessments done %']].concat(st.map(function (s) { return [s.name, s.attendedPct, (s.assess || {}).donePct]; }));
+          var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['\ufeff' + rows.map(function (r) { return r.map(q).join(','); }).join('\r\n')], { type: 'text/csv;charset=utf-8' }));
+          a.download = 'module-report-' + d.storage + '.csv';
+          document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+        };
+        $('[data-a=mr-print]', w).onclick = function () {
+          var pw = window.open('', '_blank'); if (!pw) return toast('Allow pop-ups to print.');
+          pw.document.write('<!doctype html><meta charset="utf-8"><title>' + esc(title) + '</title><style>body{font:14px system-ui,sans-serif;margin:24px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #999;padding:5px 8px;text-align:left}td.n,th.n{text-align:center}</style>' +
+            '<h2>' + esc(title) + '</h2><p>Attendance % and assessments done % · ' + new Date().toISOString().slice(0, 10) + '</p><table><thead><tr><th>#</th><th>Student name</th><th class="n">Attendance %</th><th class="n">Assessments done %</th></tr></thead><tbody>' +
+            st.map(function (s, i) { return '<tr><td>' + (i + 1) + '</td><td>' + esc(s.name) + '</td><td class="n">' + pc(s.attendedPct) + '</td><td class="n">' + pc((s.assess || {}).donePct) + '</td></tr>'; }).join('') + '</tbody></table>');
+          pw.document.close(); pw.focus(); pw.print();
+        };
+        out.innerHTML = ''; out.appendChild(w);
+      });
+    }
+    sec.load = load;
+    return sec;
+  }
   /** "Results & attendance" of every module (the existing report), opened on request inside Student Attendance. */
   function reportBlock(call) {
     var w = h('<div class="ts-block rep-block"><h3>📊 Results &amp; attendance — all modules</h3><p class="small muted">Results and attendance registers per group and module.</p>' +
@@ -647,6 +704,7 @@
     var ov = overallSection(call, overallSummary);
     ov.appendChild(reportBlock(call));
     var rs = resultsSection(call, resultsSummary);
+    var mr = modReportSection(call);
     var an = annualSection(call, annualSummary);
     var mg = h('<section class="t-sec" id="t-manage"><div class="sec-head"><h2>Teacher Management</h2><span class="small muted">Front-page modules, statuses and links</span></div><div class="t-box"><p class="muted">Loading…</p></div></section>');
     var box = $('.t-box', mg);
@@ -655,7 +713,8 @@
       dashSum('directory', n('institutions', 'institution').replace('institutionss', 'institutions') + ' · ' + n('groups', 'group') + ' · ' + n('deliveries', 'delivery').replace('deliverys', 'deliveries'));
     });
     main.appendChild(dashShell({ intro: 'Signed in as the platform administrator. Choose an area to open it.',
-      views: [['modules', tmW], ['sessions', ss], ['overall', ov], ['results', rs], ['annual', an], ['exams', ex], ['manage', mg], ['directory', dir]] }));
+      views: [['modules', tmW], ['sessions', ss], ['overall', ov], ['modreport', mr], ['results', rs], ['annual', an], ['exams', ex], ['manage', mg], ['directory', dir]] }));
+    DASH.onOpen.modreport = mr.load;
     DASH.onOpen.directory = function () { var d = $('details.dir', dir); if (d && !d.open) d.open = true; };   // loads the directory the first time
     moduleSummary();
     dashShow();
@@ -729,9 +788,11 @@
     var sessW = h('<div class="dv-wrap"><p class="muted small">Loading…</p></div>'), exW = h('<div class="dv-wrap"><p class="muted small">Loading…</p></div>'), ovW = h('<div class="dv-wrap"><p class="muted small">Loading…</p></div>');
     var resW = h('<div class="dv-wrap"><p class="muted small">Loading…</p></div>');
     var annW = h('<div class="dv-wrap"><p class="muted small">Loading…</p></div>');
+    var mrW = modReportSection(call);
     var boxW = h('<div class="dv-wrap"></div>'); boxW.appendChild(learnLockSection(call)); boxW.appendChild(box);   // 2.18: the lock first
     main.appendChild(dashShell({ intro: 'Signed in as <b>' + esc(u.name || u.username) + '</b> (' + esc(u.username) + '). Your groups and modules — choose an area to open it.', tools: bar,
-      views: [['modules', boxW], ['sessions', sessW], ['overall', ovW], ['results', resW], ['annual', annW], ['exams', exW]] }));
+      views: [['modules', boxW], ['sessions', sessW], ['overall', ovW], ['modreport', mrW], ['results', resW], ['annual', annW], ['exams', exW]] }));
+    DASH.onOpen.modreport = mrW.load;
     dashShow();
     post(CFG.backendUrl, { module: 'portal', action: 'teacherMe', ttoken: t.ttoken }).then(function (r) {
       if (!r.ok) { if (r.code === 'auth') { sdel(TKEY); toast('Your teacher session has ended — please sign in again.'); return route(); } box.innerHTML = '<p class="err">' + esc(r.error) + '</p>'; return; }
@@ -2122,10 +2183,10 @@
           var S = x.sessions;
           var w = h('<div class="note roster-res"><b>' + esc(d.institution + ' · ' + d.groupName + ' — ' + d.title) + '</b>' +
             '<div class="roster-tools"><button class="btn" type="button" data-a="csv">⬇ Download (CSV)</button><button class="btn" type="button" data-a="close">Close</button></div>' +
-            '<div class="tbl-wrap"><table class="dir-tbl rep-stu"><thead><tr><th>Student ID</th><th>Name</th><th>Last sign-in</th><th>Practice quizzes<div class="small muted">attempts · best · average</div></th><th>Assessments<div class="small muted">submitted · average</div></th><th>Exams<div class="small muted">submitted · average</div></th><th>Attendance<div class="small muted">of ' + S.length + ' session(s)</div></th></tr></thead><tbody>' +
+            '<div class="tbl-wrap"><table class="dir-tbl rep-stu"><thead><tr><th>Student ID</th><th>Name</th><th>Last sign-in</th><th>Practice quizzes<div class="small muted">attempts · best · average</div></th><th>Assessments done<div class="small muted">done of given (%)</div></th><th>Assessments<div class="small muted">submitted · average</div></th><th>Exams<div class="small muted">submitted · average</div></th><th>Attendance<div class="small muted">of ' + S.length + ' session(s)</div></th></tr></thead><tbody>' +
             x.students.map(function (s) {
               return '<tr' + (s.active ? '' : ' class="off"') + ' data-student="' + esc(s.studentId) + '"><td><code>' + esc(s.studentId) + '</code></td><td>' + esc(s.name) + (s.active ? '' : ' <span class="small muted">(inactive)</span>') + '</td><td>' + (s.lastLogin ? day(s.lastLogin) : '<span class="small muted">' + (s.hasAccount ? 'never' : 'no account') + '</span>') + '</td>' +
-                '<td>' + (s.quiz.attempts ? s.quiz.attempts + ' · ' + pct(s.quiz.best) + ' · ' + pct(s.quiz.avg) : '—') + '</td><td>' + (s.assess.submitted ? s.assess.submitted + ' · ' + pct(s.assess.avg) : '—') + '</td><td>' + (s.exams.submitted ? s.exams.submitted + ' · ' + pct(s.exams.avg) : '—') + '</td>' +
+                '<td>' + (s.quiz.attempts ? s.quiz.attempts + ' · ' + pct(s.quiz.best) + ' · ' + pct(s.quiz.avg) : '—') + '</td><td>' + (s.assess.given ? '<b>' + s.assess.done + ' of ' + s.assess.given + '</b> (' + s.assess.donePct + '%)' : '—') + '</td><td>' + (s.assess.submitted ? s.assess.submitted + ' · ' + pct(s.assess.avg) : '—') + '</td><td>' + (s.exams.submitted ? s.exams.submitted + ' · ' + pct(s.exams.avg) : '—') + '</td>' +
                 '<td>' + (S.length ? s.attended + (s.attendedPct == null ? '' : ' (' + s.attendedPct + '%)') + (s.late || s.excused ? '<div class="small muted">' + [s.late ? s.late + ' late' : '', s.excused ? s.excused + ' excused' : ''].filter(Boolean).join(' · ') + '</div>' : '') : '—') + '</td></tr>';
             }).join('') + '</tbody></table></div>' +
             (S.length ? '<details class="rep-reg"><summary class="small">Attendance register (' + S.length + ' session(s)) — ✓ present · 🕒 late · 📝 excused · <span class="muted">·</span> absent</summary><div class="tbl-wrap"><table class="dir-tbl"><thead><tr><th>Student</th>' + S.map(function (z) { return '<th title="' + esc(z.title) + '">' + esc(day(z.at)) + '<div class="small muted">' + esc(z.title) + '</div></th>'; }).join('') + '</tr></thead><tbody>' +
@@ -2136,10 +2197,10 @@
           $('[data-a=close]', w).onclick = function () { out.innerHTML = ''; };
           $('[data-a=csv]', w).onclick = function () {
             var q = function (v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
-            var head = ['Student ID', 'Name', 'Active', 'Last sign-in', 'Quiz attempts', 'Quiz best %', 'Quiz average %', 'Assessments submitted', 'Assessment average %', 'Exams submitted', 'Exam average %', 'Sessions attended', 'Attendance %', 'Late', 'Excused']
+            var head = ['Student ID', 'Name', 'Active', 'Last sign-in', 'Quiz attempts', 'Quiz best %', 'Quiz average %', 'Assessments given', 'Assessments done', 'Assessments done %', 'Assessments submitted', 'Assessment average %', 'Exams submitted', 'Exam average %', 'Sessions attended', 'Attendance %', 'Late', 'Excused']
               .concat(S.map(function (z) { return day(z.at) + ' ' + z.title; }));
             var lines = x.students.map(function (s) {
-              return [s.studentId, s.name, s.active ? 'yes' : 'no', s.lastLogin ? day(s.lastLogin) : '', s.quiz.attempts, s.quiz.best, s.quiz.avg, s.assess.submitted, s.assess.avg, s.exams.submitted, s.exams.avg, s.attended, s.attendedPct, s.late || 0, s.excused || 0]
+              return [s.studentId, s.name, s.active ? 'yes' : 'no', s.lastLogin ? day(s.lastLogin) : '', s.quiz.attempts, s.quiz.best, s.quiz.avg, s.assess.given == null ? '' : s.assess.given, s.assess.done == null ? '' : s.assess.done, s.assess.donePct == null ? '' : s.assess.donePct, s.assess.submitted, s.assess.avg, s.exams.submitted, s.exams.avg, s.attended, s.attendedPct, s.late || 0, s.excused || 0]
                 .concat(S.map(function (z) { var v = (s.status || {})[z.sessionId] || (s.sessions.indexOf(z.sessionId) >= 0 ? 'present' : 'absent'); return v === 'waiting' ? '' : v; })).map(q).join(',');
             });
             var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['\ufeff' + head.map(q).join(',') + '\r\n' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }));
