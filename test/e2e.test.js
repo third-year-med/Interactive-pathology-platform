@@ -5432,6 +5432,27 @@ test('📄 Practical handout options: answers ticked in Settings → Apply to al
     await p.click('[data-a=prac-file-go]');
     await p.waitForFunction(function () { return /✓ 1 practical added/.test(document.querySelector('.prac-file').textContent); });
     assert.strictEqual(await p.evaluate(function () { return PracData.list().find(function (d) { return d.title === 'Handout test C'; }).settings.includeAnswers; }), true);
+    // prac-apply-fix (the user's case): the DRAFT already has answers on but the students' copy does not → Apply re-publishes it
+    await p.evaluate(async function () {
+      const d = PracData.list().find(function (x) { return x.title === 'Handout test A'; });
+      d.settings = Object.assign({}, d.settings, { includeAnswers: false }); await PracData.publish(d);          // students' copy: answers off
+      d.settings = Object.assign({}, d.settings, { includeAnswers: true }); await PracData.save(d, { keepStatus: true });   // draft: answers on
+    });
+    assert.deepStrictEqual((await handout()).inc, [false, true], 'set-up: the students\u2019 copy of A has no answers');
+    await p.evaluate(function () { location.hash = '#/practical/settings'; });
+    await p.waitForSelector('[data-a=prac-apply-all]');
+    await p.click('[data-a=prac-apply-all]'); await p.waitForSelector('.modal'); await p.click('.modal-foot .btn-primary');
+    await p.waitForFunction(function () { return /✓ \d+ practicals? updated/.test(document.querySelector('[data-a=prac-apply-msg]').textContent); }, null, { timeout: 20000 });
+    assert.match(await p.textContent('[data-a=prac-apply-msg]'), /✓ 1 practical updated, 1 re-published for students\./);
+    assert.deepStrictEqual(await handout(), { inc: [true, true], stored: ['ANSWER-a', 'ANSWER-b'], a: true, b: true, viva: true }, 'the stale students\u2019 copy is re-published with the answers');
+    // nothing left to do → a clear message
+    await p.click('[data-a=prac-apply-all]'); await p.waitForSelector('.modal'); await p.click('.modal-foot .btn-primary');
+    await p.waitForFunction(function () { return /already have these options/.test(document.querySelector('[data-a=prac-apply-msg]').textContent); }, null, { timeout: 20000 });
+    // a copy of the module without practical drafts (e.g. a group page) → says where to go, changes nothing
+    await p.evaluate(function () { PracData.drafts = []; });
+    await p.click('[data-a=prac-apply-all]');
+    await p.waitForFunction(function () { return /no practical drafts — the practicals your students see were made in ✏️ Edit master draft/.test(document.querySelector('[data-a=prac-apply-msg]').textContent); });
+    assert.strictEqual(await p.$('.modal'), null, 'no confirmation when there is nothing to change');
     await p.context().close();
     assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
   } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }

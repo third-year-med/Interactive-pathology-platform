@@ -585,6 +585,12 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   card; picture picker offers ONLY the Practical topic's pictures (real course: 66 = 52 teacher + 14 atlas); teacher pictures
   without an import key are stored as `key: "media:<id>"`. It WRAPS Spotter methods instead of editing the spotter patch's
   text (keeps both idempotent). The teacher card's open/closed state is kept across repaints (saving repaints).
+- **Answers still missing for students after "Apply to all" (2026-10-29):** the user pressed it on the GROUP page
+  (`?g=razi-a-26`) → "0 practicals updated". Practical DRAFTS (`priv:pracdrafts`, not versioned) live in the storage where
+  they were made — here ✏️ Edit master draft; a group copy has none. Patch `prac-apply-fix` (49): no drafts → the button says
+  to use ✏️ Edit master draft then ⬆ Publish draft; and it now compares with the PUBLISHED copy (a draft already on but a
+  stale students' copy was skipped), re-publishing when only the options differ (`pracSameContent`), listing others.
+  prac-defaults-apply got done-markers. **Lesson:** practical work (import, settings, publishing) belongs in Edit master draft.
 
 - **Two chats edited `modules/patches/apply.sh` at the same time (2026-10-17):** the picture chat added `picture-import`
   while this chat added `slide-bold`; the slide-bold entry was lost from ORDER (the checker cannot notice a patch missing

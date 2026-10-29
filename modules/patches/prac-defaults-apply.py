@@ -48,9 +48,10 @@ async function pracApplyDefaultsAll(defaults, progress) {
 }
 const PracSettingsUI = {"""),
 ]
+DONE = ["PracData.cfg().defaults) || {}, m.settings || {})", "'Handout options for new practicals'", "'data-a': 'prac-apply-all'", "async function pracApplyDefaultsAll("]   # patch prac-apply-fix edits these later
 for path in sys.argv[1:]:
     s = open(path, encoding='utf-8').read(); n = 0
-    for a, b in R:
-        if b in s: continue
+    for (a, b), done in zip(R, DONE):
+        if b in s or done in s: continue
         assert s.count(a) == 1, (path, a[:70]); s = s.replace(a, b); n += 1
     open(path, 'w', encoding='utf-8').write(s); print(path, 'changes:', n)
