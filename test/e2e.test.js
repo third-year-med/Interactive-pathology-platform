@@ -5663,3 +5663,61 @@ test('🧹 Practical page: no Back-to-Module bar, no tab row, no guide buttons f
     assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
   } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
 });
+
+/* ⬆ Publish draft from the module (platform-nav, 2026-10-29): in an ✏️ Edit master draft session the banner has a
+   "⬆ Publish draft" button — the same publish as Platform Home → Content, with the Admin sign-in of Platform Home. */
+test('⬆ Publish draft from the module banner: publishes the master draft for every group; without the Admin sign-in it explains what to do', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+  groupFixture();
+  const mod = syntheticModule(CI_PAGE, { images: [] });
+  const keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const A = function (action, o) { return main.call(Object.assign({ module: 'portal', action: action, token: t }, o || {})); };
+  const tok = A('portalTeacherOpen', { modules: ['cellinjury', { module: 'cellinjury', group: 'tm-a' }] }).modules;
+  main.call({ module: 'cellinjury', action: 'upsert', token: tok.cellinjury.token, collection: 'customtopics', id: 'pub-banner', data: { title: 'Old title', units: [] } });
+  const mig = A('contentMigrate', { moduleId: 'cellinjury', decisions: {} }); assert.ok(mig.ok || /already/i.test(mig.error || ''), JSON.stringify(mig));
+  assert.ok(A('contentSetMode', { moduleId: 'cellinjury', mode: 'on' }).ok);
+  const groupView = function () { const r = main.call({ module: 'cellinjury-tm-a', action: 'getAllContent', token: tok['cellinjury-tm-a'].token, since: 0 }); const it = r.items.filter(function (i) { return i.id === 'pub-banner'; })[0]; return it && !it.deleted ? it.data.title : null; };
+  const start = errors.length;
+  try {
+    const dr = A('contentEditDraft', { moduleId: 'cellinjury' }); assert.ok(dr.ok, JSON.stringify(dr));
+    const title = 'Banner title ' + Date.now();
+    assert.ok(main.call({ module: 'cellinjury', action: 'upsert', token: dr.token, collection: 'customtopics', id: 'pub-banner', data: { title: title, units: [] } }).ok);
+    assert.notStrictEqual(groupView(), title, 'groups do not see the draft yet');
+    const open = async function (admin) {
+      const p = await page();
+      await p.route('https://third-year-med.github.io/cell-injury-teaching-platform/**', function (route) { return route.fulfill({ status: 200, contentType: 'text/html', body: mod.html }); });
+      await p.addInitScript(function (a) { localStorage.setItem('ci_backend_token_v1', a.v); sessionStorage.setItem('pf_draft:cellinjury', '1'); if (a.t) sessionStorage.setItem('pp_teacher_v1', JSON.stringify({ token: a.t })); }, { v: JSON.stringify({ token: dr.token, expiresAt: dr.expiresAt }), t: admin ? t : '' });
+      await p.goto('https://third-year-med.github.io/cell-injury-teaching-platform/#/learn');
+      await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+      await p.waitForSelector('#pf-draft + #pf-pubwrap #pf-pub');
+      return p;
+    };
+    // no Admin sign-in in this tab → a clear message, nothing published
+    const p0 = await open(false);
+    await p0.evaluate(function () { window.alert = function (m) { window.__said = m; }; });
+    await p0.click('#pf-pub'); await p0.waitForFunction(function () { return window.__said; });
+    assert.match(await p0.evaluate(function () { return window.__said; }), /Admin sign-in of Platform Home/);
+    await p0.context().close();
+    // with the Admin sign-in → the publish dialog lists the changes; the version goes to every group
+    const p = await open(true);
+    await p.evaluate(function () { window.prompt = function (m) { window.__asked = m; return 'Published from the module'; }; });
+    assert.match(await p.textContent('#pf-draft'), /MASTER DRAFT[\s\S]*until you publish it\.$/);
+    await p.click('#pf-pub');
+    await p.waitForFunction(function () { return /Version \S+ published/.test(document.querySelector('.pf-pubmsg').textContent); }, null, { timeout: 15000 });
+    if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'module-publish-banner.png'), clip: { x: 0, y: 0, width: 1280, height: 120 } });
+    assert.match(await p.evaluate(function () { return window.__asked; }), /EVERY group[\s\S]*Changes: \d+ added, \d+ changed, \d+ removed/);
+    assert.strictEqual(groupView(), title, 'after publishing every group receives it');
+    const hist = A('contentStatus').modules.filter(function (m) { return m.moduleId === 'cellinjury'; })[0];
+    assert.ok((hist.versionList || []).some(function (v) { return v.notes === 'Published from the module'; }), 'the notes are in the version history');
+    await p.click('#pf-pub');   // nothing left to publish
+    await p.waitForFunction(function () { return /Nothing to publish/.test(document.querySelector('.pf-pubmsg').textContent); });
+    await p.context().close();
+    assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
+  } finally {
+    A('contentDiscardDraft', { moduleId: 'cellinjury' });
+    A('contentSetMode', { moduleId: 'cellinjury', mode: 'off' });
+    if (mig.ok) A('contentUndoMigration', { moduleId: 'cellinjury' });
+    main.ctx.CONTENT_KEYS.cellinjury = keep;
+  }
+});

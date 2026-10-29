@@ -611,6 +611,12 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   longer see, on the Practical pages, the “‹ Back to Module” bar, the Practicals · Image atlas · OSPE exam tab row, or the
   buttons under “🧭 How to use the practical” — the Practical sub-menu already has those places. The bar still shows on the
   Review pages; teachers keep the tab row (Handbook, Settings, drafts); the guide in Learn keeps “🔬 Open the Practicals”.
+- **⬆ Publish draft inside the module (2026-10-29, user):** in an ✏️ Edit master draft session the yellow banner
+  (platform-nav block) has a green **⬆ Publish draft** button — the same `contentPublish` as Platform Home → Content, so no
+  trip back to the directory. It sends the module's unsaved edits first (`Backend.flushPending`), reads `contentDraft`
+  (added / changed / removed, groups whose local copies hide the update), asks for the optional notes, publishes, and shows
+  the new version number beside the button. It uses the Admin sign-in of Platform Home (`pp_teacher_v1`, same site and same
+  browser tab); without it, it explains how to open the draft from Platform Home. Not shown in a new-build PREVIEW.
 
 - **Two chats edited `modules/patches/apply.sh` at the same time (2026-10-17):** the picture chat added `picture-import`
   while this chat added `slide-bold`; the slide-bold entry was lost from ORDER (the checker cannot notice a patch missing

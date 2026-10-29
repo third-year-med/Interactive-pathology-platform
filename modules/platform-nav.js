@@ -14,6 +14,7 @@
                          master-draft session receives its key; students cannot open it
      In a master-draft session the page reports the IDs of its packaged course (topics, sections,
      questions, cases, images — with short fingerprints, no content) for the compatibility check.
+     In a master-draft session the banner has "⬆ Publish draft" (the Admin sign-in of Platform Home, same tab).
    Teaching Sessions (Portal.gs 2.10): while the platform setting "Live Classroom and Attendance in the modules" is
    HIDDEN (the default; Teacher Dashboard → 🎓 Teaching Sessions → ⚙ Change), this block hides the module's own Live
    Classroom and Attendance buttons and the Teacher Portal's Attendance tab, sends their addresses to a short notice
@@ -32,12 +33,14 @@
   if (!/^https:\/\/[^\s"'<>]+$/.test(HOME)) return;
   window.PLATFORM_HOME = HOME;
   var GROUP = (function () { try { var m = /[?&]g=([A-Za-z0-9_-]{1,24})/.exec(location.search); return m ? m[1] : ''; } catch (e) { return ''; } })();   // the module's own ?g= rule
-  var CSS = '.pf-bar{display:flex;align-items:center;padding:.32rem 1.2rem;background:rgba(0,0,0,.2);border-bottom:1px solid rgba(255,255,255,.12)}' +
-    '.pf-home{display:inline-flex;align-items:center;gap:.4rem;font:700 .84rem/1.2 inherit;font-family:inherit;text-decoration:none;color:#fff;padding:.28rem .8rem;border-radius:999px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.28);transition:background .15s,color .15s}' +
+  var CSS = '.pf-bar{display:flex;flex-wrap:wrap;row-gap:6px;align-items:center;padding:.32rem 1.2rem;background:rgba(0,0,0,.2);border-bottom:1px solid rgba(255,255,255,.12)}' +
+    '.pf-home{display:inline-flex;white-space:nowrap;align-items:center;gap:.4rem;font:700 .84rem/1.2 inherit;font-family:inherit;text-decoration:none;color:#fff;padding:.28rem .8rem;border-radius:999px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.28);transition:background .15s,color .15s}' +
     '.pf-home:hover{background:#ffd166;color:#0b2a4a;border-color:#ffd166}.pf-home:focus-visible{outline:3px solid #ffd166;outline-offset:2px}' +
     '.pf-home.pf-boot{color:#0b2a4a;background:#eef4f8;border-color:#cbd5e1;margin:0 0 14px}.pf-home.pf-boot:hover{background:#ffd166}' +
     '.pf-prev{margin:0 0 12px;padding:.5rem .75rem;border-radius:8px;background:#fff3cd;color:#5c4400;font-size:.88rem}' +
     '.pf-draft{margin-left:12px;padding:.25rem .7rem;border-radius:8px;background:#ffd166;color:#0b2a4a;font:700 .8rem/1.3 inherit;font-family:inherit}' +
+    '.pf-pub{margin-left:10px;padding:.28rem .85rem;border-radius:999px;border:1px solid #2fbf71;background:#2fbf71;color:#fff;font:700 .82rem/1.2 inherit;font-family:inherit;cursor:pointer;white-space:nowrap}' +
+    '.pf-pub:hover{background:#ffd166;color:#0b2a4a;border-color:#ffd166}.pf-pub:disabled{opacity:.6;cursor:wait}.pf-pubmsg{margin-left:10px;color:#fff;font:600 .8rem/1.3 inherit;font-family:inherit}' +
     '@media print{.pf-bar,.pf-home{display:none!important}}';
   /** Where "back" goes for the signed-in role (set by the sign-in gate only after the server confirmed the session). */
   function dest() {
@@ -60,8 +63,56 @@
     var bar = document.getElementById('pf-bar'); if (!bar || !on || document.getElementById('pf-draft')) return;
     var d = document.createElement('span'); d.id = 'pf-draft'; d.className = 'pf-draft';
     d.textContent = PREVIEW ? '\uD83D\uDD0D PREVIEW of the new build' + (BUILD ? ' (' + BUILD + ')' : '') + ' with the master draft \u2014 students cannot open this page; it goes live from Platform Home \u2192 Content \u2192 New build.'
-      : '\u270F\uFE0F Editing the MASTER DRAFT \u2014 students see the published version until you publish it (Platform Home \u2192 Content).';
+      : '\u270F\uFE0F Editing the MASTER DRAFT \u2014 students see the published version until you publish it.';
     bar.appendChild(d);
+    if (!PREVIEW) bar.appendChild(publishButton(B.module || ''));
+  }
+  /* ---- ⬆ Publish draft from the module itself (2026-10-29): the same publish as Platform Home → Content → ⬆ Publish draft.
+     Uses the Admin sign-in of Platform Home (pp_teacher_v1 — same site, same browser tab); the module's unsaved edits are
+     sent first. ---- */
+  function adminToken() {
+    var t = null;
+    [window.sessionStorage, window.localStorage].some(function (s) { try { t = JSON.parse(s.getItem('pp_teacher_v1') || 'null'); } catch (e) { t = null; } return t; });
+    return t && t.token && t.role !== 'teacher' && (!t.exp || t.exp > Date.now()) ? t.token : '';
+  }
+  function portalCall(action, o) {
+    var url = String(NC.backendUrl || '');
+    return fetch(url, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(Object.assign({ module: 'portal', action: action, token: adminToken() }, o || {})) })
+      .then(function (r) { return r.json(); }).catch(function () { return { ok: false, error: 'The class server could not be reached — try again.' }; });
+  }
+  function publishButton(moduleId) {
+    var wrap = document.createElement('span'); wrap.id = 'pf-pubwrap';
+    var b = document.createElement('button'); b.type = 'button'; b.id = 'pf-pub'; b.className = 'pf-pub';
+    b.textContent = '\u2B06 Publish draft'; b.title = 'Publish the master draft as a new version for every group';
+    var msg = document.createElement('span'); msg.className = 'pf-pubmsg'; msg.setAttribute('role', 'status');
+    function say(t) { msg.textContent = t; }
+    b.addEventListener('click', function () {
+      if (!adminToken()) { window.alert('Publishing needs the Admin sign-in of Platform Home in this browser tab. Open Platform Home \u2192 Teacher Sign-In (Admin) \u2192 Content \u2192 \u270F\uFE0F Edit master draft, then press \u2B06 Publish draft here again.'); return; }
+      b.disabled = true; say('Saving your last changes\u2026');
+      var flush = Promise.resolve();
+      try { if (typeof Backend !== 'undefined' && Backend.flushPending) flush = Promise.resolve(Backend.flushPending()); } catch (e) { }
+      flush.catch(function () { }).then(function () {
+        var left = 0; try { left = typeof Backend !== 'undefined' && Backend.pending ? Backend.pending().length : 0; } catch (e) { left = 0; }
+        if (left) throw new Error(left + ' change(s) are not saved on the class server yet (no connection?). Try again in a moment.');
+        say('Checking the draft\u2026');
+        return portalCall('contentDraft', { moduleId: moduleId });
+      }).then(function (dr) {
+        if (!dr.ok) throw new Error(dr.error || 'The draft could not be read.');
+        if (!dr.count) { say('Nothing to publish \u2014 the draft is the same as the published version.'); return null; }
+        var n = function (a) { return (a || []).length; }, aff = dr.affectedGroups || [];
+        var warn = aff.length ? '\n\nNote: ' + aff.length + ' item(s) you changed or removed are changed or hidden locally by a group, so that group will NOT see your update of those items (Platform Home \u2192 Content \u2192 Group local changes):\n' + aff.slice(0, 8).map(function (a) { return '\u2022 ' + a.storage + ': ' + a.item + (a.hidden ? ' (hidden)' : ''); }).join('\n') : '';
+        var notes = window.prompt('Publish the master draft as a new version for EVERY group?\n\nChanges: ' + n(dr.added) + ' added, ' + n(dr.changed) + ' changed, ' + n(dr.removed) + ' removed.' + warn + '\n\nWhat changed? (shown in the version history \u2014 optional)', '');
+        if (notes == null) { say(''); return null; }
+        say('Publishing\u2026');
+        return portalCall('contentPublish', { moduleId: moduleId, notes: notes });
+      }).then(function (x) {
+        if (!x) return;
+        if (!x.ok) throw new Error(x.error || 'Publishing failed.');
+        say('\u2705 Version ' + x.label + ' published (' + x.added + ' added, ' + x.changed + ' changed, ' + x.removed + ' removed) \u2014 every group receives it at its next sync.');
+      }).catch(function (e) { say('\u26A0 ' + (e && e.message || e)); }).then(function () { b.disabled = false; });
+    });
+    wrap.appendChild(b); wrap.appendChild(msg);
+    return wrap;
   }
   function link(extra) {
     var a = document.createElement('a');
