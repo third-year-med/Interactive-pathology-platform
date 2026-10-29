@@ -5312,6 +5312,24 @@ test('🔬 Pathology Spotter: renamed; teacher imports questions; only Learn Pra
     assert.deepStrictEqual([last.score, last.n, last.pct], [3, 5, 60]);
     assert.ok(await p.evaluate(function () { return StudyEngine.events.filter(function (e) { return e.s === 'spotter'; }).length >= 7; }), 'results in the study history');
     await p.context().close();
+    // ---- Apply (patch apply-practical): practical activities together, clinical cases separate; the guide uses the Spotter ----
+    const p2 = await open();
+    await p2.evaluate(function () { location.hash = '#/apply'; });
+    await p2.waitForSelector('#view-apply .ux-h2');
+    const ap = await p2.evaluate(function () { return { h2: Array.from(document.querySelectorAll('#view-apply .ux-h2')).map(function (h) { return h.textContent; }),
+      items: Array.from(document.querySelectorAll('#view-apply .ux-h2')).map(function (h) { let n = h.nextElementSibling, out = []; while (n && !n.matches('.ux-h2')) { out = out.concat(Array.from(n.querySelectorAll('.ux-list li a')).map(function (x) { const m = x.querySelector('.ux-list-m'); return x.querySelector('b').textContent + (m ? ' · ' + m.textContent : ''); })); if (/Try a case/.test(n.textContent) && !n.querySelector('.ux-list')) out.push('Try a case'); n = n.nextElementSibling; } return out; }) }; });
+    assert.deepStrictEqual(ap.h2, ['🔬 Practical: specimens, slides and Spotter', '✚ Clinical reasoning']);
+    assert.match(ap.items[0].join(' | '), /^Practical pathology \| Pathology Spotter · 5 questions/);
+    assert.ok(ap.items[0].every(function (t) { return !/^Clinical cases/.test(t); }) && ap.items[1].some(function (t) { return /^Clinical cases/.test(t); }), 'clinical cases only in their own section: ' + JSON.stringify(ap.items));
+    const sub = await p2.evaluate(function () { return UX_AREAS.find(function (a) { return a.id === 'apply'; }).items.map(function (x) { return x[0]; }); });
+    assert.deepStrictEqual(sub, ['Practical pathology', 'Pathology Spotter', 'Clinical cases'], 'Apply sub-navigation order');
+    await p2.evaluate(function () { location.hash = '#/explain/t17'; });
+    await p2.waitForSelector('#view-explain [data-a=prac-guide]');
+    assert.match(await p2.textContent('#view-explain [data-a=prac-guide]'), /After the session — practise in the 🔬 Pathology Spotter \(Practice mode\)[\s\S]*Before the exam — take a Spotter exam \(Exam mode: 20 pictures/);
+    await p2.click('#view-explain [data-a=prac-guide-spotter]');
+    await p2.waitForFunction(function () { return location.hash === '#/study/challenge'; });
+    await p2.waitForSelector('.spot-home');
+    await p2.context().close();
     // ---- phone: the Spotter fits the screen ----
     const m = await open({ width: 390, height: 844 });
     await m.waitForSelector('.spot-home'); await m.click('[data-a=spot-exam]'); await m.waitForSelector('.spot-card');

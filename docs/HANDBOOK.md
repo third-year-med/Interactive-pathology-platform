@@ -563,6 +563,11 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   differential 6, clinical 6, diagnosis 5, consequence 5, organ 5, stain 4. The 14 PEIR/Commons atlas pictures of the
   Practical topic were NOT used: peir.path.uab.edu does not resolve / fails TLS from the session, so they could not be
   examined. Real-course rehearsal (test server): 52/52 ready after the Learn picture import, all from the Practical topic.
+- **Apply page regrouped (2026-10-29, user):** patch `apply-practical` (45) — Apply shows "🔬 Practical: specimens, slides and
+  Spotter" (Practical pathology · Pathology Spotter · How to answer a practical) and, separately, "✚ Clinical reasoning" (Try a
+  case · Clinical cases · Cases by unit); sub-navigation Practical pathology · Pathology Spotter · Clinical cases; the Spotter
+  line counts ready questions. The 🧭 practical guide: after the session = Spotter Practice mode (+ Image Bank), before the
+  exam = Spotter Exam mode; new 🔬 Pathology Spotter button. Genetics (no practical topic) gets only the Apply changes.
 
 - **Two chats edited `modules/patches/apply.sh` at the same time (2026-10-17):** the picture chat added `picture-import`
   while this chat added `slide-bold`; the slide-bold entry was lost from ORDER (the checker cannot notice a patch missing
