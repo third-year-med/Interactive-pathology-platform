@@ -5222,3 +5222,102 @@ test('📦 Import a practical file: practicals with their pictures → drafts (p
     assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
   } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
 });
+
+/* 🔬 Pathology Spotter (patch spotter, user 2026-10-29): the Pathology Challenge is renamed; a teacher imports a Spotter
+   question file; only questions whose picture is in a section of the Learn Practical topic are used (a picture elsewhere
+   or missing → left out); Practice mode gives the explanation after each answer, Exam mode locks submitted answers and
+   scores at the end with a review; fewer than 5 ready questions → the old challenge. Synthetic course (no key). */
+test('🔬 Pathology Spotter: renamed; teacher imports questions; only Learn Practical pictures; practice feedback; exam with locked answers, score and review; phone layout', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const sec = function (id) { return { id: id, heading: 'Section ' + id, body: 'Text', tables: [], figures: [], keyPoints: [] }; };
+  const mod = syntheticModule(CI_PAGE, { topics: [{ id: 't01', title: 'Cell injury', summary: 's', sections: [sec('s0101')] }, { id: 't17', title: 'Practical Pathology — Specimens & Slides', summary: 's', sections: [sec('s1701'), sec('s1702')] }] });
+  const keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['cellinjury'] }).modules.cellinjury;
+  const pic = function (k) { return { id: 'm_' + k, type: 'image', url: 'https://drive.google.com/thumbnail?id=SPOT' + k + 'XXXXXXXX&sz=w2000', caption: 'Picture ' + k, importKey: 'tst-sp-' + k }; };
+  main.call({ module: 'cellinjury', action: 'upsert', token: tt.token, collection: 'custommedia', id: 's1701', data: { items: [pic(1), pic(2), pic(3)] } });
+  main.call({ module: 'cellinjury', action: 'upsert', token: tt.token, collection: 'custommedia', id: 's1702', data: { items: [pic(4), pic(5)] } });
+  main.call({ module: 'cellinjury', action: 'upsert', token: tt.token, collection: 'custommedia', id: 's0101', data: { items: [pic(7)] } });   // NOT in the Practical topic
+  const qn = function (k, ans) { return { id: 'sp-t' + k, key: 'tst-sp-' + k, section: k <= 3 ? 's1701' : 's1702', type: 'diagnosis', level: 'core', stem: 'Stem of question ' + k + ' — which process explains this picture?',
+    options: ['Option A' + k, 'Option B' + k, 'Option C' + k, 'Option D' + k, 'Option E' + k], answer: ans, explanation: { finding: 'Finding ' + k, why: 'Why ' + k, distractor: 'Distractor ' + k, fact: 'Fact ' + k } }; };
+  const items = [qn(1, 0), qn(2, 1), qn(3, 2), qn(4, 3), qn(5, 4), qn(6, 0), qn(7, 1)];   // 6: picture missing; 7: picture outside the Practical topic
+  const file = function (d) { return { name: 'spotter.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(d)) }; };
+  const start = errors.length;
+  try {
+    const open = async function (viewport) {
+      const p = await page(viewport);
+      await p.route('https://drive.google.com/**', function (route) { return route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from(PNG1, 'base64') }); });
+      await p.route('https://third-year-med.github.io/cell-injury-teaching-platform/**', function (route) { return route.fulfill({ status: 200, contentType: 'text/html', body: mod.html }); });
+      await p.addInitScript(function (v) { localStorage.setItem('ci_backend_token_v1', v); }, JSON.stringify({ token: tt.token, expiresAt: tt.expiresAt }));
+      await p.goto('https://third-year-med.github.io/cell-injury-teaching-platform/#/study/challenge');
+      await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+      await p.waitForSelector('.spot-teacher', { timeout: 15000 });
+      return p;
+    };
+    const p = await open();
+    assert.match(await p.textContent('.spot-teacher summary'), /Spotter questions \(teacher\) — none yet/);
+    assert.ok(!(await p.$('.spot-home')), 'no Spotter before questions are imported (the old challenge stays)');
+    const vis = await p.evaluate(function () { return document.body.innerText; }); assert.match(vis, /Pathology Spotter/); assert.doesNotMatch(vis, /Pathology challenge/i);
+    // another module's file is refused
+    await p.setInputFiles('.spot-teacher input[type=file]', file({ format: 'neo-spotter-import', module: 'neoplasm', items: items }));
+    await p.waitForFunction(function () { return /This file is for another module \(neoplasm\)/.test(document.querySelector('.spot-teacher').textContent); });
+    await p.setInputFiles('.spot-teacher input[type=file]', file({ format: 'neo-spotter-import', version: 1, module: 'cellinjury', items: items }));
+    await p.waitForSelector('.modal');
+    assert.match(await p.textContent('.modal'), /Save 7 Spotter questions\? 5 of them have their picture in the Practical topic now/);
+    await p.click('.modal-foot .btn-primary');
+    await p.waitForSelector('.spot-home', { timeout: 15000 });
+    assert.match(await p.textContent('.spot-teacher summary'), /5 of 7 ready · 2 waiting for their picture/);
+    assert.match(await p.textContent('.spot-home'), /Image-Based Practical Assessment in Pathology[\s\S]*5 questions on 5 pictures/);
+    // ---- Practice: feedback after each answer ----
+    await p.click('[data-a=spot-practice]');
+    await p.waitForSelector('.spot-card');
+    const cur = function () { return p.evaluate(function () { const R = Spotter.run, it = Spotter.byId(R.ids[R.i]); return { id: it.id, answer: it.answer, src: document.querySelector('.spot-img').getAttribute('src'), head: document.querySelector('.spot-top b').textContent }; }); };
+    let c = await cur();
+    assert.strictEqual(c.head, '🧪 Practice · Question 1 of 5');
+    assert.ok(await p.$eval('[data-a=spot-submit]', function (b) { return b.disabled; }), 'nothing to submit before choosing');
+    await p.click('.spot-opt:nth-child(' + (c.answer + 1) + ')'); await p.click('[data-a=spot-submit]');
+    await p.waitForSelector('.spot-exp.ok');
+    assert.match(await p.textContent('.spot-exp'), /✓ Correct — the answer is [A-E]\. Option[\s\S]*Decisive finding: Finding[\s\S]*Why this answer:[\s\S]*Tempting distractor:[\s\S]*High-yield fact:/);
+    assert.ok(await p.$$eval('.spot-opt', function (bs) { return bs.every(function (b) { return b.disabled; }); }), 'answer locked after submitting');
+    await p.click('[data-a=spot-next]');
+    c = await cur(); const wrong = (c.answer + 1) % 5;
+    await p.click('.spot-opt:nth-child(' + (wrong + 1) + ')'); await p.click('[data-a=spot-submit]');
+    await p.waitForSelector('.spot-exp.bad');
+    assert.match(await p.textContent('.spot-exp'), /✗ Not quite — the answer is/);
+    assert.strictEqual(await p.$$eval('.spot-opt.is-correct', function (b) { return b.length; }), 1);
+    await p.click('.spot-top .btn-ghost');   // end practice
+    // ---- Exam: locked answers, score at the end, review ----
+    await p.click('[data-a=spot-exam]');
+    await p.waitForSelector('.spot-nav');
+    const srcs = new Set();
+    for (let k = 0; k < 5; k++) {
+      c = await cur(); srcs.add(c.src);
+      assert.strictEqual(c.head, '📝 Exam · Question ' + (k + 1) + ' of 5');
+      assert.strictEqual(await p.$$eval('.spot-exp', function (e) { return e.length; }), 0, 'no feedback during the exam');
+      if (k === 4) break;   // the last one is left unanswered
+      await p.click('.spot-opt:nth-child(' + ((k === 3 ? (c.answer + 2) % 5 : c.answer) + 1) + ')'); await p.click('[data-a=spot-submit]');
+      await p.waitForFunction(function (n) { return Object.keys(Spotter.run.locked).length === n; }, k + 1);
+    }
+    assert.strictEqual(srcs.size, 5, 'one picture per question');
+    assert.ok(Array.from(srcs).every(function (s) { return /SPOT[1-5]X/.test(s); }), 'only pictures from the Practical topic: ' + Array.from(srcs).join(' '));
+    await p.click('.spot-dot:nth-child(1)');
+    assert.ok(await p.$$eval('.spot-opt', function (bs) { return bs.every(function (b) { return b.disabled; }); }), 'a submitted exam answer cannot be changed');
+    await p.click('[data-a=spot-finish]');
+    await p.waitForSelector('.modal'); assert.match(await p.textContent('.modal'), /1 question not submitted yet/); await p.click('.modal-foot .btn-primary');
+    await p.waitForSelector('.spot-result');
+    assert.match(await p.textContent('.spot-score'), /^3 \/ 5\s*60%$/);
+    assert.strictEqual(await p.$$eval('.spot-rev', function (e) { return e.length; }), 5);
+    assert.match(await p.textContent('.spot-rev:last-of-type'), /— not submitted[\s\S]*Not answered — the answer is/);
+    const last = await p.evaluate(function () { return Store.get('spotter_last_exam_v1'); });
+    assert.deepStrictEqual([last.score, last.n, last.pct], [3, 5, 60]);
+    assert.ok(await p.evaluate(function () { return StudyEngine.events.filter(function (e) { return e.s === 'spotter'; }).length >= 7; }), 'results in the study history');
+    await p.context().close();
+    // ---- phone: the Spotter fits the screen ----
+    const m = await open({ width: 390, height: 844 });
+    await m.waitForSelector('.spot-home'); await m.click('[data-a=spot-exam]'); await m.waitForSelector('.spot-card');
+    assert.ok(await m.evaluate(function () { return document.documentElement.scrollWidth <= innerWidth + 1; }), 'no horizontal scrolling on a phone');
+    if (process.env.SHOTS) await m.screenshot({ path: path.join(process.env.SHOTS, 'spotter-phone.png'), fullPage: true });
+    await m.context().close();
+    assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
+  } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
+});

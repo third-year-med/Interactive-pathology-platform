@@ -552,6 +552,17 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   s1702 and s1709 into s1708 — 8 pictures had no section → the condensed file maps them there; full rehearsal (test server):
   52/52 pictures added, 16 practicals with 52 pictures published. **Source note:** many pictures are WebPath / WebPathology / Science Photo Library
   (link-only sources in §4.3) — flagged; the user decided (2026-10-28) to KEEP all of them for the class.
+- **🔬 Pathology Spotter (2026-10-29, user's 12-point brief):** "Pathology Challenge" renamed "Pathology Spotter — Image-Based
+  Practical Assessment in Pathology" (patch `spotter`, 44; routes/IDs unchanged). Questions = Content `practicalcfg/spotter`
+  (master content, no backend change), imported by the teacher on the Spotter page (format `neo-spotter-import`); each
+  question names its picture by custommedia `importKey` (or atlas id) and is used ONLY if that picture is in a section of the
+  Learn Practical topic (title /practical/). Practice (explanation after each answer) and Exam (20, one per picture, locked
+  answers, score + review); < 5 ready → the old automatic challenge. `Bus 'synced'` repaints when questions/pictures arrive.
+  Cell Injury set (`<module>-spotter-questions.json`, never committed): 52 questions, one per teacher picture (each examined),
+  5 options, answers A–E 10/11/10/10/11, no run, correct option never conspicuously longest; types: mechanism 11, feature 10,
+  differential 6, clinical 6, diagnosis 5, consequence 5, organ 5, stain 4. The 14 PEIR/Commons atlas pictures of the
+  Practical topic were NOT used: peir.path.uab.edu does not resolve / fails TLS from the session, so they could not be
+  examined. Real-course rehearsal (test server): 52/52 ready after the Learn picture import, all from the Practical topic.
 
 - **Two chats edited `modules/patches/apply.sh` at the same time (2026-10-17):** the picture chat added `picture-import`
   while this chat added `slide-bold`; the slide-bold entry was lost from ORDER (the checker cannot notice a patch missing
