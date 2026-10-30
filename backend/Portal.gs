@@ -199,7 +199,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.36';
+var PORTAL_VERSION = '2.37';
 /** 2.28: the shortest password for teachers AND students on every Portal screen (user, 2026-10-21: 4, was 8). Code.gs checks its own
     (STU_MIN_PW and the module teacher password) — platformCheck warns while they still ask for more. No maximum. */
 var PW_MIN_ = 4;
@@ -3750,6 +3750,10 @@ function aeCopyPlaces_(S, token) {
     out.push({ storage: String(d.backendModule), deliveryId: d.deliveryId, label: label(d), active: !(d.active === false || d.active === 'false') });
   });
   out.sort(function (a, b) { return a.label.localeCompare(b.label); });
+  // 2.37 (user, 2026-10-31): the Admin may also copy a group's quiz to the module's MAIN copy (no group) — a quiz library for
+  // later groups. Never offered to personal teachers (the main copy is the Admin's), nor when the main copy is itself a delivery.
+  if (caller.admin && S !== base && !dirAll_(DIR.DELIV).some(function (d) { return String(d.backendModule) === base; }))
+    out.unshift({ storage: base, deliveryId: '', label: 'Main copy (no group) — quiz library', active: true, main: true });
   return { places: out, here: here || (S === base ? 'Main copy (no group)' : S) };
 }
 function aeCopyAttempts_(T, id) { return assessStore_(T).list('attempt').filter(function (t) { return t.assessmentId === id; }).length; }

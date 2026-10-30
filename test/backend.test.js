@@ -2605,8 +2605,10 @@ test('copy an assessment to other groups (2.21): only groups of the same module 
   assert.ok(T('aePwSet', { assessmentId: 'q1', password: 'Necro-26' }).ok);
   // targets: the other groups that have Cell Injury (not this one, not other modules)
   const tg = T('aeCopyTargets', { assessmentId: 'q1' }); assert.ok(tg.ok, JSON.stringify(tg));
-  assert.deepStrictEqual(tg.targets.map(function (t) { return t.storage; }), [MS]);
-  assert.deepStrictEqual([tg.published, tg.hasAssignment, tg.hasPassword, tg.targets[0].has, tg.targets[0].attempts], [true, true, true, false, 0]);
+  // 2.37: the Admin also gets the module's main copy (no group) first — the quiz library
+  assert.deepStrictEqual(tg.targets.map(function (t) { return t.storage; }), ['cellinjury', MS]);
+  assert.deepStrictEqual([tg.targets[0].main, tg.targets[0].label], [true, 'Main copy (no group) — quiz library']);
+  assert.deepStrictEqual([tg.published, tg.hasAssignment, tg.hasPassword, tg.targets[1].has, tg.targets[1].attempts], [true, true, true, false, 0]);
   assert.match(tg.here, /Razi/);
   const srcBefore = JSON.stringify(row(CI, 'assessments', 'q1'));
   // copy: published, assigned to everyone, the same password
@@ -2623,7 +2625,7 @@ test('copy an assessment to other groups (2.21): only groups of the same module 
   assert.strictEqual(X.assessStore_(MS).list('assignment').filter(function (x) { return x.assessmentId === 'q1'; }).length, 1);
   // once students have started it there, that group's copy is kept as it is
   X.assessStore_(MS).put('attempt', 'att1', { id: 'att1', assessmentId: 'q1', email: 'someone@uni.ly', status: 'in_progress' });
-  assert.strictEqual(T('aeCopyTargets', { assessmentId: 'q1' }).targets[0].attempts, 1);
+  assert.strictEqual(T('aeCopyTargets', { assessmentId: 'q1' }).targets[1].attempts, 1);
   const c3 = T('aeCopyTo', { assessmentId: 'q1', targets: [MS], publish: false, password: 'none' });
   assert.deepStrictEqual([c3.results[0].ok, c3.results[0].kept], [false, true]); assert.strictEqual(row(MS, 'assessments', 'q1').status, 'published', 'kept');
   // without "publish": arrives as a draft (no version, no assignment)
@@ -2631,6 +2633,11 @@ test('copy an assessment to other groups (2.21): only groups of the same module 
   assert.deepStrictEqual([row(MS, 'assessments', 'q2').status, row(MS, 'assessments', 'q2').publishedVersion, !!row(MS, 'assessmentversions', 'q2@1')], ['draft', 0, false]);
   assert.ok(!X.assessStore_(MS).list('assignment').some(function (x) { return x.assessmentId === 'q2'; }));
   assert.ok(!X.apwMap_(MS).q2, 'no password asked for');
+  // 2.37: copy to the main copy (quiz library): published there, the source unchanged; a second copy updates it
+  const cm = T('aeCopyTo', { assessmentId: 'q1', targets: ['cellinjury'], publish: true, assign: false, password: 'none' }); assert.ok(cm.ok && cm.results[0].ok, JSON.stringify(cm));
+  assert.deepStrictEqual([row('cellinjury', 'assessments', 'q1').status, row('cellinjury', 'assessments', 'q1').copiedFrom], ['published', CI]);
+  assert.deepStrictEqual(row('cellinjury', 'assessmentversions', 'q1@1').questionIds, ['x1']);
+  assert.strictEqual(T('aeCopyTargets', { assessmentId: 'q1' }).targets[0].has, true);
   // permissions: Dr. Ahmed teaches only Al-Razi A → no other group to copy to; Misrata refused; students / no sign-in refused
   const at = S.t('teacherOpen', S.ahmed.tok, { deliveryId: S.ci.deliveryId }).token;
   const A = function (action, o) { return S.call(Object.assign({ module: CI, action: action, token: at }, o || {})); };
