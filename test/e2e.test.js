@@ -5001,6 +5001,8 @@ test('Inflammation (New) module (inflnew): every topic, section, view and slide 
     await pp.close();
     const lmr = await p.evaluate(function () { const d = LMR.data(); return { facts: d.facts.length, comparisons: d.comparisons.length, traps: d.traps.length, morph: d.morphology.length }; });
     assert.ok(lmr.facts > 40 && lmr.comparisons >= 2 && lmr.morph >= 5, 'Last-Minute Review is built from the course: ' + JSON.stringify(lmr));
+    const pd = await p.evaluate(function () { return { set: PE_DEFAULT_CFG.allowSetDownload && PE_DEFAULT_CFG.allowSetPrint && !PE_DEFAULT_CFG.showAIDisclosure, all: ['allowPrint', 'allowPdf', 'includeImages', 'includeDiagrams', 'includeQuestions', 'includeViva', 'includeTeachingPoints', 'includeAnswers', 'showAnswersOnline', 'allowAnswerKey'].every(function (k) { return PE_DEFAULT_SETTINGS[k] === true && PE_DEFAULT_CFG.defaults[k] === true; }) }; });
+    assert.ok(pd.set && pd.all, 'prac-defaults-on patch: practical settings start all ticked (AI disclosure off): ' + JSON.stringify(pd));
     await p.context().close();
 
     // ---- teacher: a fresh teacher pass as the dashboard gives it → every slide of the deck ----
@@ -5679,6 +5681,9 @@ test('📄 Practical handout options: answers ticked in Settings → Apply to al
     await p.goto('https://third-year-med.github.io/cell-injury-teaching-platform/#/practical/import');
     await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
     await p.waitForSelector('.prac-file input[type=file]');
+    // built-in defaults: every handout option on (patch prac-defaults-on, user 2026-10-30); this test starts from a teacher who saved "answers off"
+    assert.deepStrictEqual(await p.evaluate(function () { return [PE_DEFAULT_SETTINGS.includeAnswers, PE_DEFAULT_SETTINGS.showAnswersOnline, PE_DEFAULT_SETTINGS.allowAnswerKey, PE_DEFAULT_CFG.allowSetDownload, PE_DEFAULT_CFG.allowSetPrint]; }), [true, true, true, true, true]);
+    await p.evaluate(async function () { const c = PracData.cfg(); c.defaults = Object.assign({}, c.defaults, { includeAnswers: false, showAnswersOnline: false, allowAnswerKey: false }); await PracData.saveCfg(c); });
     await p.setInputFiles('.prac-file input[type=file]', file([rec('a', 'Handout test A'), rec('b', 'Handout test B')]));
     await p.waitForFunction(function () { return /will be added/.test(document.querySelector('.prac-file').textContent); });
     await p.click('[data-a=prac-file-go]');
