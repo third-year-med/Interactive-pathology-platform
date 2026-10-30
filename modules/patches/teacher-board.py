@@ -51,7 +51,7 @@ function apwRepaintAll() {"""),
           el('button', { class: 'btn btn-xs', title: 'Results of this assessment', onclick: () => { Views.teacher.rf.asm = a.id; Views.teacher.tab = 'results'; Router.go('teacher', ['results']); } }, '📊'))));
     });
   },
-  /* ---------- identification ---------- */"""),
+  /* ---------- identification ---------- */""", "async renderTeacherBoard(page) {"),
 (""".cg-res{padding-left:1.1rem;margin:0}.cg-res li{margin:.3rem 0}.cg-res li.bad{color:var(--bad)}
 """,
 """.cg-res{padding-left:1.1rem;margin:0}.cg-res li{margin:.3rem 0}.cg-res li.bad{color:var(--bad)}
@@ -60,7 +60,8 @@ function apwRepaintAll() {"""),
 ]
 for path in sys.argv[1:]:
     s = open(path, encoding='utf-8').read(); n = 0
-    for a, b in R:
-        if b in s: continue
+    for r in R:   # r[2] = done-marker: rs-review later adds a 🎞️ button inside this rule's text
+        a, b = r[0], r[1]
+        if b in s or (len(r) > 2 and r[2] in s): continue
         assert s.count(a) == 1, (path, a[:70]); s = s.replace(a, b); n += 1
     open(path, 'w', encoding='utf-8').write(s); print(path, 'changes:', n)

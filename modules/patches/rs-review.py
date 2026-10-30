@@ -2,7 +2,7 @@
 tested on, full screen for the projector, hardest first (the card's order and topic filter). Each question is shown first
 WITHOUT its answer (stem, case, options) so the class can answer aloud; Reveal (Space) shows the class's answer bars, the
 correct answer and the explanation. ◀ ▶ / arrow keys move, A− / A+ change the text size, Esc or ✕ closes. No student names.
-Teacher-only (it lives in the teacher's Results). Needs rs-sticky-leave (CSS anchor). Idempotent."""
+Teacher-only (it lives in the teacher's Results). Also a 🎞️ button on each quiz row of the teacher's Assessment tab, before 📊 (user, 2026-10-31). Needs rs-sticky-leave (CSS anchor). Idempotent."""
 import sys
 R = [
 ("""body.learn-fs .rs-sticky{display:none!important}
@@ -87,6 +87,12 @@ body.learn-fs .rs-sticky{display:none!important}
     paint(); rev.focus();
   },
   showQuestion(s) {"""),
+("""          el('button', { class: 'btn btn-xs', title: 'Results of this assessment', onclick: () => { Views.teacher.rf.asm = a.id;""",
+ """          el('button', { class: 'btn btn-xs', 'data-a': 'tb-review', title: 'Review in class — the questions this quiz tested, full screen, hardest first', onclick: async (e) => {   // 🎞️ rs-review (2026-10-31)
+            const b = e.currentTarget; b.disabled = true;
+            try { await Views.teacher.loadResults(); const rows = ResultsUI.questionStats(ResultsUI.results().filter(r => !r.legacy && r.assessmentId === a.id));
+              if (rows.length) ResultsUI.reviewInClass(rows); else toast('No submitted answers for this quiz yet.', 'warn'); } finally { b.disabled = false; } } }, '🎞️'),
+          el('button', { class: 'btn btn-xs', title: 'Results of this assessment', onclick: () => { Views.teacher.rf.asm = a.id;"""),
 ]
 for path in sys.argv[1:]:
     s = open(path, encoding='utf-8').read(); n = 0

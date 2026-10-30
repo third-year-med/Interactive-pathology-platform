@@ -3976,6 +3976,16 @@ test('⚡ Topic quizzes: one quiz per topic (pool of its practice questions, 5 r
     await t.waitForFunction(function () { return /Question 2 of 5/.test(document.querySelector('.rsr .rsr-pos').textContent) && !document.querySelector('.rsr .rsr-key'); });
     await t.click('.rsr [data-a=rsr-close]');
     await t.waitForFunction(function () { return !document.querySelector('.rsr'); });
+    // … and from the teacher's Assessment tab: 🎞️ on the quiz's row, before 📊
+    await t.evaluate(function () { location.hash = '#/quiz'; });
+    const tbBtn = '[data-assessment="' + a[0].id + '"] [data-a=tb-review]';
+    await t.waitForSelector(tbBtn, { timeout: 20000 });
+    assert.ok(await t.$eval(tbBtn, function (b) { const n = b.nextElementSibling; return !!n && n.textContent === '📊'; }), '🎞️ sits just before 📊');
+    await t.click(tbBtn);
+    await t.waitForSelector('.rsr');
+    assert.match(await t.textContent('.rsr .rsr-pos'), /^Question 1 of 5$/);
+    await t.keyboard.press('Escape');
+    await t.waitForFunction(function () { return !document.querySelector('.rsr'); });
     assert.strictEqual(errors.filter(function (e) { return !/ERR_TUNNEL|net::/.test(e); }).length, 0, errors.join('\n'));
     await t.context().close();
   } finally {
