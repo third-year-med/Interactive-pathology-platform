@@ -3945,6 +3945,37 @@ test('⚡ Topic quizzes: one quiz per topic (pool of its practice questions, 5 r
     assert.match(await t.textContent('.modal'), /Already there, kept: Topic 1, Topic 3[\s\S]*1 copied, 1 kept \(students started\)/);
     assert.strictEqual(autos(ST).length, 2); assert.strictEqual(autos(MS).length, 2);
     assert.strictEqual(main.ctx.assessStore_(ST).list('assignment').filter(function (g) { return a.some(function (x) { return x.id === g.assessmentId; }); }).length, 2, 'no second assignment');
+    // rs-review patch: a student of this group takes Topic 1 → 📊 Results → Most-missed questions → 🎞️ Review in class
+    main.addStudents(ST, [{ username: 'rvstu', name: 'Review Student', password: PW, mustChange: false }]);
+    const rs = main.call({ module: ST, action: 'studentLogin', username: 'rvstu', password: PW }).token;
+    const rit = main.call({ module: ST, action: 'getMyAssessments', stoken: rs }).items.filter(function (i) { return i.assessment.id === a[0].id; })[0];
+    const rst = main.call({ module: ST, action: 'startAttempt', stoken: rs, assignmentId: rit.assignment.id, password: main.ctx.apwMap_(ST)[a[0].id].pw });
+    assert.ok(rst.ok, JSON.stringify(rst));
+    const resp = {}; rst.attempt.questions.forEach(function (q) { resp[q.id] = true; });
+    assert.ok(main.call({ module: ST, action: 'submitAttempt', stoken: rs, attemptId: rst.attempt.id, responses: resp }).ok);
+    await t.evaluate(function () { document.querySelectorAll('.modal-back').forEach(function (m) { m.remove(); }); location.hash = '#/teacher/results'; });   // the "done" report is still open
+    await t.waitForSelector('#rs-asm', { timeout: 60000 }).catch(async function () {   // a long full run leaves many results: reload once
+      await t.reload(); await t.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+      await t.evaluate(function () { location.hash = '#/teacher/results'; }); await t.waitForSelector('#rs-asm', { timeout: 90000 });
+    });
+    await t.selectOption('#rs-asm', a[0].id);   // earlier tests may have left other results in this storage
+    await t.waitForSelector('#rs-missed [data-a=rs-review]', { timeout: 20000 });
+    await t.click('#rs-missed [data-a=rs-review]');
+    await t.waitForSelector('.rsr');
+    assert.match(await t.textContent('.rsr .rsr-pos'), /^Question 1 of 5$/);
+    assert.ok(await t.$('.rsr .rsr-stem') && (await t.$$('.rsr .rsr-opt')).length === 2, 'the question and its True / False options');
+    assert.strictEqual(await t.$('.rsr .rsr-key'), null, 'the answer is hidden until Reveal');
+    assert.ok(!/% correct|Correct answer/.test(await t.textContent('.rsr .rsr-main')), 'no class result before Reveal');
+    if (process.env.SHOTS) await t.screenshot({ path: path.join(process.env.SHOTS, 'rs-review-question.png') });
+    await t.keyboard.press('Space');
+    await t.waitForSelector('.rsr .rsr-key');
+    assert.match(await t.textContent('.rsr .rsr-main'), /\d+% correct · 1 response[\s\S]*Correct answer: (True|False)/);
+    assert.strictEqual((await t.$$('.rsr .rsr-opt.ok')).length, 1, 'the correct option is marked');
+    if (process.env.SHOTS) await t.screenshot({ path: path.join(process.env.SHOTS, 'rs-review-revealed.png') });
+    await t.keyboard.press('ArrowRight');
+    await t.waitForFunction(function () { return /Question 2 of 5/.test(document.querySelector('.rsr .rsr-pos').textContent) && !document.querySelector('.rsr .rsr-key'); });
+    await t.click('.rsr [data-a=rsr-close]');
+    await t.waitForFunction(function () { return !document.querySelector('.rsr'); });
     assert.strictEqual(errors.filter(function (e) { return !/ERR_TUNNEL|net::/.test(e); }).length, 0, errors.join('\n'));
     await t.context().close();
   } finally {

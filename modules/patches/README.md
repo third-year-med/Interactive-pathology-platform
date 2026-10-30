@@ -72,6 +72,8 @@ patched with `apply.sh`, is byte-identical to the current one.
 | 54 | `fig-credit.py` | A course figure may carry its own credit line (`figures[id].credit`, e.g. a figure from the course syllabus) — shown under the figure, in the lightbox and on Presentation Images slides; without it nothing changes | — |
 | 55 | `ux-practical-optional.py` | Learning-path check: the practical topic t17 is required only when a teaching unit lists it — a module without a practical topic (e.g. Inflammation (New)) passes | — |
 | 56 | `tq-mix.py` | ⚡ Topic quizzes → **Questions from:** 🔒 assessment bank + practice questions **mixed** (default; one pool, each student still gets 5 random), 🔒 bank first (≥ 5 bank questions → bank only) or practice only; remembered per module copy (`tq_source_v1`); existing quizzes change only with “Refresh the existing topic quizzes” | — |
+| 57 | `rs-review.py` | 📊 Results → Most-missed questions → **🎞️ Review in class**: the tested questions full screen for the projector, hardest first (card order and topic filter); each question first without its answer, **👁 Reveal** (Space) shows the class's answer bars, the correct answer and the explanation; ◀ ▶ / arrow keys, A− / A+, Esc; no student names | — |
+| 58 | `rs-safe-dates.py` | 📊 Results: a submitted attempt without a valid start/submit time no longer stops the page (“Invalid time value” → stuck on “Loading results…”); such a time shows as an old date and the duration as 0 | — |
 | — | `navblock.py` | Writes `modules/platform-nav.js` into the page's `<script id="platform-nav">` (learning-lock guard, back link, …) | 2.18 for the lock |
 
 Test after applying: `node test/module-smoke/smoke.js` (boots every module with a synthetic course: student sign-in,
