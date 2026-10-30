@@ -1,4 +1,4 @@
-"""🔒 Assessment-only question bank (Portal.gs 2.33). Questions for assessments ONLY: kept on the class server as private
+"""🔒 Assessment-only question bank (Portal.gs 2.33). (Done-markers on four rules: patch tq-mix later rewrites their text.) Questions for assessments ONLY: kept on the class server as private
 rows of the module's main copy (priv:assessbank), loaded by teachers only (qbList) and never part of QUESTIONS — so
 Practice / Revision / Learn / quick quizzes / progress never show them and no student browser ever receives them.
 Q_BY_ID knows them in a teacher's browser, so the assessment builder (source “🔒 Assessment bank”), ⚡ Create from filter
@@ -70,7 +70,7 @@ const ABANK = {
 };
 /** What a picked topic quiz says about its questions. */
 function tqDescription(TQ, x) { return TQ.n + ' random questions from the ' + x.pool.length + (x.src === 'bank' ? ' 🔒 assessment-bank questions of this topic (never shown in Practice)' : ' practice questions of this topic') + ' · ' + TQ.min + ' minutes.'; }
-"""),
+""", "const ABANK_FORMAT = 'neo-assessment-bank'"),
 ("""  QUESTIONS.forEach(q => { Q_BY_ID[q.id] = q; });
 """, """  QUESTIONS.forEach(q => { Q_BY_ID[q.id] = q; });
   ABANK.items.forEach(q => { if (!Q_BY_ID[q.id]) Q_BY_ID[q.id] = q; });   // 🔒 assessment bank: usable in assessments, never in QUESTIONS
@@ -118,7 +118,7 @@ function tqDescription(TQ, x) { return TQ.n + ' random questions from the ' + x.
       return { t, num: i + 1, pool, ex, ok: pool.length >= TQ.n };""", """      const prac = QUESTIONS.filter(q => q.topic === t.id && q.type !== 'short' && !rev.has(q.id)).map(q => q.id);
       const bank = ABANK.forTopic(t.id), pool = bank.length >= TQ.n ? bank : prac;   // 🔒 the assessment bank first (≥ 5 questions), else practice
       const ex = (State.assessments || []).find(a => a.autoTopic === t.id && a.status !== 'archived') || null;
-      return { t, num: i + 1, pool, ex, ok: pool.length >= TQ.n, src: pool === bank ? 'bank' : 'practice', change: !!ex && !(pool.length === (ex.questionIds || []).length && pool.every(id => (ex.questionIds || []).includes(id))) };"""),
+      return { t, num: i + 1, pool, ex, ok: pool.length >= TQ.n, src: pool === bank ? 'bank' : 'practice', change: !!ex && !(pool.length === (ex.questionIds || []).length && pool.every(id => (ex.questionIds || []).includes(id))) };""", "const bank = ABANK.forTopic(t.id)"),
 ("""  async topicQuizzesDialog() {
     const plan = this.topicQuizPlan(), TQ = plan.TQ;""", """  async topicQuizzesDialog() {
     await ABANK.load();
@@ -126,9 +126,9 @@ function tqDescription(TQ, x) { return TQ.n + ' random questions from the ' + x.
 ("""el('td', { class: 'nowrap' }, String(x.pool.length)),
       el('td', { class: 'small' }, !x.ok ? el('span', { style: 'color:var(--bad)' }, '⏭ skipped — fewer than ' + TQ.n + ' questions') : x.ex ? '• exists (“' + x.ex.title + '”)' : el('b', { style: 'color:var(--ok)' }, '✓ new quiz'))));""",
 """el('td', { class: 'nowrap' }, String(x.pool.length) + (x.src === 'bank' ? ' 🔒' : '')),
-      el('td', { class: 'small' }, !x.ok ? el('span', { style: 'color:var(--bad)' }, '⏭ skipped — fewer than ' + TQ.n + ' questions') : x.ex ? '• exists (“' + x.ex.title + '”)' + (x.change ? ' — Refresh gives it these ' + (x.src === 'bank' ? '🔒 bank' : '') + ' questions' : '') : el('b', { style: 'color:var(--ok)' }, '✓ new quiz'))));"""),
+      el('td', { class: 'small' }, !x.ok ? el('span', { style: 'color:var(--bad)' }, '⏭ skipped — fewer than ' + TQ.n + ' questions') : x.ex ? '• exists (“' + x.ex.title + '”)' + (x.change ? ' — Refresh gives it these ' + (x.src === 'bank' ? '🔒 bank' : '') + ' questions' : '') : el('b', { style: 'color:var(--ok)' }, '✓ new quiz'))));""", "(x.src === 'bank' ? ' 🔒'"),
 ("""'One quiz per topic, built from that topic’s practice questions: each student gets '""",
-"""'One quiz per topic, built from that topic’s 🔒 assessment-bank questions when it has at least ' + TQ.n + ' (never shown in Practice; ' + ABANK.items.length + ' in the bank), otherwise from its practice questions: each student gets '"""),
+"""'One quiz per topic, built from that topic’s 🔒 assessment-bank questions when it has at least ' + TQ.n + ' (never shown in Practice; ' + ABANK.items.length + ' in the bank), otherwise from its practice questions: each student gets '""", "assessment-bank questions when it has at least ' + TQ.n"),
 ("""a.questionIds = x.pool.slice(); a.mode = 'pool';""", """a.questionIds = x.pool.slice(); a.description = tqDescription(TQ, x); a.mode = 'pool';"""),
 ("""            description: TQ.n + ' random questions from the ' + x.pool.length + ' practice questions of this topic · ' + TQ.min + ' minutes.', settings: settings() });""",
 """            description: tqDescription(TQ, x), settings: settings() });"""),

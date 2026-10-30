@@ -4024,6 +4024,14 @@ test('🔒 Assessment bank: import in the main copy → never in Practice / Revi
     await t.click('.sub-tabs .chip');   // back to the library
     await t.waitForSelector('[data-a=topic-quizzes]');
     await t.click('[data-a=topic-quizzes]'); await t.waitForSelector('.modal .tq');
+    // tq-mix patch: the default source is the bank + practice mixed — Topic 1 pools its 7 bank questions with its practice ones
+    const mixed = await t.textContent('.modal');
+    assert.match(mixed, /ALL that topic’s questions[\s\S]*1Cell adaptations\d+ \(7 🔒 \+ \d+\)✓ new quiz[\s\S]*2Cell death\d+ \(2 🔒 \+ \d+\)✓ new quiz/);
+    const mixPlan = await t.evaluate(function () { const x = AssessUI.topicQuizPlan().topics[0]; return { src: x.src, nb: x.nb, np: x.np, n: x.pool.length, desc: tqDescription(AssessUI.topicQuizPlan().TQ, x) }; });
+    assert.ok(mixPlan.src === 'mix' && mixPlan.nb === 7 && mixPlan.np > 0 && mixPlan.n === mixPlan.nb + mixPlan.np && /7 🔒 assessment-bank \+ \d+ practice/.test(mixPlan.desc), JSON.stringify(mixPlan));
+    // … "🔒 Assessment bank first" gives the 2026-10-22 behaviour (and is remembered)
+    await t.selectOption('.modal [data-a=tq-source]', 'bank');
+    await t.waitForFunction(function () { const m = document.querySelector('.modal .tq'); return m && /when it has at least 5/.test(m.textContent); });
     const plan = await t.textContent('.modal');
     assert.match(plan, /assessment-bank questions when it has at least 5[\s\S]*1Cell adaptations7 🔒✓ new quiz[\s\S]*2Cell death5✓ new quiz/);
     if (process.env.SHOTS) await (await t.$('.modal')).screenshot({ path: path.join(process.env.SHOTS, 'abank-topic-quizzes.png') });

@@ -71,6 +71,7 @@ patched with `apply.sh`, is byte-identical to the current one.
 | 53 | `atlas-all-pictures.py` | Practical → Image atlas shows **every picture of the module**: the image library plus the pictures added to the Learning Blocks (Learn ➕ picture, picture-import files), by topic, with Study / Test me, Gross / Microscopic / Clinical (from the caption) and a “Module pictures” source; name = caption up to its first “:”. Learning Blocks unchanged | — |
 | 54 | `fig-credit.py` | A course figure may carry its own credit line (`figures[id].credit`, e.g. a figure from the course syllabus) — shown under the figure, in the lightbox and on Presentation Images slides; without it nothing changes | — |
 | 55 | `ux-practical-optional.py` | Learning-path check: the practical topic t17 is required only when a teaching unit lists it — a module without a practical topic (e.g. Inflammation (New)) passes | — |
+| 56 | `tq-mix.py` | ⚡ Topic quizzes → **Questions from:** 🔒 assessment bank + practice questions **mixed** (default; one pool, each student still gets 5 random), 🔒 bank first (≥ 5 bank questions → bank only) or practice only; remembered per module copy (`tq_source_v1`); existing quizzes change only with “Refresh the existing topic quizzes” | — |
 | — | `navblock.py` | Writes `modules/platform-nav.js` into the page's `<script id="platform-nav">` (learning-lock guard, back link, …) | 2.18 for the lock |
 
 Test after applying: `node test/module-smoke/smoke.js` (boots every module with a synthetic course: student sign-in,
