@@ -457,6 +457,12 @@ Reused 37 healing questions of inflammation-healing (edited to the syllabus) + 5
 Robbins batch 2: `inflnew-pictures-robbins2.json` (8, `in-robbins2-01…08`, one from Ch. 6 — cyclins/CDKs). Not covered by the
 syllabus, so left out: chalones, callus/bone, nerve repair, gliosis, Wallerian degeneration, transmission routes (Q64, 74, 76,
 84–88, 94, 96–100, 114, 124–125, 134c, 135).
+**Healing Spotter/OSPE (2026-10-30, build `new-1.3`):** section **s1311** "Healing and Repair Pictures" added to the Practical topic
+t13 (a picture table; 7 atlas pictures listed there: peir-granulation, peir-ulcer-healing, peir-hmi-gross, peir-hmi-trichrome,
+lp-proud-flesh, lp-keloid-clinical, lp-keloid-micro). Deliverables (never committed): `inflnew-healing-practical-pictures.json`
+(7 imports `in-hprac-01…07` → s1311: Fig. 4.6A/B + 5 Robbins panels), and — because a Spotter/OSPE import REPLACES the saved set —
+complete files `inflnew-spotter-questions-all.json` (38 + 28 healing `in-sph-NNa/b`, answers spread A–E) and
+`inflnew-ospe-stations-all.json` (19 + 8 healing stations `in-osh-01…08`). Rehearsal: 66/66 Spotter and 27/27 OSPE ready.
 
 ### 4.2.3 Neoplasia (New) — the user's syllabus, NOT condensed (user, 2026-10-30)
 Repository `third-year-med/neoplasia-new` (the user created "Neoplasia-new"), title **"Neoplasia (New)"**, module key **`neonew`**,
