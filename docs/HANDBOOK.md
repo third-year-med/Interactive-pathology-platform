@@ -446,6 +446,17 @@ syllabus): 91 items `aqb_in_NNN[letter]` (MCQ, T/F as 2 options, matching → on
 → "of these"); left out: ambiguous keys (Q7, Q9), outside the syllabus (Q22, Q23, Q48, Q90, Q93, Q128, Q129, unmatched matching
 items) and all healing items (Q64–88, 94–100, 102–121, 124–125, 131–132, 134–135 → for the Healing topics). Topic quizzes from
 the bank: t05–t08, t11, t12 (≥ 5 each); others from practice questions. "How to answer a practical" link → t13 (module-local).
+**Answer key + Healing (2026-10-30):** the user sent the book's answer key (Q1–256; the book PDF stops at Q137): all 91 bank
+answers matched it; Q7, Q9, Q58c, Q60b added from the key. The Healing syllabus ("Chapter 4: Tissue Repair: Regeneration, Healing
+and Fibrosis", docx, NOT condensed) became build **`new-1.2`**: topics **t14–t19** (20 sections s1401–s1902, Figs. 4.1–4.6 embedded,
+Tables 4.1–4.2) placed BEFORE the practical topic t13, which stays last — so display numbers ≠ IDs from t14 on (t14 = Topic 13 …
+t19 = Topic 18, t13 = Topic 19; `topicNum()` is by position). Never write "Topic N" for these in course text — refer by name.
+Reused 37 healing questions of inflammation-healing (edited to the syllabus) + 50 new (n071–n120), 39 terms, cases c09–c13,
+4 flowcharts, 7 comparisons, 7 atlas pictures, 10 links. Units: u7 blood infection, u8 tissue repair (t14–t17), u9 wound healing
+(t18–t19), finale u10 practical. Bank: +46 healing book items from the key (141 total; t14, t17, t18 quizzes from the bank).
+Robbins batch 2: `inflnew-pictures-robbins2.json` (8, `in-robbins2-01…08`, one from Ch. 6 — cyclins/CDKs). Not covered by the
+syllabus, so left out: chalones, callus/bone, nerve repair, gliosis, Wallerian degeneration, transmission routes (Q64, 74, 76,
+84–88, 94, 96–100, 114, 124–125, 134c, 135).
 
 ### 4.3 Picture sources (user, 2026-10-19): use ALL of them, each under its own rules
 

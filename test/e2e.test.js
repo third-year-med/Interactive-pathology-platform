@@ -4922,7 +4922,8 @@ test('Inflammation (New) module (inflnew): every topic, section, view and slide 
     const info = await p.evaluate(function () { return { cfg: window.NEO_CONFIG, course: COURSE.title, topics: DATA.topics.map(function (t) { return { id: t.id, title: t.title, sections: t.sections.map(function (s) { return { id: s.id, heading: s.heading, tables: s.tables.length, figures: s.figures.length }; }) }; }) }; });
     assert.strictEqual(info.cfg.moduleKey, 'inflnew'); assert.strictEqual(info.cfg.storagePrefix, 'in_');
     assert.strictEqual(info.course, 'Inflammation (New)');
-    assert.strictEqual(info.topics.length, 13);
+    assert.strictEqual(info.topics.length, 19);   // t01–t12 inflammation, t14–t19 healing (2026-10-30), practical t13 last
+    assert.deepStrictEqual(info.topics.map(function (x) { return x.id; }).slice(12), ['t14', 't15', 't16', 't17', 't18', 't19', 't13']);
     assert.ok(await p.evaluate(function () { return !!sessionStorage.getItem('in_stu_session_v1') || !!localStorage.getItem('in_stu_session_v1'); }), 'its own storage prefix');
     for (const tp of info.topics) {
       for (const sc of tp.sections) {
@@ -4971,7 +4972,7 @@ test('Inflammation (New) module (inflnew): every topic, section, view and slide 
     await q.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
     await q.waitForSelector('#pres-stage .slide', { timeout: 15000 });
     const n = await q.evaluate(function () { return Views.present.list().length; });
-    assert.ok(n > 80 && n < 200, 'the deck is generated from the 12 topics: ' + n);
+    assert.ok(n > 130 && n < 330, 'the deck is generated from the 19 topics: ' + n);
     const bad = await q.evaluate(function () {
       const out = [], V = Views.present;
       for (let i = 0; i < V.list().length; i++) {
@@ -4987,7 +4988,7 @@ test('Inflammation (New) module (inflnew): every topic, section, view and slide 
     await q.evaluate(function () { location.hash = '#/teacher'; });
     await q.waitForSelector('#view-teacher', { state: 'visible', timeout: 10000 });
     const plan = await q.evaluate(function () { return AssessUI.topicQuizPlan().topics.filter(function (x) { return x.ok; }).length; });
-    assert.ok(plan === 12, '⚡ Topic quizzes: every topic has ≥ 5 practice questions (' + plan + ')');
+    assert.ok(plan === 18, '⚡ Topic quizzes: every topic but the practical has ≥ 5 practice questions (' + plan + ')');
     await q.context().close();
     assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
   } finally {
