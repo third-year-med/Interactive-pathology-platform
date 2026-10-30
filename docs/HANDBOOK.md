@@ -458,6 +458,24 @@ Robbins batch 2: `inflnew-pictures-robbins2.json` (8, `in-robbins2-01…08`, one
 syllabus, so left out: chalones, callus/bone, nerve repair, gliosis, Wallerian degeneration, transmission routes (Q64, 74, 76,
 84–88, 94, 96–100, 114, 124–125, 134c, 135).
 
+### 4.2.3 Neoplasia (New) — the user's syllabus, NOT condensed (user, 2026-10-30)
+Repository `third-year-med/neoplasia-new` (the user created "Neoplasia-new"), title **"Neoplasia (New)"**, module key **`neonew`**,
+prefix **`nn_`**, build `new-1.0`, own content key (env `NN_CONTENT_KEY`). Written from the user's PDF "Neoplasia (Ch. 6)", pp. 42–64,
+exactly as it is (not condensed): 14 topics t01–t14 / 56 sections in the syllabus order (definition & hyperplasia; benign vs
+malignant; routes of spread; intermediate tumours & histogenetic classification; epithelial; mesenchymal & carcinoma vs sarcoma;
+lymphoid, teratoma, embryonic, hamartoma/choristoma; epidemiology; molecular basis; hallmarks I–V; invasion, metastasis & immune
+evasion; carcinogens; clinical aspects; grading, staging & laboratory diagnosis), ≈ 9,900 Learn words; the syllabus tables are
+section tables; 7 syllabus figures embedded (credit via `figures[id].credit`); the syllabus question list = the topics'
+exam-style questions. Reused from `neoplasm` only what the syllabus answers, edited to its wording: 96 of 301 questions (`from`),
+67 atlas pictures (ids kept), 54 link cards; new: 59 questions (incl. the syllabus MCQs 1–4 and EMQ 1–3 — MCQs 1–2 test
+hypertrophy/atrophy and are kept because they are in the syllabus), 109 glossary terms, 8 cases, 4 flowcharts, 9 sequences,
+12 comparisons. No practical topic (Apply → "How to answer a practical" appears only when a practical t15 exists). Deliverables
+(never committed): `neonew-pictures-robbins.json` (39 Robbins pictures `nn-robbins-01…39` chosen from both Neoplasia sets) and
+🔒 `neonew-assessment-bank.json` — the user's "MCQ neoplasia Dr Helal" Q388–454 with the book's key: 50 items `aqb_nn_NNN[letter]`
+(T/F as 2 options, matching → one MCQ per pair); left out: outside the syllabus (e.g. 392, 401–404, 406–408, 410–414, 416, 422)
+and 415, 432 (key not settled by / against the syllabus: "BCC spreads only locally" vs "rarely metastasize"). Topic quizzes from
+the bank: t02, t04, t05, t07, t12 (≥ 5 each). e2e test "Neoplasia (New) module (neonew)…".
+
 ### 4.3 Picture sources (user, 2026-10-19): use ALL of them, each under its own rules
 
 A new module searches every source for every section and practical specimen. Pictures are registered in the course's

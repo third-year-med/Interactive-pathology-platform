@@ -9,6 +9,7 @@ Essentials:
   `introduction-to-pathology`, `cell-injury-teaching-platform`, `inflammation-healing`, `pathology-exams`,
   the condensed modules `third-year-med-inflammation-condensed` (`inflcondensed`) and `cell-injury-condensed` (`cellcondensed`);
   `inflammation-new` (**Inflammation (New)**, `inflnew`, `in_` — the user's own inflammation syllabus, NOT condensed, 2026-10-29; Healing topics t14–t19 added 2026-10-30, practical t13 kept last);
+  `neoplasia-new` (**Neoplasia (New)**, `neonew`, `nn_` — the user's own neoplasia syllabus "Neoplasia (Ch. 6)", NOT condensed, 2026-10-30; separate from Neoplasia `neoplasm`);
   `Gyn-pathology` is kept but not part of the platform. **Neoplasia (2026-10-19):** the OLD test module (repository `Neoplasia-platform`,
   DELETED 2026-10-19; key `neoplasia`) is retired — the NEW module is a fresh build in `third-year-med/neoplasia` with module key `neoplasm`,
   prefix `nm_` (never reuse the key `neoplasia`: old test data may sit under it on the backend). Built 2026-10-19 (build 1.0,
