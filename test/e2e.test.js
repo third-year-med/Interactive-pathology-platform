@@ -5462,11 +5462,12 @@ test('Genetics and Pediatric Diseases module (genetics): every topic, section, v
 
 /* 📦 Import a practical file (patch prac-file-import, user 2026-10-28): a practical-import file adds ready-made practicals
    as drafts WITH their real pictures (each uploaded once, like "⤒ Upload images"); importing again adds nothing; "✅ Approve &
-   publish all" publishes them; a file for another module is refused. Synthetic course in the real module page (no key). */
+   publish all" publishes them (and 🚀 Approve & publish all in the Teacher workspace publishes drafts imported earlier — patch
+   prac-publish-all); a file for another module is refused. Synthetic course in the real module page (no key). */
 test('📦 Import a practical file: practicals with their pictures → drafts (pictures uploaded) → approve & publish all (published copies keep the pictures) → again adds nothing; a file for another module is refused', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
   main.call({ module: 'portal', action: 'setup', password: TPW });
   const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
-  const mod = syntheticModule(CI_PAGE), keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  const mod = syntheticModule(CI_PAGE, { images: [] }), keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
   const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['cellinjury'] }).modules.cellinjury;
   const img = 'data:image/png;base64,' + PNG1;
   const rec = function (n, title, dx, imgs) { return { key: 'tst-pr-' + n, title: title, objectives: ['Recognise ' + dx + '.'], specimen: { organ: 'Liver', type: 'Gross specimen and slide' },
@@ -5511,6 +5512,19 @@ test('📦 Import a practical file: practicals with their pictures → drafts (p
     await p.setInputFiles('.prac-file input[type=file]', file(data));
     await p.waitForFunction(function () { return /Nothing to add — all 2 practicals are already imported\./.test(document.querySelector('.prac-file').textContent); });
     if (process.env.SHOTS) await (await p.$('.prac-file')).screenshot({ path: path.join(process.env.SHOTS, 'practical-file-import.png') });
+    // 🚀 Approve & publish all in the Teacher workspace (patch prac-publish-all): drafts imported earlier, without the import page's button
+    await p.setInputFiles('.prac-file input[type=file]', file(Object.assign({}, data, { practicals: data.practicals.concat([rec('03', 'Caseous necrosis', 'Caseous necrosis — tuberculosis', [])]) })));
+    await p.waitForFunction(function () { return /1 of 3 practicals will be added as drafts/.test(document.querySelector('.prac-file').textContent); });
+    await p.click('[data-a=prac-file-go]');
+    await p.waitForSelector('[data-a=prac-file-publish]', { timeout: 30000 });
+    await p.goto('https://third-year-med.github.io/cell-injury-teaching-platform/#/practical');
+    await p.waitForSelector('[data-a=prac-publish-all]', { timeout: 20000 });
+    assert.match(await p.textContent('.prac-drafts'), /🚀 Approve & publish all 11 practical not published yet/);
+    await p.click('[data-a=prac-publish-all]');
+    await p.click('.modal button:has-text("🚀 Publish all")');
+    await p.waitForFunction(function () { return /🚀 1 practical published/.test(document.querySelector('.prac-drafts').textContent); }, null, { timeout: 20000 });
+    assert.strictEqual(await p.$('[data-a=prac-publish-all]'), null, 'nothing left to publish');
+    assert.ok(await p.evaluate(function () { return PracData.published().some(function (x) { return x.title === 'Caseous necrosis'; }); }));
     await p.context().close();
     assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
   } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
