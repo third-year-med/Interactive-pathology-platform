@@ -481,6 +481,16 @@ hypertrophy/atrophy and are kept because they are in the syllabus), 109 glossary
 (T/F as 2 options, matching → one MCQ per pair); left out: outside the syllabus (e.g. 392, 401–404, 406–408, 410–414, 416, 422)
 and 415, 432 (key not settled by / against the syllabus: "BCC spreads only locally" vs "rarely metastasize"). Topic quizzes from
 the bank: t02, t04, t05, t07, t12 (≥ 5 each). e2e test "Neoplasia (New) module (neonew)…".
+**Practical (2026-10-31, build `new-1.1`, user: "use the original Neoplasia practical topic"):** t15 = `neoplasm`'s Practical topic
+(s1501–s1509 copied, references to that module's syllabus figures/cases/MCQs removed, its 26 atlas pictures keep their s15xx
+sections, its 6 own practice questions reused as q156–q161) + picture sections s1510 (benign & tumour-like), s1511 (malignant &
+metastases), s1512 (laboratory diagnosis). Deliverables (never committed): `neonew-practical-pictures.json` (24, `nn-prac-01…24`,
+Robbins + 4 syllabus figures), `neonew-practical-cases.json` (15: the 8 Ex. 19–20 practicals + polyp, follicular adenoma,
+fibroadenoma, dermoid, colon adenocarcinoma, scirrhous breast carcinoma, liver metastases), `neonew-spotter-questions.json` (52)
+and `neonew-ospe-stations.json` (18). Rehearsal on the real page: 24/24 pictures, 15 practicals (19 pictures), 52/52 Spotter,
+18/18 OSPE ready. **PEIR (peir.path.uab.edu) is outside the cloud session's network policy** (WebFetch DNS fails, curl gets a
+certificate error) → PEIR pictures can't be examined, so they are not used for Spotter/OSPE; the user asked to use PEIR "IPLab:
+Lab 7" for lab cases — needs the host allowed in the environment's Network access first.
 
 ### 4.3 Picture sources (user, 2026-10-19): use ALL of them, each under its own rules
 

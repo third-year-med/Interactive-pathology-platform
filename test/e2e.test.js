@@ -5068,7 +5068,7 @@ test('Neoplasia (New) module (neonew): every topic, section, view and slide rend
     const info = await p.evaluate(function () { return { cfg: window.NEO_CONFIG, course: COURSE.title, topics: DATA.topics.map(function (t) { return { id: t.id, title: t.title, sections: t.sections.map(function (s) { return { id: s.id, heading: s.heading, tables: s.tables.length, figures: s.figures.length }; }) }; }) }; });
     assert.strictEqual(info.cfg.moduleKey, 'neonew'); assert.strictEqual(info.cfg.storagePrefix, 'nn_');
     assert.strictEqual(info.course, 'Neoplasia (New)');
-    assert.strictEqual(info.topics.length, 14);   // the syllabus Neoplasia (Ch. 6), t01–t14, no practical topic yet
+    assert.strictEqual(info.topics.length, 15);   // the syllabus Neoplasia (Ch. 6), t01–t14 + the Practical topic t15 (build new-1.1)
     assert.ok(await p.evaluate(function () { return !!sessionStorage.getItem('nn_stu_session_v1') || !!localStorage.getItem('nn_stu_session_v1'); }), 'its own storage prefix');
     for (const tp of info.topics) {
       for (const sc of tp.sections) {
@@ -5117,7 +5117,7 @@ test('Neoplasia (New) module (neonew): every topic, section, view and slide rend
     await q.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
     await q.waitForSelector('#pres-stage .slide', { timeout: 15000 });
     const n = await q.evaluate(function () { return Views.present.list().length; });
-    assert.ok(n > 100 && n < 330, 'the deck is generated from the 14 topics: ' + n);
+    assert.ok(n > 100 && n < 380, 'the deck is generated from the 15 topics: ' + n);
     const bad = await q.evaluate(function () {
       const out = [], V = Views.present;
       for (let i = 0; i < V.list().length; i++) {
@@ -5133,7 +5133,7 @@ test('Neoplasia (New) module (neonew): every topic, section, view and slide rend
     await q.evaluate(function () { location.hash = '#/teacher'; });
     await q.waitForSelector('#view-teacher', { state: 'visible', timeout: 10000 });
     const plan = await q.evaluate(function () { return AssessUI.topicQuizPlan().topics.filter(function (x) { return x.ok; }).length; });
-    assert.ok(plan === 14, '⚡ Topic quizzes: every topic has ≥ 5 practice questions (' + plan + ')');
+    assert.ok(plan === 15, '⚡ Topic quizzes: every topic has ≥ 5 practice questions (' + plan + ')');
     await q.context().close();
     assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
   } finally {
