@@ -168,9 +168,18 @@ function cmdRefresh(repo, label) {
   console.log('✔ ' + cfg.moduleKey + ': platform block refreshed, build ' + cfg.build + ' (course content unchanged)');
 }
 
+/** Archived modules (modules/INACTIVE, user 2026-10-31) receive no refresh / preview / go-live. */
+function refuseInactive(repo) {
+  if (!repo || process.env.ALLOW_INACTIVE === '1') return;
+  const list = (() => { try { return fs.readFileSync(path.join(__dirname, '..', 'modules', 'INACTIVE'), 'utf8').split('\n').map(x => x.trim()).filter(x => x && x[0] !== '#'); } catch (e) { return []; } })();
+  const f = fs.existsSync(path.join(repo, 'index.html')) ? path.join(repo, 'index.html') : '';
+  const m = f && fs.readFileSync(f, 'utf8').match(/"moduleKey":"([a-z0-9]+)"/);
+  if (m && list.includes(m[1])) die('⛔ ' + repo + ' is the ARCHIVED module "' + m[1] + '" (modules/INACTIVE) — not updated. Re-activate it only when the user asks.');
+}
 if (require.main === module) {
   const a = process.argv.slice(2), bi = a.indexOf('--build'), label = bi >= 0 ? a.splice(bi, 2)[1] : '';
   const cmd = a[0];
+  if (['preview', 'golive', 'refresh'].includes(cmd)) refuseInactive(cmd === 'preview' ? a[2] : a[1]);
   if (cmd === 'inspect' && a[1]) cmdInspect(a[1]);
   else if (cmd === 'compare' && a[2]) cmdCompare(a[1], a[2]);
   else if (cmd === 'preview' && a[2]) cmdPreview(a[1], a[2], label);

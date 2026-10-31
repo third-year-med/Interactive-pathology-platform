@@ -5534,7 +5534,7 @@ test('📦 Import a practical file: practicals with their pictures → drafts (p
    Position menu) re-orders the teacher's pictures (same records, a link keeps its place) and the library pictures (section
    imageOrder); the order is saved, survives a reload and is what the page shows. Practical editor: drag ⠿ inside a group →
    d.images order, autosaved, kept after a reload. Synthetic course (no key). */
-test('⇅ Arrange pictures: Learn drag & drop + Position menu → saved (same records, link keeps its place, library order) → reload shows the new order (also on the slides of a saved deck); ⇄ Replace keeps the record; Present → 📖 Learn; Practical editor drag → autosaved → reload', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+test('⇅ Arrange pictures: Learn drag & drop + Position menu → saved (same records, link keeps its place, library order) → reload shows the new order (also on the slides of a saved deck); ⇄ Replace keeps the record (teacher pictures; library pictures through the universal editor); Present → 📖 Learn; Practical editor drag → autosaved → reload', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
   main.call({ module: 'portal', action: 'setup', password: TPW });
   const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
   const sec = function (id) { return { id: id, heading: 'Section ' + id, body: 'Text', tables: [], figures: [], keyPoints: [] }; };
@@ -5614,6 +5614,25 @@ test('⇅ Arrange pictures: Learn drag & drop + Position menu → saved (same re
     const rep = stored('custommedia', 's0101').items;
     assert.deepStrictEqual(rep.map(function (m) { return m.id + ':' + m.caption; }), ['m_4:Picture 4', 'm_1:Picture 1', 'm_l:A link', 'm_2:Picture 2', 'm_3:Picture 3']);
     assert.notStrictEqual(rep[0].url, pic(4).url, 'new picture address'); assert.strictEqual(rep[1].url, pic(1).url);
+    // ⇄ Replace a LIBRARY picture (patch atlas-replace): Learn opens the universal editor's Pictures tab; the existing
+    // module-wide replacement keeps the record (id, diagnosis, place); ↺ Reset to original brings the library picture back
+    await openLearn(true);
+    await p.hover('.atl-block .atl-fig:nth-child(2)');
+    await p.click('.atl-block .atl-fig:nth-child(2) .em-rep');   // Library 2 (order now 3, 2, 1)
+    await p.waitForSelector('.modal .ue-pane .ue-mrow');
+    await p.click('.modal .ue-pane .ue-mrow button:has-text("Replace")');
+    await p.waitForSelector('.modal input[type=file]');
+    await p.setInputFiles('.modal input[type=file]', { name: 'mine.png', mimeType: 'image/png', buffer: Buffer.from(PNG1, 'base64') });
+    await p.waitForSelector('.modal img[alt="Preview of the chosen image"]');
+    await p.fill('.modal input[placeholder="Source / licence / attribution"]', 'Dept. collection');
+    await p.click('.modal:has(input[type=file]) .modal-foot .btn-primary');
+    await p.waitForFunction(function () { return !document.querySelector('.modal input[type=file]'); });
+    await p.click('.modal .modal-foot button:has-text("Save")');
+    await p.waitForFunction(function () { const x = ATLAS.byId('tst-lib-2'); return x && x.provider === 'ue'; }, null, { timeout: 20000 });
+    const rec = await p.evaluate(function () { const x = ATLAS.byId('tst-lib-2'); return { src: x.src, dx: x.dx, credit: x.credit, inSection: ATLAS.forSection('s0101').map(function (y) { return y.id; }) }; });
+    assert.ok(rec.src !== lib(2).src, 'the new picture'); assert.strictEqual(rec.dx, 'Library 2'); assert.strictEqual(rec.credit, 'Dept. collection');
+    assert.deepStrictEqual(rec.inSection, ['tst-lib-3', 'tst-lib-2', 'tst-lib-1'], 'same place');
+    await p.waitForFunction(function (src) { const i = document.querySelector('.atl-block .atl-fig:nth-child(2) img'); return i && i.getAttribute('src') === src; }, rec.src, { timeout: 15000 });
     // 📖 Learn in Presentation Mode (patch present-learn): leaves fullscreen and opens Learn at the slide's section
     await p.goto('https://third-year-med.github.io/cell-injury-teaching-platform/#/present/section/s0101');
     await p.waitForSelector('[data-a=pres-learn]', { timeout: 15000 });

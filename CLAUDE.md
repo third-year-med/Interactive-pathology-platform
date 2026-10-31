@@ -5,6 +5,16 @@ the user follows, the testing workflow and the lessons learned. `docs/REBUILD.md
 build of a module; `SETUP.md` is the user-facing setup guide.
 
 Essentials:
+- **ACTIVE MODULES ONLY (user, 2026-10-31 — applies to every task until the user changes it):** work only on
+  `introduction-to-pathology` (`intropath`), `cell-injury-condensed` (`cellcondensed`), `inflammation-new` (`inflnew`) and
+  `neoplasia-new` (`neonew`). All other modules are ARCHIVED (`modules/INACTIVE`: `cellinjury`, `inflhealing`, `inflcondensed`,
+  `neoplasm`): never modify, rebuild, patch, refresh or delete them, even to fix an error — `apply.sh` and
+  `tools/module-release.js` refuse them. A change to a shared component (patches, Portal.gs, platform-nav, tests) that
+  could affect other modules needs the user's explicit approval first. Token policy: inspect only the files the task
+  needs, make targeted changes, test only what the change touches, and give a short plan + the files to change before
+  a major change. Tests that need the synthetic course use a throw-away patched copy:
+  `cp ../cell-injury-teaching-platform/index.html $SCRATCH/ci.html && ALLOW_INACTIVE=1 bash modules/patches/apply.sh $SCRATCH/ci.html`,
+  then `CI_MODULE_HTML=$SCRATCH/ci.html` (the archived repository itself is never written).
 - **Repositories in use:** `third-year-med/Interactive-pathology-platform` (this one — start every chat here),
   `introduction-to-pathology`, `cell-injury-teaching-platform`, `inflammation-healing`, `pathology-exams`,
   the condensed modules `third-year-med-inflammation-condensed` (`inflcondensed`) and `cell-injury-condensed` (`cellcondensed`);

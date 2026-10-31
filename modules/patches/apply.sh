@@ -7,10 +7,15 @@
 # copy the app code of a current model module (introduction-to-pathology) instead of patching by hand.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; NAV="$HERE/../platform-nav.js"
-ORDER=(assess-gate quiz-pw retire-class-pw assess-tab-pw pw-mask quiz-list-first assess-compact att-code-only stu-header sync-cursor pw-copy quick-panel copy-groups topic-quizzes topic-order picture-import slide-bold teacher-board att-teacher-short att-code-big media-print print-large print-clean print-mirror print-decode slide-print assess-retry att-live stu-group-join att-mark pw-min4 att-only-quiz att-only-all apw-order learn-fs assess-bank learn-fs-key prac-guide prac-guide-photo learn-fs-ipad att-teacher-name rs-sticky-leave prac-file-import spotter apply-practical bank-hide-empty prac-defaults-apply spotter-edit prac-apply-fix ospe nav-review-practical practical-declutter atlas-all-pictures fig-credit ux-practical-optional tq-mix rs-review rs-safe-dates prac-defaults-on prac-publish-all pic-arrange em-replace present-order present-learn)
+ORDER=(assess-gate quiz-pw retire-class-pw assess-tab-pw pw-mask quiz-list-first assess-compact att-code-only stu-header sync-cursor pw-copy quick-panel copy-groups topic-quizzes topic-order picture-import slide-bold teacher-board att-teacher-short att-code-big media-print print-large print-clean print-mirror print-decode slide-print assess-retry att-live stu-group-join att-mark pw-min4 att-only-quiz att-only-all apw-order learn-fs assess-bank learn-fs-key prac-guide prac-guide-photo learn-fs-ipad att-teacher-name rs-sticky-leave prac-file-import spotter apply-practical bank-hide-empty prac-defaults-apply spotter-edit prac-apply-fix ospe nav-review-practical practical-declutter atlas-all-pictures fig-credit ux-practical-optional tq-mix rs-review rs-safe-dates prac-defaults-on prac-publish-all pic-arrange em-replace present-order present-learn atlas-replace)
 check=0; if [ "${1:-}" = "--check" ]; then check=1; shift; fi
 [ $# -ge 1 ] || { echo "usage: $0 [--check] index.html [...]"; exit 2; }
+INACTIVE="$(grep -v '^#' "$HERE/../INACTIVE" 2>/dev/null | tr -s ' \n' ' ')"
 for page in "$@"; do
+  key="$(grep -o '"moduleKey":"[a-z0-9]*"' "$page" | head -1 | cut -d'"' -f4)"
+  if [ -n "$key" ] && [[ " $INACTIVE " == *" $key "* ]] && [ "${ALLOW_INACTIVE:-}" != "1" ]; then
+    echo "⛔ $page is the ARCHIVED module '$key' (modules/INACTIVE) — not updated. Re-activate it only when the user asks."; continue
+  fi
   target="$page"
   if [ $check = 1 ]; then target="$(mktemp --suffix=.html)"; cp "$page" "$target"; fi
   for p in "${ORDER[@]}"; do python3 "$HERE/$p.py" "$target" >/dev/null; done
