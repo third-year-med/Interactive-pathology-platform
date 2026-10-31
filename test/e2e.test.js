@@ -5530,6 +5530,98 @@ test('📦 Import a practical file: practicals with their pictures → drafts (p
   } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
 });
 
+/* ⇅ Arrange pictures (patch pic-arrange, user 2026-10-31): Learn → Edit Mode → ⇅ Arrange pictures — drag & drop (and the
+   Position menu) re-orders the teacher's pictures (same records, a link keeps its place) and the library pictures (section
+   imageOrder); the order is saved, survives a reload and is what the page shows. Practical editor: drag ⠿ inside a group →
+   d.images order, autosaved, kept after a reload. Synthetic course (no key). */
+test('⇅ Arrange pictures: Learn drag & drop + Position menu → saved (same records, link keeps its place, library order) → reload shows the new order; Practical editor drag → autosaved → reload', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const sec = function (id) { return { id: id, heading: 'Section ' + id, body: 'Text', tables: [], figures: [], keyPoints: [] }; };
+  const lib = function (k) { return { id: 'tst-lib-' + k, src: 'https://drive.google.com/thumbnail?id=LIBPIC' + k + 'XXXXXXX&sz=w2000', page: 'https://example.org/lib' + k, sections: ['s0101'], embed: true, dx: 'Library ' + k, title: 'Library ' + k, caption: 'Library caption ' + k, credit: 'Test library', kind: 'gross', source: 'peir' }; };
+  const mod = syntheticModule(CI_PAGE, { topics: [{ id: 't01', title: 'Cell injury', summary: 's', sections: [sec('s0101')] }], images: [lib(1), lib(2), lib(3)] });
+  const keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['cellinjury'] }).modules.cellinjury;
+  const pic = function (k) { return { id: 'm_' + k, type: 'image', url: 'https://drive.google.com/thumbnail?id=ARRPIC' + k + 'XXXXXXX&sz=w2000', caption: 'Picture ' + k }; };
+  main.call({ module: 'cellinjury', action: 'upsert', token: tt.token, collection: 'custommedia', id: 's0101', data: { items: [pic(1), pic(2), { id: 'm_l', type: 'link', url: 'https://example.org/x', caption: 'A link' }, pic(3), pic(4)] } });
+  const stored = function (coll, id) { const r = main.call({ module: 'cellinjury', action: 'getAllContent', token: tt.token, since: 0 }); const it = r.items.filter(function (i) { return i.collection === coll && i.id === id && !i.deleted; }).pop(); return it ? it.data : null; };
+  const start = errors.length;
+  try {
+    const p = await page();
+    await p.route('https://drive.google.com/**', function (route) { return route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from(PNG1, 'base64') }); });
+    await p.route('https://third-year-med.github.io/cell-injury-teaching-platform/**', function (route) { return route.fulfill({ status: 200, contentType: 'text/html', body: mod.html }); });
+    await p.addInitScript(function (v) { localStorage.setItem('ci_backend_token_v1', v); }, JSON.stringify({ token: tt.token, expiresAt: tt.expiresAt }));
+    const openLearn = async function (edit) {
+      await p.goto('https://third-year-med.github.io/cell-injury-teaching-platform/#/explain/t01/s0101');
+      await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+      await p.evaluate(function (on) { Views.explain.editMode = on; refreshAllContentViews(); }, edit);
+      await p.waitForSelector('.media-grid .media-item', { timeout: 15000 });
+    };
+    const shown = function () { return p.evaluate(function () {
+      return { own: [].map.call(document.querySelectorAll('.media-grid > .media-item'), function (n) { return (n.textContent.match(/Picture \d|A link/) || [''])[0]; }),
+        lib: [].map.call(document.querySelectorAll('.atl-block .atl-fig'), function (n) { return (n.textContent.match(/Library \d/) || [''])[0]; }) }; }); };
+    await openLearn(true);
+    assert.deepStrictEqual(await shown(), { own: ['Picture 1', 'Picture 2', 'A link', 'Picture 3', 'Picture 4'], lib: ['Library 1', 'Library 2', 'Library 3'] });
+    await p.click('[data-a=pic-arrange]');
+    await p.waitForSelector('.modal .pa-grid[data-group=own] .pa-card');
+    const caps = function (g) { return p.$$eval('.modal .pa-grid[data-group=' + g + '] .pa-card', function (ns) { return ns.map(function (n) { return n.querySelector('.pa-num').textContent + ':' + n.querySelector('.pa-cap').textContent; }); }); };
+    assert.deepStrictEqual(await caps('own'), ['1:Picture 1', '2:Picture 2', '3:Picture 3', '4:Picture 4'], 'only pictures, numbered');
+    // drag Picture 4 onto Picture 1 (mouse)
+    const box = async function (sel) { const b = await (await p.$(sel)).boundingBox(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; };
+    const from = await box('.modal .pa-grid[data-group=own] .pa-card:nth-child(4) img'), to = await box('.modal .pa-grid[data-group=own] .pa-card:nth-child(1) img');
+    await p.mouse.move(from.x, from.y); await p.mouse.down();
+    await p.mouse.move(from.x - 10, from.y, { steps: 3 });
+    assert.ok(await p.$('.modal .pa-card.pa-dragging'), 'visual feedback while dragging');
+    await p.mouse.move(to.x, to.y, { steps: 12 }); await p.mouse.up();
+    await p.waitForFunction(function () { return !document.querySelector('.pa-dragging'); });
+    assert.deepStrictEqual(await caps('own'), ['1:Picture 4', '2:Picture 1', '3:Picture 2', '4:Picture 3'], 'numbers follow the new order');
+    // Position menu: Library 3 → position 1; ▶ moves Library 1 (now 2nd) one later
+    await p.selectOption('.modal .pa-grid[data-group=lib] .pa-card:nth-child(3) select', '0');
+    await p.click('.modal .pa-grid[data-group=lib] .pa-card:nth-child(2) button[title="Move later"]');
+    assert.deepStrictEqual(await caps('lib'), ['1:Library 3', '2:Library 2', '3:Library 1']);
+    if (process.env.SHOTS) await (await p.$('.modal')).screenshot({ path: path.join(process.env.SHOTS, 'pic-arrange-learn.png') });
+    await p.click('.modal-foot .btn-primary');
+    await p.waitForFunction(function () { return !document.querySelector('.modal'); });
+    await p.waitForFunction(function () { return /Picture 4[\s\S]*Picture 1/.test((document.querySelector('.media-grid') || {}).textContent || ''); }, null, { timeout: 15000 });
+    // saved: the same records in the new order, the link in its place; library order on the section
+    await p.waitForTimeout(800);
+    const cm = stored('custommedia', 's0101');
+    assert.deepStrictEqual(cm.items.map(function (m) { return m.id; }), ['m_4', 'm_1', 'm_l', 'm_2', 'm_3']);
+    assert.deepStrictEqual(cm.items.filter(function (m) { return m.type === 'image'; }).map(function (m) { return m.url; }), [pic(4).url, pic(1).url, pic(2).url, pic(3).url], 'addresses unchanged, no copies');
+    const ts = stored('topicsections', 't01');
+    assert.deepStrictEqual(ts.sections[0].imageOrder, ['tst-lib-3', 'tst-lib-2', 'tst-lib-1']);
+    // reload (not in Edit Mode, as students see it)
+    await openLearn(false);
+    assert.deepStrictEqual(await shown(), { own: ['Picture 4', 'Picture 1', 'A link', 'Picture 2', 'Picture 3'], lib: ['Library 3', 'Library 2', 'Library 1'] });
+    // ---- Practical editor: drag ⠿ inside the Microscopic group ----
+    const id = await p.evaluate(async function () {
+      const d = PE_buildDraft({ number: 1, title: 'Arrange test', diagnosis: 'Dx', diagnosisConfidence: 'stated' }, { engine: 'manual', text: '' });
+      d.images = ['A', 'B', 'C'].map(function (k) { return { id: 'img_' + k, slot: 'micro', kind: 'micro', url: 'https://drive.google.com/thumbnail?id=PRACPIC' + k + 'XXXXXX&sz=w2000', caption: 'Micro ' + k, marks: [], active: true }; })
+        .concat([{ id: 'img_G', slot: 'gross', kind: 'gross', url: 'https://drive.google.com/thumbnail?id=PRACPICGXXXXXX&sz=w2000', caption: 'Gross G', marks: [], active: true }]);
+      await PracData.save(d); return d.id;
+    });
+    await p.goto('https://third-year-med.github.io/cell-injury-teaching-platform/#/practical/edit/' + encodeURIComponent(id));
+    await p.waitForSelector('.pa-plist .pa-card .pa-handle', { timeout: 20000 });
+    const nums = await p.$$eval('.pa-plist .pa-card .pa-num', function (ns) { return ns.map(function (n) { return n.textContent; }); });
+    assert.deepStrictEqual(nums.sort(), ['1', '1', '2', '3'], 'each group numbered from 1');
+    const micro = '.prac-slot:has(.pa-card[data-key=img_A]) .pa-plist';
+    await p.setViewportSize({ width: 1280, height: 1300 });
+    await p.$eval(micro + ' > .pa-card:nth-child(2)', function (n) { n.scrollIntoView({ block: 'center', behavior: 'instant' }); });
+    await p.waitForTimeout(600);
+    const h3 = await box(micro + ' > .pa-card:nth-child(3) .pa-handle'), c1 = await box(micro + ' > .pa-card:nth-child(1) .pa-handle');
+    await p.mouse.move(h3.x, h3.y); await p.mouse.down(); await p.mouse.move(h3.x, h3.y - 10, { steps: 3 }); await p.mouse.move(c1.x, c1.y, { steps: 15 }); await p.mouse.up();
+    await p.waitForFunction(function (i) { const d = PracData.get(i); return d && d.images.map(function (x) { return x.id; }).join() === 'img_C,img_A,img_B,img_G'; }, id, { timeout: 15000 });
+    await p.waitForFunction(function () { return /saved/i.test(document.body.innerText) && !/Unsaved changes/.test(document.body.innerText); }, null, { timeout: 15000 });
+    await p.reload();
+    await p.waitForSelector('.pa-plist .pa-card .pa-handle', { timeout: 20000 });
+    const after = await p.$$eval(micro + ' > .pa-card', function (ns) { return ns.map(function (n) { return n.querySelector('.pa-num').textContent + ':' + n.querySelector('input[placeholder^="e.g. Lipoma"]').value; }); });
+    assert.deepStrictEqual(after, ['1:Micro C', '2:Micro A', '3:Micro B']);
+    if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'pic-arrange-practical.png') });
+    await p.context().close();
+    assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
+  } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
+});
+
 /* 🔬 Pathology Spotter (patch spotter, user 2026-10-29): the Pathology Challenge is renamed; a teacher imports a Spotter
    question file; only questions whose picture is in a section of the Learn Practical topic are used (a picture elsewhere
    or missing → left out); Practice mode gives the explanation after each answer, Exam mode locks submitted answers and
