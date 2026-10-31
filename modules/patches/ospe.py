@@ -217,9 +217,10 @@ const PracOspe = {
  """      { g: '📝', title: 'OSPE exam', sub: 'Timed practical stations: pictures, a clinical scenario and short-answer questions with marks.', href: '#/practical/ospe', meta: (typeof PracOspe !== 'undefined' && PracOspe.ready().length >= OSPE_MIN) ? plural(PracOspe.ready().length, 'station') : '' },
       { g: '◆', title: 'Pathology Spotter', sub: 'Image-Based Practical Assessment in Pathology — practice or a 20-picture exam.'"""),
 ]
+DONE = '/* ---------- 📝 OSPE exam on the practical cases (patch ospe; #/practical/ospe) ---------- */'
 for path in sys.argv[1:]:
     s = open(path, encoding='utf-8').read(); n = 0
     for a, b in R:
-        if b in s: continue
+        if b in s or (b.startswith(DONE) and DONE in s): continue   # the block may have been edited by a later patch (spotter-ospe-multipic)
         assert s.count(a) == 1, (path, a[:70]); s = s.replace(a, b); n += 1
     open(path, 'w', encoding='utf-8').write(s); print(path, 'changes:', n)

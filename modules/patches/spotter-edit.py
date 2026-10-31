@@ -116,9 +116,10 @@ const SpotterEdit = {
 
 /* ====================================================================== UTILITIES (kept: Explanation links here) */"""),
 ]
+DONE = '/* ---------- ✏️ Spotter question editor (patch spotter-edit) ---------- */'
 for path in sys.argv[1:]:
     s = open(path, encoding='utf-8').read(); n = 0
     for a, b in R:
-        if b in s: continue
+        if b in s or (b.startswith(DONE) and DONE in s): continue   # the block may have been edited by a later patch (spotter-ospe-multipic)
         assert s.count(a) == 1, (path, a[:70]); s = s.replace(a, b); n += 1
     open(path, 'w', encoding='utf-8').write(s); print(path, 'changes:', n)

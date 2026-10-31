@@ -5951,7 +5951,7 @@ test('✏️ Spotter question editor: add with a Practical picture, validation, 
     // edit: new stem and another picture
     await p.click('[data-a=spe-edit]'); await p.waitForSelector('.spe-form');
     assert.strictEqual(await p.inputValue('.spe-form textarea[aria-label="Question stem"]'), 'Which process explains this kidney lesion?');
-    await p.fill('.spe-form textarea[aria-label="Question stem"]', 'Which process explains this liver?'); await p.click('.spe-pic:nth-child(1)');
+    await p.fill('.spe-form textarea[aria-label="Question stem"]', 'Which process explains this liver?'); await p.click('.spe-pic.sel'); await p.click('.spe-pic:nth-child(1)');   // untick the picture, tick another (1–4 pictures, patch spotter-ospe-multipic)
     await p.click('.modal-foot .btn-primary'); await p.waitForSelector('.modal', { state: 'detached' });
     await p.waitForFunction(function () { return Spotter.all()[0] && Spotter.all()[0].key === 'tst-ed-1'; });
     it = await p.evaluate(function () { return Spotter.all()[0]; });
@@ -5960,6 +5960,62 @@ test('✏️ Spotter question editor: add with a Practical picture, validation, 
     // delete
     await p.click('[data-a=spe-del]'); await p.waitForSelector('.modal'); await p.click('.modal-foot .btn-danger, .modal-foot .btn-primary');
     await p.waitForFunction(function () { return /Questions \(0\)/.test((document.querySelector('.spe-panel') || {}).textContent || ''); });
+    await p.context().close();
+    assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
+  } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
+});
+
+/* 🖼 Up to 4 pictures per Spotter question and OSPE station (patch spotter-ospe-multipic, user 2026-10-31): the question
+   shows the main picture with small pictures below (click = shown large); the editor ticks 1–4 numbered pictures (the
+   first is the main one; a 5th is refused) and saves `more`; an OSPE station shows 3 pictures. Synthetic course (no key). */
+test('🖼 Spotter and OSPE: up to 4 pictures — practice shows the extra pictures, the editor ticks 1–4 (numbered), an OSPE station shows 3', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const sec = function (id) { return { id: id, heading: 'Section ' + id, body: 'Text', tables: [], figures: [], keyPoints: [] }; };
+  const mod = syntheticModule(CI_PAGE, { topics: [{ id: 't17', title: 'Practical Pathology — Specimens & Slides', summary: 's', sections: [sec('s1701')] }], images: [] });
+  const keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['cellinjury'] }).modules.cellinjury;
+  const pic = function (k) { return { id: 'm_' + k, type: 'image', url: 'https://drive.google.com/thumbnail?id=MULTI' + k + 'XXXXXXX&sz=w2000', caption: 'Picture ' + k, importKey: 'tst-mp-' + k }; };
+  main.call({ module: 'cellinjury', action: 'upsert', token: tt.token, collection: 'custommedia', id: 's1701', data: { items: [1, 2, 3, 4, 5, 6].map(pic) } });
+  const qn = function (k) { return { id: 'mp-q' + k, key: 'tst-mp-' + k, section: 's1701', type: 'diagnosis', level: 'core', stem: 'Stem ' + k, options: ['A' + k, 'B' + k, 'C' + k, 'D' + k, 'E' + k], answer: 0, explanation: { finding: 'F' + k } }; };
+  const items = [1, 2, 3, 4, 5].map(qn); items[0].more = [{ key: 'tst-mp-2', section: 's1701' }, { key: 'tst-mp-3', section: 's1701' }];
+  main.call({ module: 'cellinjury', action: 'upsert', token: tt.token, collection: 'practicalcfg', id: 'spotter', data: { v: 1, items: items } });
+  main.call({ module: 'cellinjury', action: 'upsert', token: tt.token, collection: 'practicalcfg', id: 'ospe', data: { v: 1, items: [1, 2, 3].map(function (n) { return { id: 'mp-os' + n, title: 'Station ' + n, pics: [1, 2, 3].map(function (k) { return { key: 'tst-mp-' + k, section: 's1701' }; }), scenario: 'S', parts: [{ q: 'Q?', marks: 1, answer: 'A' }] }; }) } });   // OSPE needs 3 ready stations
+  const start = errors.length;
+  try {
+    const p = await page();
+    await p.route('https://drive.google.com/**', function (route) { return route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from(PNG1, 'base64') }); });
+    await p.route('https://third-year-med.github.io/cell-injury-teaching-platform/**', function (route) { return route.fulfill({ status: 200, contentType: 'text/html', body: mod.html }); });
+    await p.addInitScript(function (v) { localStorage.setItem('ci_backend_token_v1', v); }, JSON.stringify({ token: tt.token, expiresAt: tt.expiresAt }));
+    await p.goto('https://third-year-med.github.io/cell-injury-teaching-platform/#/study/challenge');
+    await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+    await p.waitForSelector('[data-a=spot-practice]', { timeout: 15000 });
+    assert.deepStrictEqual(await p.evaluate(function () { return Spotter.pictures(Spotter.byId('mp-q1')).map(function (x) { return /MULTI(\d)/.exec(x.url)[1]; }); }), ['1', '2', '3']);
+    // practice: bring question 1 forward, its 3 pictures are shown
+    await p.evaluate(function () { Spotter.start('practice'); const R = Spotter.run; R.ids = ['mp-q1'].concat(R.ids.filter(function (x) { return x !== 'mp-q1'; })); R.i = 0; Spotter.paint(); });
+    await p.waitForSelector('.spot-card .spot-strip button');
+    assert.strictEqual(await p.$$eval('.spot-card .spot-strip button', function (b) { return b.length; }), 3);
+    await p.click('.spot-card .spot-strip button:nth-child(3)');
+    await p.waitForFunction(function () { return /MULTI3/.test(document.querySelector('.spot-card img.spot-img').src); });
+    assert.ok(await p.$('.spot-card .spot-strip button:nth-child(3).on'));
+    // editor: 3 ticked and numbered; tick a 4th → 4; a 5th is refused; save → more = 3
+    await p.evaluate(function () { Spotter.run = null; Spotter.paint(); });
+    await p.evaluate(function () { SpotterEdit.form(Spotter.byId('mp-q1')); });
+    await p.waitForSelector('.spe-form');
+    assert.deepStrictEqual(await p.$$eval('.spe-pic .spe-n', function (n) { return n.map(function (x) { return x.textContent; }); }), ['1', '2', '3']);
+    assert.match(await p.textContent('.spe-form'), /Pictures \(1–4\)/);
+    await p.click('.spe-pic:nth-child(5)'); await p.click('.spe-pic:nth-child(6)');
+    assert.strictEqual(await p.$$eval('.spe-pic.sel', function (n) { return n.length; }), 4, 'a 5th picture is refused');
+    await p.click('.modal-foot .btn-primary'); await p.waitForSelector('.modal', { state: 'detached' });
+    await p.waitForFunction(function () { const it = Spotter.byId('mp-q1'); return it && (it.more || []).length === 3; });
+    assert.deepStrictEqual(await p.evaluate(function () { const it = Spotter.byId('mp-q1'); return [it.key].concat(it.more.map(function (r) { return r.key; })); }), ['tst-mp-1', 'tst-mp-2', 'tst-mp-3', 'tst-mp-5']);
+    // OSPE: a station with 3 pictures shows all 3
+    await p.goto('https://third-year-med.github.io/cell-injury-teaching-platform/#/practical');
+    await p.waitForSelector('[data-a=ospe-tab]', { timeout: 15000 }); await p.click('[data-a=ospe-tab]');
+    await p.waitForSelector('[data-a=ospe-start]', { timeout: 15000 }); await p.click('[data-a=ospe-start]');
+    await p.waitForSelector('.ospe-card');
+    assert.strictEqual(await p.$$eval('.ospe-card img.ospe-img', function (n) { return n.length; }), 3);
+    if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'multipic-ospe.png') });
     await p.context().close();
     assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
   } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
