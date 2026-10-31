@@ -5534,7 +5534,7 @@ test('📦 Import a practical file: practicals with their pictures → drafts (p
    Position menu) re-orders the teacher's pictures (same records, a link keeps its place) and the library pictures (section
    imageOrder); the order is saved, survives a reload and is what the page shows. Practical editor: drag ⠿ inside a group →
    d.images order, autosaved, kept after a reload. Synthetic course (no key). */
-test('⇅ Arrange pictures: Learn drag & drop + Position menu → saved (same records, link keeps its place, library order) → reload shows the new order; ⇄ Replace keeps the record; Practical editor drag → autosaved → reload', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+test('⇅ Arrange pictures: Learn drag & drop + Position menu → saved (same records, link keeps its place, library order) → reload shows the new order (also on the slides of a saved deck); ⇄ Replace keeps the record; Practical editor drag → autosaved → reload', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
   main.call({ module: 'portal', action: 'setup', password: TPW });
   const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
   const sec = function (id) { return { id: id, heading: 'Section ' + id, body: 'Text', tables: [], figures: [], keyPoints: [] }; };
@@ -5562,6 +5562,11 @@ test('⇅ Arrange pictures: Learn drag & drop + Position menu → saved (same re
         lib: [].map.call(document.querySelectorAll('.atl-block .atl-fig'), function (n) { return (n.textContent.match(/Library \d/) || [''])[0]; }) }; }); };
     await openLearn(true);
     assert.deepStrictEqual(await shown(), { own: ['Picture 1', 'Picture 2', 'A link', 'Picture 3', 'Picture 4'], lib: ['Library 1', 'Library 2', 'Library 3'] });
+    // a customized (saved) slide deck made BEFORE arranging (patch present-order: its Images slides follow the new order)
+    const slidePics = function () { return p.evaluate(function () { return Views.present.list().filter(function (x) { return x.type === 'gallery' && x.sectionId === 's0101'; })
+      .map(function (x) { return (x.items || []).filter(function (r) { return (r.t === 'atlas' || r.t === 'media') && r.id !== 'm_l'; }).map(function (r) { return r.id; }).join(','); }).filter(Boolean); }); };
+    assert.deepStrictEqual(await slidePics(), ['tst-lib-1,tst-lib-2,tst-lib-3', 'm_1', 'm_2', 'm_3', 'm_4']);
+    await p.evaluate(async function () { State.deck = { slides: deepClone(Views.present.list()) }; await saveStateField('deck'); });
     await p.click('[data-a=pic-arrange]');
     await p.waitForSelector('.modal .pa-grid[data-group=own] .pa-card');
     const caps = function (g) { return p.$$eval('.modal .pa-grid[data-group=' + g + '] .pa-card', function (ns) { return ns.map(function (n) { return n.querySelector('.pa-num').textContent + ':' + n.querySelector('.pa-cap').textContent; }); }); };
@@ -5593,6 +5598,8 @@ test('⇅ Arrange pictures: Learn drag & drop + Position menu → saved (same re
     // reload (not in Edit Mode, as students see it)
     await openLearn(false);
     assert.deepStrictEqual(await shown(), { own: ['Picture 4', 'Picture 1', 'A link', 'Picture 2', 'Picture 3'], lib: ['Library 3', 'Library 2', 'Library 1'] });
+    assert.ok(await p.evaluate(function () { return !!(State.deck && State.deck.slides && State.deck.slides.length); }), 'the saved deck is still used');
+    assert.deepStrictEqual(await slidePics(), ['tst-lib-3,tst-lib-2,tst-lib-1', 'm_4', 'm_1', 'm_2', 'm_3'], 'Presentation Mode follows the new order');
     // ⇄ Replace (patch em-replace): a new file for the SAME record — id, place and caption kept, new address
     await openLearn(true);
     await p.hover('.media-grid > .media-item:first-child');
