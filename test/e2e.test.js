@@ -5534,7 +5534,7 @@ test('📦 Import a practical file: practicals with their pictures → drafts (p
    Position menu) re-orders the teacher's pictures (same records, a link keeps its place) and the library pictures (section
    imageOrder); the order is saved, survives a reload and is what the page shows. Practical editor: drag ⠿ inside a group →
    d.images order, autosaved, kept after a reload. Synthetic course (no key). */
-test('⇅ Arrange pictures: Learn drag & drop + Position menu → saved (same records, link keeps its place, library order) → reload shows the new order (also on the slides of a saved deck); ⇄ Replace keeps the record; Practical editor drag → autosaved → reload', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+test('⇅ Arrange pictures: Learn drag & drop + Position menu → saved (same records, link keeps its place, library order) → reload shows the new order (also on the slides of a saved deck); ⇄ Replace keeps the record; Present → 📖 Learn; Practical editor drag → autosaved → reload', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
   main.call({ module: 'portal', action: 'setup', password: TPW });
   const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
   const sec = function (id) { return { id: id, heading: 'Section ' + id, body: 'Text', tables: [], figures: [], keyPoints: [] }; };
@@ -5614,6 +5614,15 @@ test('⇅ Arrange pictures: Learn drag & drop + Position menu → saved (same re
     const rep = stored('custommedia', 's0101').items;
     assert.deepStrictEqual(rep.map(function (m) { return m.id + ':' + m.caption; }), ['m_4:Picture 4', 'm_1:Picture 1', 'm_l:A link', 'm_2:Picture 2', 'm_3:Picture 3']);
     assert.notStrictEqual(rep[0].url, pic(4).url, 'new picture address'); assert.strictEqual(rep[1].url, pic(1).url);
+    // 📖 Learn in Presentation Mode (patch present-learn): leaves fullscreen and opens Learn at the slide's section
+    await p.goto('https://third-year-med.github.io/cell-injury-teaching-platform/#/present/section/s0101');
+    await p.waitForSelector('[data-a=pres-learn]', { timeout: 15000 });
+    await p.evaluate(function () { Views.present.next(); });   // an Images slide of the section
+    await p.click('.pres-toolbar button:has-text("Fullscreen")');
+    await p.click('[data-a=pres-learn]');
+    await p.waitForFunction(function () { return location.hash === '#/explain/t01/s0101'; }, null, { timeout: 10000 });
+    assert.ok(!(await p.evaluate(function () { return document.body.classList.contains('pres-fs-on'); })), 'fullscreen is left');
+    await p.waitForSelector('.media-grid .media-item', { timeout: 15000 });
     // ---- Practical editor: drag ⠿ inside the Microscopic group ----
     const id = await p.evaluate(async function () {
       const d = PE_buildDraft({ number: 1, title: 'Arrange test', diagnosis: 'Dx', diagnosisConfidence: 'stated' }, { engine: 'manual', text: '' });
