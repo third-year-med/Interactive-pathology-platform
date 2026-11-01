@@ -2817,3 +2817,31 @@ test('2.33 assessment-only question bank: teachers of every group read it, only 
   assert.deepStrictEqual(call(CI, { action: 'qbList', token: tRa }).items, []);
   assert.ok(Number(X.PORTAL_VERSION) >= 2.33);
 });
+
+test('2.38 🎬 Video Lectures: one platform-wide library — teachers add / edit / order / remove; students see only published videos', function () {
+  const S = setup(), T = S.tokens;
+  const stu = S.call({ module: 'cellinjury', action: 'studentLogin', username: 's1', password: PW }).token;
+  // students: sign-in needed in a module with student accounts; an empty library at first
+  assert.strictEqual(S.call({ module: 'cellinjury', action: 'videoList' }).ok, false, 'not without a session');
+  assert.deepStrictEqual(S.call({ module: 'cellinjury', action: 'videoList', stoken: stu }).items, []);
+  // only a teacher of the module saves
+  assert.strictEqual(S.call({ module: 'cellinjury', action: 'videoSave', stoken: stu, video: { title: 'X', url: 'https://youtu.be/abcdefghijk' } }).ok, false);
+  assert.strictEqual(S.call({ module: 'cellinjury', action: 'videoSave', token: T.inflhealing, video: { title: 'X', url: 'https://youtu.be/abcdefghijk' } }).ok, false, 'another module\'s token is refused');
+  assert.match(S.call({ module: 'cellinjury', action: 'videoSave', token: T.cellinjury, video: { title: 'X', url: 'javascript:alert(1)' } }).error, /https/);
+  const a = S.call({ module: 'cellinjury', action: 'videoSave', token: T.cellinjury, video: { title: 'Necrosis', url: 'https://drive.google.com/file/d/ABCDEFGHIJKLMNOP/view', modules: ['cellinjury', 'neonew'], chapter: 'Cell death', duration: '42:10', download: true, status: 'published' } });
+  assert.ok(a.ok, JSON.stringify(a)); assert.deepStrictEqual(a.video.modules, ['cellinjury', 'neonew']);
+  const b = S.call({ module: 'inflhealing', action: 'videoSave', token: T.inflhealing, video: { title: 'Acute inflammation', url: 'https://www.youtube.com/watch?v=abcdefghijk', modules: ['inflhealing'] } });
+  assert.ok(b.ok); assert.strictEqual(b.video.status, 'draft', 'a new video is a draft unless published');
+  // students of ANY module see the same library, only the published video; teachers see drafts too
+  assert.deepStrictEqual(S.call({ module: 'inflhealing', action: 'videoList', stoken: S.call({ module: 'inflhealing', action: 'studentLogin', username: 's1', password: PW }).token }).items.map(function (v) { return v.title; }), ['Necrosis']);
+  const tl = S.call({ module: 'cellinjury', action: 'videoList', token: T.cellinjury });
+  assert.deepStrictEqual([tl.canEdit, tl.items.map(function (v) { return v.title + ':' + v.status; })], [true, ['Necrosis:published', 'Acute inflammation:draft']]);
+  // edit keeps the id; order; remove
+  const e = S.call({ module: 'cellinjury', action: 'videoSave', token: T.cellinjury, video: Object.assign({}, b.video, { title: 'Acute inflammation (2)', status: 'published' }) });
+  assert.strictEqual(e.video.id, b.video.id);
+  assert.ok(S.call({ module: 'cellinjury', action: 'videoOrder', token: T.cellinjury, ids: [b.video.id, a.video.id] }).ok);
+  assert.deepStrictEqual(S.call({ module: 'cellinjury', action: 'videoList', stoken: stu }).items.map(function (v) { return v.title; }), ['Acute inflammation (2)', 'Necrosis']);
+  assert.ok(S.call({ module: 'cellinjury', action: 'videoRemove', token: T.cellinjury, id: a.video.id }).ok);
+  assert.deepStrictEqual(S.call({ module: 'cellinjury', action: 'videoList', stoken: stu }).items.map(function (v) { return v.title; }), ['Acute inflammation (2)']);
+  assert.strictEqual(S.call({ module: 'cellinjury', action: 'videoSave', token: T.cellinjury, video: { id: a.video.id, title: 'Gone', url: 'https://x.org/v' } }).code, 'notfound');
+});

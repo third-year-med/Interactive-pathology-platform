@@ -6021,6 +6021,92 @@ test('🖼 Spotter and OSPE: up to 4 pictures — practice shows the extra pictu
   } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
 });
 
+/* 🎬 Video Lectures (patch video-library + Portal.gs 2.38, user 2026-11-01): an independent 5th main tab; one platform-wide
+   library; a teacher adds a YouTube video (published) and a Google Drive video (draft, download allowed), previews,
+   watches, orders by drag and by Position, edits and removes; students get only published videos; phone layout = 1
+   column. Synthetic course (no key). */
+test('🎬 Video Lectures: 5th main tab; teacher adds YouTube + Drive videos, preview, watch, draft/published, drag + position order, edit, remove; students see only published; phone layout', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const mod = syntheticModule(CI_PAGE, { topics: [{ id: 't01', title: 'Cell injury', summary: 's', sections: [{ id: 's0101', heading: 'S', body: 'Text', tables: [], figures: [], keyPoints: [] }] }], images: [] });
+  const keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['cellinjury'] }).modules.cellinjury;
+  main.call({ module: 'cellinjury', action: 'bulkAddStudents', token: tt.token, students: [{ username: 'vls1', name: 'Video Student', password: 'pass-1234', mustChange: false }] });
+  const stuList = function () { const st = main.call({ module: 'cellinjury', action: 'studentLogin', username: 'vls1', password: 'pass-1234' }).token; return main.call({ module: 'cellinjury', action: 'videoList', stoken: st }).items.map(function (v) { return v.title; }); };
+  const lib = function () { return main.call({ module: 'cellinjury', action: 'videoList', token: tt.token }).items; };
+  lib().forEach(function (v) { main.call({ module: 'cellinjury', action: 'videoRemove', token: tt.token, id: v.id }); });   // a clean library
+  const start = errors.length;
+  try {
+    const p = await page();
+    await p.route('https://third-year-med.github.io/cell-injury-teaching-platform/**', function (route) { return route.fulfill({ status: 200, contentType: 'text/html', body: mod.html }); });
+    await p.route(/https:\/\/(drive\.google\.com|i\.ytimg\.com|www\.youtube-nocookie\.com)\/.*/, function (route) { return /thumbnail|ytimg/.test(route.request().url()) ? route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from(PNG1, 'base64') }) : route.fulfill({ status: 200, contentType: 'text/html', body: '<html><body>player</body></html>' }); });
+    await p.addInitScript(function (v) { localStorage.setItem('ci_backend_token_v1', v); }, JSON.stringify({ token: tt.token, expiresAt: tt.expiresAt }));
+    await p.goto('https://third-year-med.github.io/cell-injury-teaching-platform/#/videos');
+    await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+    assert.deepStrictEqual(await p.$$eval('.nav-btn.nav-area', function (b) { return b.map(function (x) { return x.dataset.view; }); }), ['learn', 'practise', 'apply', 'videos', 'progress'], 'Video Lectures between Practical and My Progress');
+    await p.waitForSelector('[data-a=vl-add]', { timeout: 15000 });
+    assert.ok(await p.$('.nav-btn.active[data-view=videos]'));
+    assert.match(await p.textContent('#view-videos'), /No videos yet/);
+    const add = async function (o) {
+      await p.click('[data-a=vl-add]'); await p.waitForSelector('.vl-form'); await p.waitForTimeout(150);   // the window focuses its first field after 30 ms
+      await p.fill('.vl-form input[placeholder^="e.g. Acute"]', o.title); await p.fill('.vl-form input[type=url] >> nth=0', o.url);
+      if (o.preview) { await p.click('.vl-form button:has-text("Preview")'); await p.waitForSelector('.vl-form .vl-prev iframe', { state: 'attached', timeout: 8000 }); assert.match(await p.getAttribute('.vl-form .vl-prev iframe', 'src'), o.preview); }
+      await p.fill('.vl-form input[placeholder^="e.g. Chapter"]', o.chapter); await p.fill('.vl-form input[placeholder="e.g. 42:10"]', o.dur);
+      await p.fill('.vl-form textarea', o.desc);
+      if (o.download) await p.check('.vl-form label:has-text("Allow students to download") input');
+      if (o.publish) await p.selectOption('.vl-form select >> nth=1', 'published');
+      await p.click('.modal-foot .btn-primary'); await p.waitForSelector('.modal', { state: 'detached', timeout: 20000 });
+    };
+    await add({ title: 'Acute inflammation', url: 'https://www.youtube.com/watch?v=abcdefghijk', preview: /youtube-nocookie\.com\/embed\/abcdefghijk/, chapter: 'Inflammation', dur: '35:00', desc: 'Vascular and cellular events.', publish: true });
+    await add({ title: 'Necrosis and apoptosis', url: 'https://drive.google.com/file/d/DRIVEVIDEO1234567/view?usp=sharing', preview: /drive\.google\.com\/file\/d\/DRIVEVIDEO1234567\/preview/, chapter: 'Cell death', dur: '42:10', desc: 'Types of necrosis.', download: true });
+    await p.waitForFunction(function () { return document.querySelectorAll('.vl-card').length === 2; });
+    let L = lib();
+    assert.deepStrictEqual(L.map(function (v) { return [v.title, v.status, v.download, v.duration, v.modules.join()]; }), [['Acute inflammation', 'published', false, '35:00', 'cellinjury'], ['Necrosis and apoptosis', 'draft', true, '42:10', 'cellinjury']]);
+    assert.deepStrictEqual(stuList(), ['Acute inflammation'], 'students: only the published video');
+    assert.match(await p.textContent('.vl-card:nth-child(2)'), /42:10[\s\S]*DRAFT[\s\S]*Necrosis and apoptosis[\s\S]*Cell death/);
+    assert.ok(await p.$('.vl-card:nth-child(2) [data-a=vl-download]'), 'download offered'); assert.ok(!(await p.$('.vl-card:nth-child(1) [data-a=vl-download]')), 'not for YouTube');
+    assert.match(await p.getAttribute('.vl-card:nth-child(2) .vl-thumb img', 'src'), /drive\.google\.com\/thumbnail\?id=DRIVEVIDEO1234567/);
+    // watch
+    await p.click('.vl-card:nth-child(2) [data-a=vl-watch]'); await p.waitForSelector('.modal .vl-player iframe');
+    assert.match(await p.getAttribute('.modal .vl-player iframe', 'src'), /DRIVEVIDEO1234567\/preview/);
+    await p.keyboard.press('Escape'); await p.waitForSelector('.modal', { state: 'detached' });
+    // search and chapter filter
+    await p.fill('.vl-tools input[type=search]', 'apoptosis'); await p.waitForFunction(function () { return document.querySelectorAll('.vl-card').length === 1; });
+    await p.fill('.vl-tools input[type=search]', ''); await p.waitForFunction(function () { return document.querySelectorAll('.vl-card').length === 2; });
+    // drag order (All modules, no filter): Necrosis first
+    await p.selectOption('.vl-tools select >> nth=0', '');
+    await p.waitForSelector('.vl-card .pa-handle');
+    const box = async function (sel) { const b = await (await p.$(sel)).boundingBox(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; };
+    const h2 = await box('.vl-card:nth-child(2) .pa-handle'), c1 = await box('.vl-card:nth-child(1) .vl-body h3');
+    await p.mouse.move(h2.x, h2.y); await p.mouse.down(); await p.mouse.move(h2.x - 10, h2.y, { steps: 3 }); await p.mouse.move(c1.x, c1.y, { steps: 12 }); await p.mouse.up();
+    await p.waitForFunction(function () { return /Order saved/.test(document.body.innerText); }, null, { timeout: 20000 });
+    assert.deepStrictEqual(lib().map(function (v) { return v.title; }), ['Necrosis and apoptosis', 'Acute inflammation']);
+    // edit: publish the Drive video, put it at position 2
+    await p.click('.vl-card:nth-child(1) [data-a=vl-edit]'); await p.waitForSelector('.vl-form');
+    await p.selectOption('.vl-form select >> nth=1', 'published'); await p.selectOption('.vl-form select >> nth=0', '1');
+    await p.click('.modal-foot .btn-primary'); await p.waitForSelector('.modal', { state: 'detached', timeout: 20000 });
+    await p.waitForTimeout(1500);
+    L = lib(); assert.deepStrictEqual(L.map(function (v) { return v.title + ':' + v.status; }), ['Acute inflammation:published', 'Necrosis and apoptosis:published']);
+    assert.deepStrictEqual(stuList(), ['Acute inflammation', 'Necrosis and apoptosis']);
+    // reload keeps everything
+    await p.reload(); await p.waitForSelector('.vl-card', { timeout: 20000 });
+    assert.deepStrictEqual(await p.$$eval('.vl-card h3', function (h) { return h.map(function (x) { return x.textContent; }); }), ['Acute inflammation', 'Necrosis and apoptosis']);
+    // phone: one column
+    await p.setViewportSize({ width: 390, height: 840 }); await p.waitForTimeout(300);
+    assert.strictEqual(await p.$eval('.vl-grid', function (g) { return getComputedStyle(g).gridTemplateColumns.split(' ').length; }), 1);
+    assert.ok(await p.evaluate(function () { return document.documentElement.scrollWidth <= window.innerWidth + 1; }), 'no horizontal scroll');
+    if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'video-library-phone.png') });
+    await p.setViewportSize({ width: 1280, height: 900 });
+    if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'video-library.png') });
+    // remove
+    await p.click('.vl-card:nth-child(1) [data-a=vl-remove]'); await p.click('.modal-foot .btn-danger');
+    await p.waitForFunction(function () { return document.querySelectorAll('.vl-card').length === 1; });
+    assert.deepStrictEqual(lib().map(function (v) { return v.title; }), ['Necrosis and apoptosis']);
+    await p.context().close();
+    assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
+  } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
+});
+
 /* 📝 OSPE exam for the practical cases (patch ospe, user 2026-10-29): stations with pictures from the Learn Practical topic only
    (a station whose picture is missing is left out), a clinical scenario and short-answer parts with marks; timed, forward
    only, answers kept while typing; self-marking against model answers → score and %; teacher import + station editor. */

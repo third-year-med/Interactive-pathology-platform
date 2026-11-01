@@ -199,7 +199,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.37';
+var PORTAL_VERSION = '2.38';
 /** 2.28: the shortest password for teachers AND students on every Portal screen (user, 2026-10-21: 4, was 8). Code.gs checks its own
     (STU_MIN_PW and the module teacher password) — platformCheck warns while they still ask for more. No maximum. */
 var PW_MIN_ = 4;
@@ -236,6 +236,7 @@ function portalHook_(module, p) {
     if (act === 'aeCopyTargets' || act === 'aeCopyTo') return aeCopyHook_(String(module), act, p);   // 2.21: copy an assessment to other groups
     if (act === 'attMark' || act === 'attMarks') return attMarkHook_(String(module), act, p);
     if (act === 'teacherWho') return teacherWhoHook_(String(module), p);   // 2.35: the name of the teacher account that opened this module   // 2.25/2.26: Present / Late / Excused in the module report
+    if (VL_ACTIONS[act]) return vlHook_(String(module), act, p);   // 2.38: 🎬 Video Lectures — one platform-wide library
     if (QB_ACTIONS[act]) return qbankHook_(String(module), act, p);   // 2.33: the module's assessment-only question bank (teachers)
     // 2.5 speed: the frequent "anything new?" check is answered from memory when nothing changed for this storage
     if (act === 'getAllContent') { var fast = cvFastUnchanged_(String(module), p); if (fast) return fast; }
@@ -2182,7 +2183,7 @@ var CV_NO_CONTENT_WRITE = {};
  'listAssessGroups', 'saveAssessGroup', 'deleteAssessGroup', 'listAssignments', 'createAssignments', 'cancelAssignment', 'listAttempts',
  'getMyAssessments', 'startAttempt', 'submitAttempt', 'mailQuota', 'sendAssessmentFeedback',
  'studyConnect', 'studyPull', 'studyPush', 'studyDisconnect', 'studyDelete', 'studyClassStats', 'studyResetPin',
- 'examList', 'examResults', 'examAttemptDetail', 'examBankList', 'contentBuildManifest'].forEach(function (a) { CV_NO_CONTENT_WRITE[a] = 1; });
+ 'examList', 'examResults', 'examAttemptDetail', 'examBankList', 'contentBuildManifest', 'videoList'].forEach(function (a) { CV_NO_CONTENT_WRITE[a] = 1; });
 var CV_WRITE_GRACE_MS = 60000;    // a write still in progress (a save waits at most ~30 s for the lock) is always covered
 function cvMarkWrite_(S) { try { CacheService.getScriptCache().put('cvw:' + S, String(Date.now()), 21600); } catch (e) { } }
 /** null = take the normal path. An answer = "nothing new since your last check" (the browser keeps what it has). */
@@ -4061,4 +4062,75 @@ function platformCheck() {
   try { Logger.log(text); } catch (e) { }
   try { console.log(text); } catch (e) { }
   return { ok: !errors.length, errors: errors, warnings: warnings, text: text };
+}
+
+/* ======================================================================
+ * 2.38 — 🎬 Video Lectures: ONE platform-wide video library (user 2026-11-01), shown in every module's "Video Lectures"
+ * tab. Stored once in the Content sheet (module "videolib", collection "video", one row per video; never versioned or
+ * copied per group). Videos are hosted elsewhere (Google Drive, YouTube, Vimeo, other sites) — only the link is stored.
+ *   videoList    the published videos (a signed-in student of the module, or anyone when the module has no student
+ *                sign-in); a teacher of the module also gets the drafts, and canEdit
+ *   videoSave    teacher of the module (or the Admin in the module): add / edit one video {video:{…}}
+ *   videoRemove  teacher: remove one video {id}
+ *   videoOrder   teacher: display order {ids:[…]} (the order of the list)
+ * ====================================================================== */
+var VL_STORE = 'videolib', VL_ACTIONS = { videoList: 1, videoSave: 1, videoRemove: 1, videoOrder: 1 }, VL_MAX = 500;
+function vlTeacher_(S, p) { if (!p.token) return false; var r = authed_(S, p, function () { return { ok: true }; }); return !!(r && r.ok); }
+function vlRows_() { return readAll_(SHEETS.CONTENT).filter(function (r) { return r.module === VL_STORE && r.collection === 'video'; }); }
+function vlAll_() {
+  var c = CacheService.getScriptCache(), hit = c.get('vl:all');
+  if (hit) { try { return JSON.parse(hit); } catch (e) { } }
+  var out = vlRows_().filter(function (r) { return !isTrue_(r.deleted); }).map(function (r) { return unpackJson_(r); }).filter(Boolean);
+  out.sort(function (a, b) { return (Number(a.order) || 0) - (Number(b.order) || 0) || (Number(a.createdAt) || 0) - (Number(b.createdAt) || 0); });
+  try { c.put('vl:all', JSON.stringify(out), 600); } catch (e) { }
+  return out;
+}
+function vlForget_() { try { CacheService.getScriptCache().remove('vl:all'); } catch (e) { } }
+function vlStr_(v, n) { return String(v == null ? '' : v).replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, n); }
+function vlClean_(v, old, by) {
+  var url = vlStr_(v.url, 600); if (!/^https:\/\//i.test(url)) return null;
+  var mods = (Array.isArray(v.modules) ? v.modules : []).map(function (m) { return vlStr_(m, 40).toLowerCase(); }).filter(function (m) { return /^[a-z0-9]+$/.test(m); }).slice(0, 10);
+  var thumb = vlStr_(v.thumb, 600); if (thumb && !/^https:\/\//i.test(thumb)) thumb = '';
+  return { id: old ? old.id : 'vid_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    title: vlStr_(v.title, 200), description: vlStr_(v.description, 2000), modules: mods.length ? mods : ['general'],
+    chapter: vlStr_(v.chapter, 120), url: url, thumb: thumb, duration: vlStr_(v.duration, 12),
+    order: Number(v.order) || (old ? Number(old.order) || 0 : Date.now()), download: !!v.download,
+    status: v.status === 'published' ? 'published' : 'draft', createdAt: old ? old.createdAt : Date.now(), updatedAt: Date.now(), by: by };
+}
+function vlWrite_(S, v, deleted) {
+  var row = findContentRow_(VL_STORE, 'video', v.id), now = Date.now();
+  var o = Object.assign({ module: VL_STORE, collection: 'video', id: v.id, updatedAt: now, updatedBy: S, deleted: !!deleted }, packJson_(v));
+  if (row) updateRow_(SHEETS.CONTENT, row._row, o); else appendRow_(SHEETS.CONTENT, o);
+}
+function vlHook_(S, act, p) {
+  if (act === 'videoList') {
+    var teacher = vlTeacher_(S, p);
+    if (!teacher && typeof studentAuthOn_ === 'function' && studentAuthOn_(S)) { var g = gateRequest_(S, p); if (g) return g; }
+    var all = vlAll_();
+    return { ok: true, items: teacher ? all : all.filter(function (v) { return v.status === 'published'; }), canEdit: teacher, serverTime: Date.now() };
+  }
+  return authed_(S, p, function () {
+    var lock = LockService.getScriptLock(); lock.waitLock(30000);
+    try {
+      var all = vlAll_(), by = cvBaseOf_(S);
+      if (act === 'videoSave') {
+        var v = p.video || {}, old = v.id ? all.filter(function (x) { return x.id === String(v.id); })[0] : null;
+        if (v.id && !old) return { ok: false, code: 'notfound', error: 'This video is no longer in the library — reload.' };
+        if (!old && all.length >= VL_MAX) return { ok: false, error: 'The video library is full (' + VL_MAX + ' videos).' };
+        var c = vlClean_(v, old, by); if (!c) return { ok: false, error: 'Paste the video link (it must start with https://).' };
+        if (!c.title) return { ok: false, error: 'Give the video a title.' };
+        vlWrite_(S, c, false); vlForget_(); return { ok: true, video: c };
+      }
+      if (act === 'videoRemove') {
+        var x = all.filter(function (y) { return y.id === String(p.id || ''); })[0]; if (!x) return { ok: true };
+        vlWrite_(S, x, true); vlForget_(); return { ok: true };
+      }
+      if (act === 'videoOrder') {
+        var ids = (Array.isArray(p.ids) ? p.ids : []).map(String), n = 0;
+        all.forEach(function (y) { var i = ids.indexOf(y.id); if (i >= 0 && Number(y.order) !== (i + 1) * 10) { y.order = (i + 1) * 10; vlWrite_(S, y, false); n++; } });
+        vlForget_(); return { ok: true, changed: n };
+      }
+      return { ok: false, error: 'Unknown action.' };
+    } finally { lock.releaseLock(); }
+  });
 }
