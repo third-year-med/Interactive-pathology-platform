@@ -6025,7 +6025,7 @@ test('🖼 Spotter and OSPE: up to 4 pictures — practice shows the extra pictu
    library; a teacher adds a YouTube video (published) and a Google Drive video (draft, download allowed), previews,
    watches, orders by drag and by Position, edits and removes; students get only published videos; phone layout = 1
    column. Synthetic course (no key). */
-test('🎬 Video Lectures: 5th main tab; teacher adds YouTube + Drive videos, preview, watch, draft/published, drag + position order, edit, remove; students see only published; phone layout', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+test('🎬 Video Lectures: 5th main tab; each module shows its own videos; teacher adds YouTube + Drive videos, preview, watch, draft/published, drag + position order, edit, remove; students see only published; phone layout', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
   main.call({ module: 'portal', action: 'setup', password: TPW });
   const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
   const mod = syntheticModule(CI_PAGE, { topics: [{ id: 't01', title: 'Cell injury', summary: 's', sections: [{ id: 's0101', heading: 'S', body: 'Text', tables: [], figures: [], keyPoints: [] }] }], images: [] });
@@ -6035,6 +6035,8 @@ test('🎬 Video Lectures: 5th main tab; teacher adds YouTube + Drive videos, pr
   const stuList = function () { const st = main.call({ module: 'cellinjury', action: 'studentLogin', username: 'vls1', password: 'pass-1234' }).token; return main.call({ module: 'cellinjury', action: 'videoList', stoken: st }).items.map(function (v) { return v.title; }); };
   const lib = function () { return main.call({ module: 'cellinjury', action: 'videoList', token: tt.token }).items; };
   lib().forEach(function (v) { main.call({ module: 'cellinjury', action: 'videoRemove', token: tt.token, id: v.id }); });   // a clean library
+  // another module's video (patch video-own-module: not listed in this module)
+  assert.ok(main.call({ module: 'cellinjury', action: 'videoSave', token: tt.token, video: { title: 'Neoplasia lecture', url: 'https://youtu.be/neoneoneoneo', modules: ['neonew'], status: 'published' } }).ok);
   const start = errors.length;
   try {
     const p = await page();
@@ -6046,7 +6048,7 @@ test('🎬 Video Lectures: 5th main tab; teacher adds YouTube + Drive videos, pr
     assert.deepStrictEqual(await p.$$eval('.nav-btn.nav-area', function (b) { return b.map(function (x) { return x.dataset.view; }); }), ['learn', 'practise', 'apply', 'videos', 'progress'], 'Video Lectures between Practical and My Progress');
     await p.waitForSelector('[data-a=vl-add]', { timeout: 15000 });
     assert.ok(await p.$('.nav-btn.active[data-view=videos]'));
-    assert.match(await p.textContent('#view-videos'), /No videos yet/);
+    assert.match(await p.textContent('#view-videos'), /No video matches/);   // only another module's video exists
     const add = async function (o) {
       await p.click('[data-a=vl-add]'); await p.waitForSelector('.vl-form'); await p.waitForTimeout(150);   // the window focuses its first field after 30 ms
       await p.fill('.vl-form input[placeholder^="e.g. Acute"]', o.title); await p.fill('.vl-form input[type=url] >> nth=0', o.url);
@@ -6061,8 +6063,14 @@ test('🎬 Video Lectures: 5th main tab; teacher adds YouTube + Drive videos, pr
     await add({ title: 'Necrosis and apoptosis', url: 'https://drive.google.com/file/d/DRIVEVIDEO1234567/view?usp=sharing', preview: /drive\.google\.com\/file\/d\/DRIVEVIDEO1234567\/preview/, chapter: 'Cell death', dur: '42:10', desc: 'Types of necrosis.', download: true });
     await p.waitForFunction(function () { return document.querySelectorAll('.vl-card').length === 2; });
     let L = lib();
-    assert.deepStrictEqual(L.map(function (v) { return [v.title, v.status, v.download, v.duration, v.modules.join()]; }), [['Acute inflammation', 'published', false, '35:00', 'cellinjury'], ['Necrosis and apoptosis', 'draft', true, '42:10', 'cellinjury']]);
-    assert.deepStrictEqual(stuList(), ['Acute inflammation'], 'students: only the published video');
+    assert.deepStrictEqual(L.map(function (v) { return [v.title, v.status, v.download, v.duration, v.modules.join()]; }), [['Neoplasia lecture', 'published', false, '', 'neonew'], ['Acute inflammation', 'published', false, '35:00', 'cellinjury'], ['Necrosis and apoptosis', 'draft', true, '42:10', 'cellinjury']]);
+    assert.deepStrictEqual(stuList(), ['Neoplasia lecture', 'Acute inflammation'], 'server: only published videos');
+    // teachers: "All modules (teachers only)" shows the other module's video; students have no module choice and see this module only
+    await p.selectOption('.vl-tools select >> nth=0', ''); await p.waitForFunction(function () { return document.querySelectorAll('.vl-card').length === 3; });
+    assert.ok(!(await p.$('.vl-card .pa-handle')), 'no dragging in the all-modules view');
+    await p.selectOption('.vl-tools select >> nth=0', 'cellinjury'); await p.waitForFunction(function () { return document.querySelectorAll('.vl-card').length === 2; });
+    assert.deepStrictEqual(await p.evaluate(function () { const V = Views.videos, ce = V.canEdit; V.canEdit = false; V.f.mod = ''; V.render(); const r = [document.querySelectorAll('.vl-tools select').length, [].map.call(document.querySelectorAll('.vl-card h3'), function (h) { return h.textContent; })]; V.canEdit = ce; V.render(); return r; }),
+      [1, ['Acute inflammation', 'Necrosis and apoptosis']], 'student view: only the chapter filter, only this module (draft hidden only by the server)');
     assert.match(await p.textContent('.vl-card:nth-child(2)'), /42:10[\s\S]*DRAFT[\s\S]*Necrosis and apoptosis[\s\S]*Cell death/);
     assert.ok(await p.$('.vl-card:nth-child(2) [data-a=vl-download]'), 'download offered'); assert.ok(!(await p.$('.vl-card:nth-child(1) [data-a=vl-download]')), 'not for YouTube');
     assert.match(await p.getAttribute('.vl-card:nth-child(2) .vl-thumb img', 'src'), /drive\.google\.com\/thumbnail\?id=DRIVEVIDEO1234567/);
@@ -6073,21 +6081,20 @@ test('🎬 Video Lectures: 5th main tab; teacher adds YouTube + Drive videos, pr
     // search and chapter filter
     await p.fill('.vl-tools input[type=search]', 'apoptosis'); await p.waitForFunction(function () { return document.querySelectorAll('.vl-card').length === 1; });
     await p.fill('.vl-tools input[type=search]', ''); await p.waitForFunction(function () { return document.querySelectorAll('.vl-card').length === 2; });
-    // drag order (All modules, no filter): Necrosis first
-    await p.selectOption('.vl-tools select >> nth=0', '');
+    // drag order inside this module: Necrosis first; the other module's video keeps its place
     await p.waitForSelector('.vl-card .pa-handle');
     const box = async function (sel) { const b = await (await p.$(sel)).boundingBox(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; };
     const h2 = await box('.vl-card:nth-child(2) .pa-handle'), c1 = await box('.vl-card:nth-child(1) .vl-body h3');
     await p.mouse.move(h2.x, h2.y); await p.mouse.down(); await p.mouse.move(h2.x - 10, h2.y, { steps: 3 }); await p.mouse.move(c1.x, c1.y, { steps: 12 }); await p.mouse.up();
     await p.waitForFunction(function () { return /Order saved/.test(document.body.innerText); }, null, { timeout: 20000 });
-    assert.deepStrictEqual(lib().map(function (v) { return v.title; }), ['Necrosis and apoptosis', 'Acute inflammation']);
+    assert.deepStrictEqual(lib().map(function (v) { return v.title; }), ['Neoplasia lecture', 'Necrosis and apoptosis', 'Acute inflammation']);
     // edit: publish the Drive video, put it at position 2
     await p.click('.vl-card:nth-child(1) [data-a=vl-edit]'); await p.waitForSelector('.vl-form');
     await p.selectOption('.vl-form select >> nth=1', 'published'); await p.selectOption('.vl-form select >> nth=0', '1');
     await p.click('.modal-foot .btn-primary'); await p.waitForSelector('.modal', { state: 'detached', timeout: 20000 });
     await p.waitForTimeout(1500);
-    L = lib(); assert.deepStrictEqual(L.map(function (v) { return v.title + ':' + v.status; }), ['Acute inflammation:published', 'Necrosis and apoptosis:published']);
-    assert.deepStrictEqual(stuList(), ['Acute inflammation', 'Necrosis and apoptosis']);
+    L = lib(); assert.deepStrictEqual(L.map(function (v) { return v.title + ':' + v.status; }), ['Neoplasia lecture:published', 'Acute inflammation:published', 'Necrosis and apoptosis:published']);
+    assert.deepStrictEqual(stuList(), ['Neoplasia lecture', 'Acute inflammation', 'Necrosis and apoptosis']);
     // reload keeps everything
     await p.reload(); await p.waitForSelector('.vl-card', { timeout: 20000 });
     assert.deepStrictEqual(await p.$$eval('.vl-card h3', function (h) { return h.map(function (x) { return x.textContent; }); }), ['Acute inflammation', 'Necrosis and apoptosis']);
@@ -6101,7 +6108,7 @@ test('🎬 Video Lectures: 5th main tab; teacher adds YouTube + Drive videos, pr
     // remove
     await p.click('.vl-card:nth-child(1) [data-a=vl-remove]'); await p.click('.modal-foot .btn-danger');
     await p.waitForFunction(function () { return document.querySelectorAll('.vl-card').length === 1; });
-    assert.deepStrictEqual(lib().map(function (v) { return v.title; }), ['Necrosis and apoptosis']);
+    assert.deepStrictEqual(lib().map(function (v) { return v.title; }), ['Neoplasia lecture', 'Necrosis and apoptosis']);
     await p.context().close();
     assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
   } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
