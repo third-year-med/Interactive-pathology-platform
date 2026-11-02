@@ -6077,6 +6077,11 @@ test('🎬 Video Lectures: 5th main tab; each module shows its own videos; teach
     // watch
     await p.click('.vl-card:nth-child(2) [data-a=vl-watch]'); await p.waitForSelector('.modal .vl-player iframe');
     assert.match(await p.getAttribute('.modal .vl-player iframe', 'src'), /DRIVEVIDEO1234567\/preview/);
+    // no "Open on …" link (patch video-no-open-link): students watch inside the platform; ⬇ Download stays; neutral Drive hint
+    const pm = await p.evaluate(function () { const m = document.querySelector('.modal'); return { text: m.textContent, links: [].map.call(m.querySelectorAll('a'), function (a) { return a.textContent + ' ' + a.href; }) }; });
+    assert.doesNotMatch(pm.text, /Open on/); assert.doesNotMatch(pm.text, /Anyone with the link/);
+    assert.deepStrictEqual(pm.links, ['⬇ Download https://drive.google.com/uc?export=download&id=DRIVEVIDEO1234567']);
+    assert.match(pm.text, /it may still be processing — please try again in a few minutes\./);
     await p.keyboard.press('Escape'); await p.waitForSelector('.modal', { state: 'detached' });
     // search and chapter filter
     await p.fill('.vl-tools input[type=search]', 'apoptosis'); await p.waitForFunction(function () { return document.querySelectorAll('.vl-card').length === 1; });
