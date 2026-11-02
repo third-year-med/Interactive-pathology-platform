@@ -6082,6 +6082,14 @@ test('🎬 Video Lectures: 5th main tab; each module shows its own videos; teach
     assert.doesNotMatch(pm.text, /Open on/); assert.doesNotMatch(pm.text, /Anyone with the link/);
     assert.deepStrictEqual(pm.links, ['⬇ Download https://drive.google.com/uc?export=download&id=DRIVEVIDEO1234567']);
     assert.match(pm.text, /it may still be processing — please try again in a few minutes\./);
+    // shield over Drive's pop-out button (patch video-drive-shield): the top-right corner of the player is the shield, not Google's frame
+    const corner = function () { return p.evaluate(function () { const pl = document.querySelector('.modal .vl-player'), r = pl.getBoundingClientRect(), n = document.elementFromPoint(r.right - 30, r.top + 30); return [n && n.className, document.querySelector('.modal .vl-player iframe').hasAttribute('allowfullscreen')]; }); };
+    assert.deepStrictEqual(await corner(), ['vl-shield', false], 'shield on top; Drive full screen off');
+    await p.click('[data-a=vl-fs]');
+    await p.waitForFunction(function () { const b = document.querySelector('.modal .vl-player'); return document.fullscreenElement === b || b.classList.contains('vl-max'); });
+    assert.strictEqual((await corner())[0], 'vl-shield', 'the shield stays in full screen');
+    await p.click('.modal .vl-player .vl-exit');
+    await p.waitForFunction(function () { const b = document.querySelector('.modal .vl-player'); return !document.fullscreenElement && !b.classList.contains('vl-max'); });
     await p.keyboard.press('Escape'); await p.waitForSelector('.modal', { state: 'detached' });
     // search and chapter filter
     await p.fill('.vl-tools input[type=search]', 'apoptosis'); await p.waitForFunction(function () { return document.querySelectorAll('.vl-card').length === 1; });
