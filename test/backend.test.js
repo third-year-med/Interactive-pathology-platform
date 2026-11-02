@@ -2845,3 +2845,36 @@ test('2.38 🎬 Video Lectures: one platform-wide library — teachers add / edi
   assert.deepStrictEqual(S.call({ module: 'cellinjury', action: 'videoList', stoken: stu }).items.map(function (v) { return v.title; }), ['Acute inflammation (2)']);
   assert.strictEqual(S.call({ module: 'cellinjury', action: 'videoSave', token: T.cellinjury, video: { id: a.video.id, title: 'Gone', url: 'https://x.org/v' } }).code, 'notfound');
 });
+
+test('2.39 🎬 Video categories (folders): per module; save / order / delete (videos kept, they leave the folder); folders from chapter names', function () {
+  const S = setup(), T = S.tokens;
+  const call = function (m, a, o) { return S.call(Object.assign({ module: m, action: a, token: T[m] }, o || {})); };
+  call('cellinjury', 'videoList').items.forEach(function (v) { call('cellinjury', 'videoRemove', { id: v.id }); });
+  const v1 = call('cellinjury', 'videoSave', { video: { title: 'Necrosis', url: 'https://youtu.be/aaaaaaaaaaa', modules: ['cellinjury'], chapter: 'Cell death', status: 'published' } }).video;
+  const v2 = call('cellinjury', 'videoSave', { video: { title: 'Apoptosis', url: 'https://youtu.be/bbbbbbbbbbb', modules: ['cellinjury', 'inflhealing'], chapter: 'cell death', status: 'published' } }).video;
+  const v3 = call('cellinjury', 'videoSave', { video: { title: 'Revision', url: 'https://youtu.be/ccccccccccc', modules: ['cellinjury'], status: 'published' } }).video;
+  // categories: only teachers; the module comes from the storage
+  assert.strictEqual(S.call({ module: 'cellinjury', action: 'videoCatSave', category: { name: 'X' } }).ok, false);
+  assert.match(call('cellinjury', 'videoCatSave', { category: { name: ' ' } }).error, /name/);
+  const rev = call('cellinjury', 'videoCatSave', { category: { name: 'Revision sessions', icon: '📝', description: 'Before the exam' } }).category;
+  assert.deepStrictEqual([rev.module, rev.icon, /^cat_/.test(rev.id)], ['cellinjury', '📝', true]);
+  call('inflhealing', 'videoCatSave', { category: { name: 'Inflammation folder' } });
+  // folders from chapter names: "Cell death" and "cell death" → one folder, both videos filed; the video without a chapter stays out
+  const fc = call('cellinjury', 'videoCatFromChapters'); assert.deepStrictEqual([fc.made, fc.filed], [1, 2]);
+  let L = call('cellinjury', 'videoList');
+  assert.deepStrictEqual(L.cats.map(function (c) { return c.name; }), ['Revision sessions', 'Cell death'], 'only this module\'s categories');
+  const death = L.cats[1].id, by = function (id) { return L.items.filter(function (v) { return v.id === id; })[0]; };
+  assert.deepStrictEqual([by(v1.id).cats, by(v2.id).cats, by(v3.id).cats], [{ cellinjury: death }, { cellinjury: death }, {}]);
+  // move a video (cats map), the other module's folder is kept apart
+  const mv = call('cellinjury', 'videoSave', { video: Object.assign({}, by(v3.id), { cats: { cellinjury: rev.id } }) }).video;
+  assert.deepStrictEqual(mv.cats, { cellinjury: rev.id });
+  const ok = call('cellinjury', 'videoSave', { video: { id: v1.id, title: 'Necrosis (2)', url: v1.url, modules: ['cellinjury'] } }).video;
+  assert.deepStrictEqual(ok.cats, { cellinjury: death }, 'a save without cats keeps the folder');
+  // order; delete keeps the videos
+  assert.ok(call('cellinjury', 'videoCatOrder', { ids: [death, rev.id] }).ok);
+  assert.deepStrictEqual(call('cellinjury', 'videoList').cats.map(function (c) { return c.name; }), ['Cell death', 'Revision sessions']);
+  assert.deepStrictEqual(call('cellinjury', 'videoCatRemove', { id: death }).moved, 2);
+  L = call('cellinjury', 'videoList');
+  assert.deepStrictEqual([L.cats.map(function (c) { return c.name; }), L.items.length, by(v1.id).cats], [['Revision sessions'], 3, {}]);
+  assert.deepStrictEqual(call('inflhealing', 'videoList').cats.map(function (c) { return c.name; }), ['Inflammation folder']);
+});

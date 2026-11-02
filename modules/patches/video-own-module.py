@@ -28,7 +28,7 @@ R = [
     all.forEach((v, i) => { if (ids.includes(v.id)) slots.push(i); });
     ids.forEach((id, k) => { if (k < slots.length && by.get(id)) all[slots[k]] = by.get(id); }); this.items = all;"""),
 ("""    const others = all.filter(x => !v || x.id !== v.id), cur = v ? all.findIndex(x => x.id === v.id) : others.length;""",
- """    const mineAll = all.filter(x => (x.modules || []).includes(vlHere())), others = mineAll.filter(x => !v || x.id !== v.id), cur0 = v ? mineAll.findIndex(x => x.id === v.id) : -1, cur = cur0 >= 0 ? cur0 : others.length;   // position among this module's videos (patch video-own-module)"""),
+ """    const mineAll = all.filter(x => (x.modules || []).includes(vlHere())), others = mineAll.filter(x => !v || x.id !== v.id), cur0 = v ? mineAll.findIndex(x => x.id === v.id) : -1, cur = cur0 >= 0 ? cur0 : others.length;   // position among this module's videos (patch video-own-module)""", "// position among this module's videos (patch video-own-module)"),
 ("""      const rest = (this.items || []).filter(x => x.id !== r.video.id); rest.splice(Math.min(+pos.value, rest.length), 0, r.video); this.items = rest;
       close(true); this.render(); toast(isNew ? 'Video added' + (r.video.status === 'published' ? ' and published.' : ' as a draft.') : 'Saved.', 'ok');
       if (rest.findIndex(x => x.id === r.video.id) !== (v ? cur : -1)) {""",
@@ -36,11 +36,12 @@ R = [
       const at = mine[+pos.value] ? rest.indexOf(mine[+pos.value]) : mine.length ? rest.indexOf(mine[mine.length - 1]) + 1 : rest.length;   // before this module's video at that position
       rest.splice(at, 0, r.video); this.items = rest;
       close(true); this.render(); toast(isNew ? 'Video added' + (r.video.status === 'published' ? ' and published.' : ' as a draft.') : 'Saved.', 'ok');
-      if (isNew || rest.map(x => x.id).join() !== before) {"""),
+      if (isNew || rest.map(x => x.id).join() !== before) {""", "// before this module's video at that position"),
 ]
 for path in sys.argv[1:]:
     s = open(path, encoding='utf-8').read(); n = 0
-    for a, b in R:
-        if b in s: continue
+    for r in R:
+        a, b = r[0], r[1]
+        if b in s or (len(r) > 2 and r[2] in s): continue   # later patches (video-categories) edit some of these lines
         assert s.count(a) == 1, (path, a[:70]); s = s.replace(a, b); n += 1
     open(path, 'w', encoding='utf-8').write(s); print(path, 'changes:', n)

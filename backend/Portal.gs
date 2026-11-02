@@ -199,7 +199,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.38';
+var PORTAL_VERSION = '2.39';
 /** 2.28: the shortest password for teachers AND students on every Portal screen (user, 2026-10-21: 4, was 8). Code.gs checks its own
     (STU_MIN_PW and the module teacher password) — platformCheck warns while they still ask for more. No maximum. */
 var PW_MIN_ = 4;
@@ -4065,7 +4065,9 @@ function platformCheck() {
 }
 
 /* ======================================================================
- * 2.38 — 🎬 Video Lectures: ONE platform-wide video library (user 2026-11-01), shown in every module's "Video Lectures"
+ * 2.38 / 2.39 — 🎬 Video Lectures: ONE platform-wide video library (user 2026-11-01; 2.39 = categories / folders per module,
+ * collection "category" {id, module, name, description, icon, order}; a video keeps cats {module: categoryId}; videoCatSave /
+ * videoCatRemove (videos are kept, they leave the folder) / videoCatOrder / videoCatFromChapters), shown in every module's "Video Lectures"
  * tab. Stored once in the Content sheet (module "videolib", collection "video", one row per video; never versioned or
  * copied per group). Videos are hosted elsewhere (Google Drive, YouTube, Vimeo, other sites) — only the link is stored.
  *   videoList    the published videos (a signed-in student of the module, or anyone when the module has no student
@@ -4074,9 +4076,9 @@ function platformCheck() {
  *   videoRemove  teacher: remove one video {id}
  *   videoOrder   teacher: display order {ids:[…]} (the order of the list)
  * ====================================================================== */
-var VL_STORE = 'videolib', VL_ACTIONS = { videoList: 1, videoSave: 1, videoRemove: 1, videoOrder: 1 }, VL_MAX = 500;
+var VL_STORE = 'videolib', VL_ACTIONS = { videoList: 1, videoSave: 1, videoRemove: 1, videoOrder: 1, videoCatSave: 1, videoCatRemove: 1, videoCatOrder: 1, videoCatFromChapters: 1 }, VL_MAX = 500;
 function vlTeacher_(S, p) { if (!p.token) return false; var r = authed_(S, p, function () { return { ok: true }; }); return !!(r && r.ok); }
-function vlRows_() { return readAll_(SHEETS.CONTENT).filter(function (r) { return r.module === VL_STORE && r.collection === 'video'; }); }
+function vlRows_(coll) { coll = coll || 'video'; return readAll_(SHEETS.CONTENT).filter(function (r) { return r.module === VL_STORE && r.collection === coll; }); }
 function vlAll_() {
   var c = CacheService.getScriptCache(), hit = c.get('vl:all');
   if (hit) { try { return JSON.parse(hit); } catch (e) { } }
@@ -4085,7 +4087,21 @@ function vlAll_() {
   try { c.put('vl:all', JSON.stringify(out), 600); } catch (e) { }
   return out;
 }
-function vlForget_() { try { CacheService.getScriptCache().remove('vl:all'); } catch (e) { } }
+function vlForget_() { try { CacheService.getScriptCache().removeAll(['vl:all', 'vl:cats']); } catch (e) { } }
+/** 2.39: the video categories (folders) — every module's, sorted by order. */
+function vlCats_() {
+  var c = CacheService.getScriptCache(), hit = c.get('vl:cats');
+  if (hit) { try { return JSON.parse(hit); } catch (e) { } }
+  var out = vlRows_('category').filter(function (r) { return !isTrue_(r.deleted); }).map(function (r) { return unpackJson_(r); }).filter(Boolean);
+  out.sort(function (a, b) { return (Number(a.order) || 0) - (Number(b.order) || 0) || (Number(a.createdAt) || 0) - (Number(b.createdAt) || 0); });
+  try { c.put('vl:cats', JSON.stringify(out), 600); } catch (e) { }
+  return out;
+}
+function vlCatsMap_(v, old) {   // {moduleKey: categoryId} — the folder of the video in each module
+  var src = v.cats && typeof v.cats === 'object' ? v.cats : (old && old.cats) || {}, out = {};
+  Object.keys(src).slice(0, 20).forEach(function (k) { var m = vlStr_(k, 40).toLowerCase(), id = vlStr_(src[k], 60); if (/^[a-z0-9]+$/.test(m) && /^cat_[a-z0-9]+$/.test(id)) out[m] = id; });
+  return out;
+}
 function vlStr_(v, n) { return String(v == null ? '' : v).replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, n); }
 function vlClean_(v, old, by) {
   var url = vlStr_(v.url, 600); if (!/^https:\/\//i.test(url)) return null;
@@ -4093,13 +4109,14 @@ function vlClean_(v, old, by) {
   var thumb = vlStr_(v.thumb, 600); if (thumb && !/^https:\/\//i.test(thumb)) thumb = '';
   return { id: old ? old.id : 'vid_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
     title: vlStr_(v.title, 200), description: vlStr_(v.description, 2000), modules: mods.length ? mods : ['general'],
-    chapter: vlStr_(v.chapter, 120), url: url, thumb: thumb, duration: vlStr_(v.duration, 12),
+    chapter: vlStr_(v.chapter, 120), cats: vlCatsMap_(v, old), url: url, thumb: thumb, duration: vlStr_(v.duration, 12),
     order: Number(v.order) || (old ? Number(old.order) || 0 : Date.now()), download: !!v.download,
     status: v.status === 'published' ? 'published' : 'draft', createdAt: old ? old.createdAt : Date.now(), updatedAt: Date.now(), by: by };
 }
-function vlWrite_(S, v, deleted) {
-  var row = findContentRow_(VL_STORE, 'video', v.id), now = Date.now();
-  var o = Object.assign({ module: VL_STORE, collection: 'video', id: v.id, updatedAt: now, updatedBy: S, deleted: !!deleted }, packJson_(v));
+function vlWrite_(S, v, deleted, coll) {
+  coll = coll || 'video';
+  var row = findContentRow_(VL_STORE, coll, v.id), now = Date.now();
+  var o = Object.assign({ module: VL_STORE, collection: coll, id: v.id, updatedAt: now, updatedBy: S, deleted: !!deleted }, packJson_(v));
   if (row) updateRow_(SHEETS.CONTENT, row._row, o); else appendRow_(SHEETS.CONTENT, o);
 }
 function vlHook_(S, act, p) {
@@ -4107,7 +4124,8 @@ function vlHook_(S, act, p) {
     var teacher = vlTeacher_(S, p);
     if (!teacher && typeof studentAuthOn_ === 'function' && studentAuthOn_(S)) { var g = gateRequest_(S, p); if (g) return g; }
     var all = vlAll_();
-    return { ok: true, items: teacher ? all : all.filter(function (v) { return v.status === 'published'; }), canEdit: teacher, serverTime: Date.now() };
+    var M = cvBaseOf_(S);
+    return { ok: true, items: teacher ? all : all.filter(function (v) { return v.status === 'published'; }), cats: vlCats_().filter(function (c) { return c.module === M; }), canEdit: teacher, serverTime: Date.now() };
   }
   return authed_(S, p, function () {
     var lock = LockService.getScriptLock(); lock.waitLock(30000);
@@ -4129,6 +4147,40 @@ function vlHook_(S, act, p) {
         var ids = (Array.isArray(p.ids) ? p.ids : []).map(String), n = 0;
         all.forEach(function (y) { var i = ids.indexOf(y.id); if (i >= 0 && Number(y.order) !== (i + 1) * 10) { y.order = (i + 1) * 10; vlWrite_(S, y, false); n++; } });
         vlForget_(); return { ok: true, changed: n };
+      }
+      // 2.39 — categories (folders) of THIS module
+      var cats = vlCats_(), mine = cats.filter(function (c) { return c.module === by; });
+      if (act === 'videoCatSave') {
+        var cv = p.category || {}, oc = cv.id ? mine.filter(function (c) { return c.id === String(cv.id); })[0] : null;
+        if (cv.id && !oc) return { ok: false, code: 'notfound', error: 'This category is no longer there — reload.' };
+        var name = vlStr_(cv.name, 80); if (!name) return { ok: false, error: 'Give the category a name.' };
+        if (!oc && mine.length >= 100) return { ok: false, error: 'Too many categories (100).' };
+        var cc = { id: oc ? oc.id : 'cat_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7), module: by, name: name,
+          description: vlStr_(cv.description, 600), icon: vlStr_(cv.icon, 8) || '📁', order: oc ? Number(oc.order) || 0 : Date.now(),
+          createdAt: oc ? oc.createdAt : Date.now(), updatedAt: Date.now(), by: by };
+        vlWrite_(S, cc, false, 'category'); vlForget_(); return { ok: true, category: cc };
+      }
+      if (act === 'videoCatRemove') {   // the videos are NOT removed: they leave this folder ("Other lectures")
+        var dc = mine.filter(function (c) { return c.id === String(p.id || ''); })[0]; if (!dc) return { ok: true, moved: 0 };
+        var moved = 0;
+        all.forEach(function (y) { if (y.cats && y.cats[by] === dc.id) { delete y.cats[by]; y.updatedAt = Date.now(); vlWrite_(S, y, false); moved++; } });
+        vlWrite_(S, dc, true, 'category'); vlForget_(); return { ok: true, moved: moved };
+      }
+      if (act === 'videoCatOrder') {
+        var cids = (Array.isArray(p.ids) ? p.ids : []).map(String), cn = 0;
+        mine.forEach(function (c) { var i = cids.indexOf(c.id); if (i >= 0 && Number(c.order) !== (i + 1) * 10) { c.order = (i + 1) * 10; vlWrite_(S, c, false, 'category'); cn++; } });
+        vlForget_(); return { ok: true, changed: cn };
+      }
+      if (act === 'videoCatFromChapters') {   // one category per "Chapter / subject" label of this module's videos without a folder
+        var byName = {}, made = 0, filed = 0;
+        mine.forEach(function (c) { byName[c.name.toLowerCase()] = c; });
+        all.forEach(function (y) {
+          if ((y.modules || []).indexOf(by) < 0 || !y.chapter || (y.cats && y.cats[by])) return;
+          var key = String(y.chapter).toLowerCase(), c = byName[key];
+          if (!c) { c = byName[key] = { id: 'cat_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7), module: by, name: vlStr_(y.chapter, 80), description: '', icon: '📁', order: Date.now() + made, createdAt: Date.now(), updatedAt: Date.now(), by: by }; vlWrite_(S, c, false, 'category'); made++; }
+          y.cats = Object.assign({}, y.cats || {}); y.cats[by] = c.id; y.updatedAt = Date.now(); vlWrite_(S, y, false); filed++;
+        });
+        vlForget_(); return { ok: true, made: made, filed: filed };
       }
       return { ok: false, error: 'Unknown action.' };
     } finally { lock.releaseLock(); }
