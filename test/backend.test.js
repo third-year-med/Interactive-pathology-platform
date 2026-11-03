@@ -10,6 +10,7 @@ const { createBackend, driveFake } = require('./apps-script/harness');
    — and everything the browser sends — see the real, closed behaviour. */
 function fixtureBackend(opts) {
   const b = createBackend(opts), raw = b.doPost;
+  b.ctx.PORTAL_ARCHIVED = {};   // the fixtures use the archived module keys (cellinjury, inflhealing) as ordinary example modules
   b.doPost = function (o) {
     if (o && o.module !== 'portal' && (o.action === 'setup' || o.action === 'login') && !o.__real) {
       b.props.set('ALLOW_MODULE_LOGIN', 'true');
@@ -1746,15 +1747,16 @@ test('group page lectures: only a signed-in member of THIS group; own attendance
   assert.strictEqual(S.call({ module: 'portal', action: 'portalGroupSessions', g: 'razi-a-26', sessions: ses }).code, 'studentauth');
 });
 
-test('attendance stays open with the SAME code until the teacher closes it: time, polling and other events never close it; students cannot close it, change the code or reopen it', function () {
+test('attendance stays open with the SAME code until the teacher closes it (or, 2.40, 1 hour after it opened): within the hour time, polling and other events never close it; students cannot close it, change the code or reopen it', function () {
   const S = tsSetup(), X = S.b.ctx, st = 'cellinjury-razi-a-26';
   const L = S.ts('tsStart', { session: S.lect({ title: 'Long lecture', startAt: Date.now(), durationMin: 60, rotate: false }) }); assert.ok(L.ok, JSON.stringify(L));
   const tsId = L.session.tsId, code = L.code;
-  // hours later (far past the lecture's 60 min) and after many teacher / student / presentation checks: still open, same code
+  // the lecture was scheduled hours ago, its attendance opened 50 min ago (2.40: it closes by itself only after 60 min), and
+  // after many teacher / student / presentation checks: still open, same code
   const row = X.dirAll_('TeachingSessions').filter(function (x) { return x.tsId === tsId; })[0];
   X.updateRow_('TeachingSessions', row._row, Object.assign(X.dirPublic_(row), { startAt: Date.now() - 6 * 3600e3, startedAt: Date.now() - 6 * 3600e3, codeAt: Date.now() - 6 * 3600e3 }));
   const att = X.rpRows_('AttendanceSessions').filter(function (a) { return a.sessionId === row.attSessionId; })[0];
-  X.updateRow_('AttendanceSessions', att._row, Object.assign({}, att, { createdAt: Date.now() - 6 * 3600e3 }));
+  X.updateRow_('AttendanceSessions', att._row, Object.assign({}, att, { createdAt: Date.now() - 50 * 60e3 }));
   const mt = S.t('teacherOpen', S.ahmed.tok, { deliveryId: S.ci.deliveryId }); assert.ok(mt.ok, JSON.stringify(mt));   // the module page (Presentation Mode) as teacher
   for (let i = 0; i < 5; i++) {
     assert.strictEqual(S.ts('tsState', { tsId: tsId }).code, code);
@@ -2877,4 +2879,55 @@ test('2.39 🎬 Video categories (folders): per module; save / order / delete (v
   L = call('cellinjury', 'videoList');
   assert.deepStrictEqual([L.cats.map(function (c) { return c.name; }), L.items.length, by(v1.id).cats], [['Revision sessions'], 3, {}]);
   assert.deepStrictEqual(call('inflhealing', 'videoList').cats.map(function (c) { return c.name; }), ['Inflammation folder']);
+});
+
+test('2.40 attendance closes by itself 1 hour after it opened (module attendance and Teaching Sessions); the overall attendance report shows only active modules', function () {
+  const S = tsSetup(), X = S.b.ctx, st = 'cellinjury-razi-a-26';
+  const C = X.CacheService.getScriptCache(), forget = function () { ['*', st, 'inflhealing-razi-a-26'].forEach(function (k) { C.remove('attac:' + k); }); };
+  const back = function (sid, min) { const r = X.rpRows_('AttendanceSessions').filter(function (x) { return x.sessionId === sid; })[0]; X.updateRow_('AttendanceSessions', r._row, Object.assign({}, r, { createdAt: Date.now() - min * 60e3 })); forget(); };
+  const row = function (sid) { return X.rpRows_('AttendanceSessions').filter(function (x) { return x.sessionId === sid; })[0]; };
+  const tok = S.dir('portalTeacherOpen', { modules: [{ module: 'cellinjury', group: 'razi-a-26' }] }).modules[st].token;
+  // module attendance (Teacher Portal → Attendance): open 59 min → still open; 61 min → a check-in is refused, the session is closed
+  const a = S.call({ module: st, action: 'startAttendanceSession', token: tok, sessionTitle: 'Module lecture' }); assert.ok(a.ok, JSON.stringify(a));
+  back(a.sessionId, 59);
+  const ses = login(S, st, 'ahmed', PW);
+  assert.ok(S.call({ module: st, action: 'submitAttendanceByCode', stoken: ses.token, code: a.code }).ok, 'within the hour');
+  back(a.sessionId, 61);
+  const late = S.call({ module: st, action: 'submitAttendanceByCode', stoken: login(S, st, 'b1', 'basma-pass-1').token, code: a.code });
+  assert.strictEqual(late.ok, false); assert.strictEqual(late.code, 'badcode');
+  assert.strictEqual(row(a.sessionId).status, 'closed'); assert.ok(Number(row(a.sessionId).endedAt) > 0);
+  // a Teaching Session: its attendance closes after the hour and the lecture is ended (seen from the dashboard)
+  const s = S.ts('tsSave', { session: S.lect({ startAt: Date.now() - 70 * 60e3 }) }).session;
+  const live = S.ts('tsStart', { tsId: s.tsId }); assert.ok(live.ok, JSON.stringify(live));
+  const sid = X.dirAll_('TeachingSessions').filter(function (t) { return t.tsId === s.tsId; })[0].attSessionId;
+  back(sid, 30);
+  assert.strictEqual(S.ts('tsState', { tsId: s.tsId }).session.status, 'live', '30 min: still open');
+  back(sid, 65);
+  assert.strictEqual(S.ts('tsState', { tsId: s.tsId }).session.status, 'ended');
+  assert.strictEqual(row(sid).status, 'closed');
+  assert.strictEqual(X.dirAll_('TeachingSessions').filter(function (t) { return t.tsId === s.tsId; })[0].status, 'ended');
+  // a session closed by hand is not touched again; nothing else is closed
+  assert.strictEqual(X.attAutoClose_(null), 0);
+  // Overall Pathology Attendance: both modules while active; Inflammation's delivery switched off → left out and named
+  let o = S.ts('attOverall', { groupId: S.ra.groupId }); assert.ok(o.ok, JSON.stringify(o));
+  assert.deepStrictEqual(o.modules.map(function (m) { return m.storage; }).sort(), [st, 'inflhealing-razi-a-26']);
+  assert.ok(S.dir('dirSetActive', { kind: 'delivery', id: S.ih.deliveryId, active: false }).ok);
+  o = S.ts('attOverall', { groupId: S.ra.groupId });
+  assert.deepStrictEqual(o.modules.map(function (m) { return m.storage; }), [st]);
+  assert.deepStrictEqual(o.hidden.map(function (m) { return m.title + ':' + m.reason; }), ['Inflammation & Healing:inactive']);
+  assert.ok(S.dir('dirSetActive', { kind: 'delivery', id: S.ih.deliveryId, active: true }).ok);
+  // an ARCHIVED module is left out of both overall reports even while its delivery is on
+  X.PORTAL_ARCHIVED = { inflhealing: 1 };
+  o = S.ts('attOverall', { groupId: S.ra.groupId });
+  assert.deepStrictEqual([o.modules.map(function (m) { return m.storage; }), o.hidden.map(function (m) { return m.title + ':' + m.reason; })], [[st], ['Inflammation & Healing:archived']]);
+  const ro = S.ts('resOverall', { groupId: S.ra.groupId }); assert.ok(ro.ok, JSON.stringify(ro));
+  assert.ok(ro.hidden.some(function (m) { return m.title === 'Inflammation & Healing' && m.reason === 'archived'; }));
+  assert.ok(!ro.modules.some(function (m) { return m.title === 'Inflammation & Healing'; }));
+  X.PORTAL_ARCHIVED = {};
+  assert.strictEqual(X.PORTAL_VERSION, '2.40');
+});
+
+test('2.40 PORTAL_ARCHIVED in Portal.gs = the archived modules of modules/INACTIVE', function () {
+  const keys = require('fs').readFileSync(path.join(__dirname, '..', 'modules', 'INACTIVE'), 'utf8').split('\n').map(function (l) { return l.trim(); }).filter(function (l) { return l && l[0] !== '#'; }).sort();
+  assert.deepStrictEqual(Object.keys(createBackend({ files: FILES }).ctx.PORTAL_ARCHIVED).sort(), keys);
 });

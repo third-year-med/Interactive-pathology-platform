@@ -199,7 +199,13 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.39';
+var PORTAL_VERSION = '2.40';
+/** 2.40: the ARCHIVED modules (the platform repository's modules/INACTIVE, user 2026-10-31). Their deliveries are left out of
+ *  the overall reports (Overall Pathology Attendance, Pathology Overall Results) even while still switched on. Keep this
+ *  list equal to modules/INACTIVE (a test checks it); re-activating a module = remove it from both, then redeploy. */
+var PORTAL_ARCHIVED = { cellinjury: 1, inflhealing: 1, inflcondensed: 1, neoplasm: 1 };
+/** Why a module of a group is left out of the overall reports, or '' when it counts. */
+function portalLeftOut_(m) { return PORTAL_ARCHIVED[m.moduleId] ? 'archived' : m.active === false ? 'inactive' : ''; }
 /** 2.28: the shortest password for teachers AND students on every Portal screen (user, 2026-10-21: 4, was 8). Code.gs checks its own
     (STU_MIN_PW and the module teacher password) — platformCheck warns while they still ask for more. No maximum. */
 var PW_MIN_ = 4;
@@ -234,6 +240,7 @@ function portalHook_(module, p) {
     var ll = learnLockHook_(String(module), act, p); if (ll) return ll;   // 2.18: Learning module locked during assessments (students)
     var ap = assessPwHook_(String(module), act, p); if (ap) return ap;   // 2.19: one password per assessment (asked only to start it)
     if (act === 'aeCopyTargets' || act === 'aeCopyTo') return aeCopyHook_(String(module), act, p);   // 2.21: copy an assessment to other groups
+    if (ATT_AUTO_ACTIONS[act]) attAutoClose_(String(module));   // 2.40: attendance closes by itself 1 hour after it opened
     if (act === 'attMark' || act === 'attMarks') return attMarkHook_(String(module), act, p);
     if (act === 'teacherWho') return teacherWhoHook_(String(module), p);   // 2.35: the name of the teacher account that opened this module   // 2.25/2.26: Present / Late / Excused in the module report
     if (VL_ACTIONS[act]) return vlHook_(String(module), act, p);   // 2.38: 🎬 Video Lectures — one platform-wide library
@@ -281,11 +288,11 @@ function portalHook_(module, p) {
     case 'rosterImport': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return rosterImport_(p); }); });
     case 'portalGroupSetPassword': return portalGroupSetPassword_(p);
     case 'portalGroupRefresh': return portalGroupRefresh_(p);
-    case 'portalGroupSessions': return tsStudentSessions_(p);   // 2.8: the group page's 🎓 Teaching Sessions card
-    case 'portalGroupCheckIn': return tsStudentCheckIn_(p);
+    case 'portalGroupSessions': attAutoClose_(null); return tsStudentSessions_(p);   // 2.8: the group page's 🎓 Teaching Sessions card
+    case 'portalGroupCheckIn': attAutoClose_(null); return tsStudentCheckIn_(p);   // 2.40: not after the hour
     case 'tsPresentCodes':   // 2.12: the module's Presentation Mode shows the code of a live Teaching Sessions lecture (read-only)
       if (!p.storage || String(p.storage) === PORTAL_MODULE) return { ok: false, code: 'auth', error: 'Not signed in.' };
-      return authed_(String(p.storage), p, function () { return tsPresentCodes_(String(p.storage)); });
+      return authed_(String(p.storage), p, function () { attAutoClose_(null); return tsPresentCodes_(String(p.storage)); });
     case 'portalModuleFlags': return { ok: true, hideLiveAttendance: tsSettings_().hideModuleLive };   // 2.10: read by the module pages' platform block
     case 'liveOpen': return liveOpen_(p);   // 2.9: the group's Live Classroom (student)
     case 'liveTeacherOpen':
@@ -2536,6 +2543,7 @@ var TS_ACTIONS = { tsGroups: 1, tsList: 1, tsSave: 1, tsStart: 1, tsState: 1, ts
   annOverall: 1, annPres: 1, annAuto: 1, annSet: 1 };   // 2.31 Annual assessment
 
 function tsRoute_(p) {
+  attAutoClose_(null);   // 2.40: every Teaching Session screen / report first closes attendance open for more than 1 hour
   if (p.ttoken) return tAuthed_(p, function (u) {
     if (isTrue_(u.mustChange)) return { ok: false, code: 'mustchange', error: 'Please choose your own password first.' };
     var ids = {}; teacherDeliveries_(u.userId).forEach(function (d) { ids[d.deliveryId] = 1; });
@@ -2618,6 +2626,37 @@ function tsFind_(who, tsId) {
 function tsAttRow_(r) { return r.attSessionId ? findModuleAttSession_(r.backendModule, r.attSessionId) : null; }
 /** The effective status: a session closed inside the module page counts as ended. */
 function tsStatus_(r, att) { return r.status === 'live' && att && att.status !== 'active' ? 'ended' : r.status; }
+/* 2.40 (user, 2026-11-03): "automatically close attendance after 1 hour of its opening". Any attendance session (module
+ * attendance or a Teaching Session) still open ATT_AUTO_CLOSE_MIN minutes after it was created is closed exactly as the
+ * teacher's Close button does (Code.gs actionCloseAttendance_: status closed, endedAt, Drive copy), and its Teaching Session
+ * is marked ended. It runs just before anything reads attendance — a student's check-in or code, the teacher's screens, the
+ * Teaching Sessions and reports — so a check-in after the hour is refused ("closed"). storage: one module storage, or null
+ * for all. The next time a session can be due is remembered (script cache), so the sheet is read only when one may be due. */
+var ATT_AUTO_CLOSE_MIN = 60;
+var ATT_AUTO_ACTIONS = { submitAttendance: 1, submitAttendanceByCode: 1, getAttendanceInfo: 1, getAttendanceTeacherState: 1, listAttendanceSessions: 1,
+  getAttendanceSessionReport: 1, regenerateAttendanceCode: 1, startAttendanceSession: 1 };
+function attAutoClose_(storage) {
+  var c = CacheService.getScriptCache(), ck = 'attac:' + (storage || '*'), now = Date.now(), LIM = ATT_AUTO_CLOSE_MIN * 60000;
+  try { var nx = Number(c.get(ck)); if (nx && now < nx) return 0; } catch (e) { }   // nothing can be due before this time
+  var due = [], next = now + LIM;   // a session opened from now on is due no sooner than this
+  rpRows_(SHEETS.ATT_SESSIONS).forEach(function (r) {
+    var at = Number(r.createdAt); if (r.status !== 'active' || (storage && r.module !== storage) || !at) return;
+    if (at + LIM <= now) due.push(r); else next = Math.min(next, at + LIM);
+  });
+  try { c.put(ck, String(next), Math.max(1, Math.min(21600, Math.ceil((next - now) / 1000)))); } catch (e) { }
+  if (!due.length) return 0;
+  var n = 0;
+  due.forEach(function (r) { try { var x = actionCloseAttendance_(String(r.module), { sessionId: r.sessionId }); if (x && x.ok) n++; } catch (e) { console.warn('auto-close ' + r.sessionId + ': ' + e); } });
+  var ids = {}; due.forEach(function (r) { ids[r.module + '|' + r.sessionId] = 1; });
+  try {
+    rosterWrite_(function () {
+      var now = Date.now();
+      tsRows_().forEach(function (t) { if (t.status === 'live' && ids[t.backendModule + '|' + t.attSessionId]) tsWrite_(t, { status: 'ended', endedAt: now }); });
+    });
+  } catch (e) { console.warn('auto-close teaching sessions: ' + e); }
+  console.log('attendance auto-closed after ' + ATT_AUTO_CLOSE_MIN + ' min: ' + n);
+  return n;
+}
 function tsWrite_(r, patch) {
   var o = dirPublic_(r); Object.keys(patch).forEach(function (k) { o[k] = patch[k]; }); o.updatedAt = Date.now();
   updateRow_(DIR.TSES, r._row, o); Object.keys(patch).forEach(function (k) { r[k] = patch[k]; });
@@ -3043,7 +3082,11 @@ function attOverallCompute_(g, mods, members, set, data) {
 function attOverall_(who, p) {
   var g = tsGroupOf_(who, p.groupId); if (!g) return { ok: false, code: 'forbidden', error: 'Choose one of your groups.' };
   var all = tsPlaces_({ ids: null }).filter(function (x) { return x.groupId === g.groupId; })[0];
-  var r = attOverallCompute_(g, g.modules, tsMembers_(g.groupId), tsSettings_());
+  // 2.40 (user, 2026-11-03): only the ACTIVE modules — an ARCHIVED module (PORTAL_ARCHIVED) or a delivery switched off
+  // (Platform Directory → Deliveries) is left out; the report names what it left out
+  var mods = g.modules.filter(function (m) { return !portalLeftOut_(m); });
+  var r = attOverallCompute_(g, mods, tsMembers_(g.groupId), tsSettings_());
+  r.hidden = g.modules.filter(portalLeftOut_).map(function (m) { return { deliveryId: m.deliveryId, title: m.title, icon: m.icon, reason: portalLeftOut_(m) }; });
   r.ok = true; r.serverTime = Date.now();
   r.partial = !!(all && all.modules.length > g.modules.length);   // a teacher who has only some of the group's modules
   r.groupModules = all ? all.modules.length : g.modules.length;
@@ -3191,7 +3234,9 @@ function resOverallCompute_(g, members, set, ann) {
 function resOverall_(who, p) {
   var g = tsGroupOf_(who, p.groupId); if (!g) return { ok: false, code: 'forbidden', error: 'Choose one of your groups.' };
   var all = tsPlaces_({ ids: null }).filter(function (x) { return x.groupId === g.groupId; })[0];
-  var r = resOverallCompute_(g, rpMembers_()[g.groupId] || [], resSettings_(), annSettings_(g.groupId));
+  var arch = g.modules.filter(function (m) { return portalLeftOut_(m) === 'archived'; });   // 2.40: archived modules never count
+  var r = resOverallCompute_(Object.assign({}, g, { modules: g.modules.filter(function (m) { return portalLeftOut_(m) !== 'archived'; }) }), rpMembers_()[g.groupId] || [], resSettings_(), annSettings_(g.groupId));
+  r.hidden = arch.map(function (m) { return { deliveryId: m.deliveryId, title: m.title, icon: m.icon, reason: 'archived' }; }).concat(r.hidden || []);
   r.ok = true; r.serverTime = Date.now(); r.admin = !!who.admin;
   r.partial = !!(all && all.modules.length > g.modules.length);
   r.groupModules = all ? all.modules.length : g.modules.length;

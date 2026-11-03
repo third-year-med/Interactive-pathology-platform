@@ -708,6 +708,21 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   Annual Assessment (30) keeps its own rule. The detailed Results & attendance (Directory) keeps all its columns and adds
   "Assessments done".
 
+- **⏱ Attendance closes itself after 1 hour; overall reports = active modules only; 🖨 results PDF (2026-11-03, user;
+  Portal.gs 2.40):** `attAutoClose_` closes every attendance session (module attendance AND Teaching Sessions) still open
+  `ATT_AUTO_CLOSE_MIN` = 60 min after it was CREATED (opened), exactly like the teacher's Close (Code.gs
+  actionCloseAttendance_: closed, endedAt, Drive copy) and ends its Teaching Session. It runs before anything reads
+  attendance (`ATT_AUTO_ACTIONS` module actions via portalHook_ — check-in, code, teacher state/list/report, regenerate,
+  start —, every Teaching Sessions call, the group page's sessions + check-in, Presentation Mode codes), so a check-in
+  after the hour is refused. The next possible due time is cached (`attac:<storage|*>`), so the sheet is read only when a
+  session may be due. The old test "stays open until the teacher closes it" now checks this within the hour (50 min).
+  **Archived modules** (`PORTAL_ARCHIVED` in Portal.gs = `modules/INACTIVE`, a backend test keeps them equal) and
+  switched-off deliveries are left out of 📊 Overall Pathology Attendance (screen, print, Excel name them: "Not
+  included: … (archived)") and 📈 Pathology Overall Results (archived). Their attendance / results stay stored. Test
+  fixtures clear `PORTAL_ARCHIVED` (they use cellinjury / inflhealing as example modules). 📈 Overall Results → Details →
+  **🖨 Print / PDF — this student**: module rows (module % + marks obtained / total marks) with each assessment (best
+  attempt %, marks; missed in red), overall, method note, signature lines (ovPrint, A4, colours kept).
+
 - **Two chats edited `modules/patches/apply.sh` at the same time (2026-10-17):** the picture chat added `picture-import`
   while this chat added `slide-bold`; the slide-bold entry was lost from ORDER (the checker cannot notice a patch missing
   from the list). → Before committing a new patch: `git pull`, append to ORDER, and verify that an OLD module page

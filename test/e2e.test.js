@@ -15,6 +15,7 @@ const { createBackend, driveFake } = require('./apps-script/harness');
    — and everything the browser sends — see the real, closed behaviour. */
 function fixtureBackend(opts) {
   const b = createBackend(opts), raw = b.doPost;
+  b.ctx.PORTAL_ARCHIVED = {};   // the fixtures use the archived module keys (cellinjury, inflhealing) as ordinary example modules
   b.doPost = function (o) {
     if (o && o.module !== 'portal' && (o.action === 'setup' || o.action === 'login') && !o.__real) {
       b.props.set('ALLOW_MODULE_LOGIN', 'true');
@@ -3418,6 +3419,13 @@ test('Pathology Overall Results & Analytics (2.22, rule 2.34): one row per stude
   await p.click('#t-results tr[data-student="27010001"] button');
   await p.waitForSelector('#t-results .rs-stu');
   assert.match(await p.textContent('#t-results .rs-stu'), /Overall assessment75%[\s\S]*Topic q1 \(60% · 60\/100 marks\)[\s\S]*Topic q2 \(80% · 80\/100 marks\)[\s\S]*70% \(140\/200\)/);
+  // 🖨 Print / PDF — this student: the same detail as a printable page (marks, module %, overall, signatures)
+  await p.click('#t-results .rs-stu [data-a=p]');
+  await p.waitForFunction(function () { var f = document.querySelector('iframe.ov-print'); return f && f.contentDocument && /Pathology Overall Results — Student Report/.test(f.contentDocument.body.textContent); });
+  const sp = await p.evaluate(function () { var d = document.querySelector('iframe.ov-print').contentDocument; return { text: d.body.textContent, css: d.querySelector('style').textContent }; });
+  assert.match(sp.text, /Overall assessment 75%[\s\S]*Module \/ assessment[\s\S]*module %\s*70%\s*140 \/ 200[\s\S]*Topic q1\s*60%\s*60 \/ 100[\s\S]*Topic q2\s*80%\s*80 \/ 100[\s\S]*Overall — Equal weighting[\s\S]*75%[\s\S]*Head of Department/);
+  assert.match(sp.css, /print-color-adjust:exact/);
+  if (process.env.SHOTS) fs.writeFileSync(path.join(process.env.SHOTS, 'results-student-print.html'), await p.evaluate(function () { return document.querySelector('iframe.ov-print').contentDocument.documentElement.outerHTML; }));
   // CSV = table
   const dl = function (sel) { return Promise.all([p.waitForEvent('download'), p.click(sel)]).then(function (x) { return x[0].path(); }).then(function (f) { return fs.readFileSync(f, 'utf8').replace(/^﻿/, ''); }); };
   const all = (await dl('#t-results [data-a=csv]')).split(/\r\n/);
@@ -6264,7 +6272,7 @@ test('🧭 Main menu Learn · Review · Practical: labels, Review sections (ques
     const p = await page();
     await openSyntheticModule(p, mod, [], { stubAssess: false });
     const nav = await p.evaluate(function () { return Array.from(document.querySelectorAll('.nav-btn.nav-area .nl-full')).map(function (x) { return x.textContent; }); });
-    assert.deepStrictEqual(nav, ['Learn', 'Review', 'Practical', 'My Progress'], 'main menu (no separate Last-Minute Review button)');
+    assert.deepStrictEqual(nav, ['Learn', 'Review', 'Practical', 'Video Lectures', 'My Progress'], 'main menu (no separate Last-Minute Review button; 🎬 Video Lectures = 5th tab, patch video-lectures)');
     const active = function (hash) { return p.evaluate(function (h) { location.hash = h; return new Promise(function (r) { setTimeout(function () { const b = document.querySelector('.nav-btn.active .nl-full'); r(b ? b.textContent : ''); }, 400); }); }, hash); };
     await p.evaluate(function () { location.hash = '#/practise'; }); await p.waitForSelector('#view-practise .ux-h2');
     const rv = await p.evaluate(function () { return { h1: document.querySelector('#view-practise h1, #view-practise .ux-head h2, #view-practise .ux-title') ? document.querySelector('#view-practise h1, #view-practise .ux-head h2, #view-practise .ux-title').textContent : '', h2: Array.from(document.querySelectorAll('#view-practise .ux-h2')).map(function (h) { return h.textContent; }), items: Array.from(document.querySelectorAll('#view-practise .ux-list li b')).map(function (b) { return b.textContent; }) }; });

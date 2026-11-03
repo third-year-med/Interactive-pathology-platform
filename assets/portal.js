@@ -1490,6 +1490,7 @@
     '.meta{display:flex;flex-wrap:wrap;gap:4px 22px;font-size:10pt;border:1px solid #dde3ea;border-radius:6px;padding:7px 10px;margin:8px 0}' +
     'table{border-collapse:collapse;width:100%;font-size:9.5pt}th,td{border:1px solid #c9d2dc;padding:3px 6px;text-align:left}th{background:#e6eef6;color:#0f2a4a}' +
     'td.n,th.n{text-align:center}tr.warn td{background:#fde2e1}thead{display:table-header-group}tr{page-break-inside:avoid}' +
+    '.red{color:#c62828;font-weight:700}tr.mod td{background:#f1f5f9;font-weight:600}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
     '.note{font-size:9pt;color:#5b6778;margin:8px 0}.sig{display:flex;gap:40px;margin-top:34px;font-size:10pt}.sig div{flex:1;border-top:1px solid #1b2430;padding-top:4px}' +
     '.kpi{display:flex;flex-wrap:wrap;gap:6px 26px;margin:6px 0;font-size:10.5pt}.kpi b{font-size:12pt;color:#0f2a4a}';
   function ovPrint(title, inner) {
@@ -1571,7 +1572,7 @@
         '<div class="ov-kpi"><span>Highest · lowest</span><b>' + pc(S.high) + ' · ' + pc(S.low) + '</b><small>overall %, students with a result</small></div>' +
         '<div class="ov-kpi"><span>Modules contributing</span><b>' + S.modulesWithResults + ' / ' + S.modules + '</b><small>' + S.modulesAssessed + ' with assessments</small></div></div>'));
       body.appendChild(h('<p class="small ov-mods"><b>Modules:</b> ' + (R.modules.length ? R.modules.map(function (m) { return '<span class="ov-chip">' + esc(m.icon + ' ' + m.title) + ' · ' + (m.submitted ? m.students + ' student' + (m.students === 1 ? '' : 's') + ' · ' + m.submitted + ' attempt' + (m.submitted === 1 ? '' : 's') : m.hasAssessments ? 'assigned, no submission yet' : 'no assessments') + (R.settings.method === 'weighted' ? ' · weight ' + m.weight + (m.weightDefault ? ' (default)' : '') : '') + '</span>'; }).join(' ') : '—') + '</p>'));
-      if (R.hidden && R.hidden.length) body.appendChild(h('<p class="small muted ov-hidden">Not shown: ' + R.hidden.map(function (m) { return esc(m.icon + ' ' + m.title) + ' (' + (m.reason === 'inactive' ? 'delivery inactive' : 'nobody in the group has submitted an assessment yet') + ')'; }).join(' · ') + '.</p>'));
+      if (R.hidden && R.hidden.length) body.appendChild(h('<p class="small muted ov-hidden">Not shown: ' + R.hidden.map(function (m) { return esc(m.icon + ' ' + m.title) + ' (' + (m.reason === 'archived' ? 'archived module' : m.reason === 'inactive' ? 'delivery inactive' : 'nobody in the group has submitted an assessment yet') + ')'; }).join(' · ') + '.</p>'));
       if (R.partial) body.appendChild(h('<p class="note small">Only the ' + R.modules.length + ' module(s) assigned to you are included; the group has ' + R.groupModules + ' teaching module(s). The platform administrator sees every module.</p>'));
       body.appendChild(h('<p class="small muted ov-method"><b>' + esc(method()) + '.</b> ' + (R.modules.some(function (m) { return m.counted; }) ? 'A module’s assessment % uses the rule of the 🎓 Annual Assessment: every assessment of the module that at least one student of the group has submitted counts; the student’s best attempt in each, counted in <b>marks</b> — module % = marks obtained ÷ total marks (e.g. 41/50 = 82 %), so a longer assessment counts more, <b>a missed assessment adds 0 of its marks</b> (the same rule as the 📋 Module Report); an assessment the teacher excluded, or excused for that student (Annual Assessment), is left out. Practice quizzes, official exams and attendance are not included. ' : 'A module’s assessment % is the mean of the student’s submitted assessment attempts in that module. Practice quizzes, official exams and attendance are not included. ') +
         (R.settings.method === 'weighted' ? 'Overall % = Σ(weight × module %) ÷ Σ(weight) over the modules the student has results in; weight 0 = excluded; a module without a configured weight counts 1. ' : 'Overall % = the sum of the student’s module percentages ÷ the number of those modules; every module counts equally. ') +
@@ -1617,9 +1618,10 @@
           '<div class="tbl-wrap"><table class="dir-tbl"><thead><tr><th>Module</th><th class="n">Attempts</th><th>Assessments (best attempt · missed = 0)</th><th class="n">Module %<div class="small muted">(marks obtained / total marks)</div></th>' + (R.settings.method === 'weighted' ? '<th class="n">Weight</th>' : '') + '<th>In overall</th></tr></thead><tbody>' +
           x.modules.map(function (m) { return '<tr><td>' + esc(m.icon + ' ' + m.module) + '</td><td class="n">' + m.attempts + '</td><td class="small">' + (m.assessments.length ? m.assessments.map(function (a) { return esc(resAssessLabel(a)); }).join('<br>') : '<span class="muted">—</span>') + '</td><td class="n"><b>' + pc(m.pct) + '</b>' + (m.fullMarks ? ' <span class="small muted">(' + m.marks + '/' + m.fullMarks + ')</span>' : '') + '</td>' + (R.settings.method === 'weighted' ? '<td class="n">' + m.weight + '</td>' : '') + '<td>' + (m.included ? '✓' : m.pct == null ? '<span class="muted">no result</span>' : '<span class="muted">weight 0</span>') + '</td></tr>'; }).join('') +
           '<tr><td><b>Overall</b></td><td></td><td class="small muted">' + esc(method()) + '</td><td class="n"><b>' + pc(x.overall) + '</b></td>' + (R.settings.method === 'weighted' ? '<td></td>' : '') + '<td></td></tr></tbody></table></div>' +
-          '<div class="roster-tools"><button class="btn" type="button" data-a="c">⬇ CSV — this student</button><button class="btn" type="button" data-a="x">Close</button></div></div>');
+          '<div class="roster-tools"><button class="btn" type="button" data-a="p">🖨 Print / PDF — this student</button><button class="btn" type="button" data-a="c">⬇ CSV — this student</button><button class="btn" type="button" data-a="x">Close</button></div></div>');
         $('[data-a=x]', w).onclick = function () { detailBox.innerHTML = ''; };
         $('[data-a=c]', w).onclick = function () { csvStudent(x); };
+        $('[data-a=p]', w).onclick = function () { printStudent(x); };
         detailBox.innerHTML = ''; detailBox.appendChild(w); w.scrollIntoView({ block: 'nearest' }); try { w.focus({ preventScroll: true }); } catch (e) { }
       }
     }
@@ -1645,6 +1647,31 @@
       csvDownload(fname(''), head, R.students.slice().sort(function (a, b) { return String(a.studentId).localeCompare(String(b.studentId)); }).map(function (x) {
         return [x.studentId, x.name, x.status, x.completion, x.withResults, x.included, x.assessedModules, R.settings.method].concat(R.modules.map(function (m) { var y = modOf(x, m.deliveryId); return y && y.pct != null ? y.pct : ''; }), [x.overall == null ? '' : x.overall]);
       }));
+    }
+    /** 🖨 The student's detailed report as a printable page (Save as PDF in the print dialog) — user, 2026-11-03. */
+    function printStudent(x) {
+      var red = function (v) { return v != null && v < 60; }, W = R.settings.method === 'weighted';
+      var res = function (a) {
+        if (a.state === 'excused') return ['<span>excused — not counted</span>', ''];
+        if (a.state === 'missed') return ['<span class="red">missed · 0%</span>', a.full ? '0 / ' + a.full : ''];
+        if (a.state === 'done') return ['<span' + (red(a.best) ? ' class="red"' : '') + '>' + a.best + '%' + (a.attempts > 1 ? ' (best of ' + a.attempts + ')' : '') + '</span>', a.full ? (a.marks == null ? 0 : a.marks) + ' / ' + a.full : ''];
+        return [a.attempts + ' · ' + pc(a.avg), ''];
+      };
+      var body = x.modules.map(function (m) {
+        var rows = m.assessments.map(function (a) { var r = res(a); return '<tr' + (a.state === 'missed' ? ' class="warn"' : '') + '><td>' + esc(a.title) + '</td><td class="n">' + r[0] + '</td><td class="n">' + r[1] + '</td></tr>'; }).join('');
+        return '<tr class="mod"><td>' + esc(m.icon + ' ' + m.module) + ' — module %' + (W ? ' (weight ' + m.weight + ')' : '') + (m.included ? '' : ' — not in the overall') + '</td><td class="n"><span' + (red(m.pct) ? ' class="red"' : '') + '>' + pc(m.pct) + '</span></td><td class="n">' + (m.fullMarks ? m.marks + ' / ' + m.fullMarks : '') + '</td></tr>' +
+          (rows || '<tr><td colspan="3">No assessment yet.</td></tr>');
+      }).join('');
+      var head = '<h1>Pathology Overall Results — Student Report</h1><p class="sub">' + esc(R.group.label) + '</p>' +
+        '<div class="meta"><span><b>Generated:</b> ' + esc(new Date().toLocaleString()) + '</span><span><b>Calculation:</b> ' + esc(method()) + '</span><span><b>Modules:</b> ' + esc(R.modules.map(function (m) { return m.title; }).join(', ') || '—') + '</span></div>';
+      ovPrint('Overall results — ' + x.name, head +
+        '<h2 dir="auto">' + esc(x.name) + ' · ' + esc(x.studentId) + '</h2>' +
+        '<div class="kpi"><span>Overall assessment <b' + (red(x.overall) ? ' class="red"' : '') + '>' + pc(x.overall) + '</b></span><span>Modules with results <b>' + x.withResults + ' / ' + x.assessedModules + '</b></span>' +
+        '<span>Missed assessments <b>' + (x.missed || 0) + '</b></span><span>Status <b>' + esc((COMP[x.completion] || [x.completion])[0]) + '</b></span></div>' +
+        '<table><thead><tr><th>Module / assessment</th><th class="n">Result (best attempt)</th><th class="n">Marks obtained / total marks</th></tr></thead><tbody>' + body +
+        '<tr class="mod"><td>Overall — ' + esc(method()) + '</td><td class="n"><span' + (red(x.overall) ? ' class="red"' : '') + '>' + pc(x.overall) + '</span></td><td></td></tr></tbody></table>' +
+        '<p class="note">Module % = marks obtained ÷ total marks over the assessments held in the class (the best attempt of each; a missed assessment adds 0 of its marks; excused or excluded assessments are left out). Overall % = ' + esc(method().toLowerCase()) + '. Red = below 60 %. Practice quizzes, official exams and attendance are not included.</p>' +
+        '<div class="sig"><div>Teacher — name and signature</div><div>Head of Department — signature</div><div>Date</div></div>');
     }
     function csvStudent(x) {
       var rows = x.modules.map(function (m) { return [x.studentId, x.name, m.module, m.attempts, m.assessments.map(resAssessLabel).join('; '), m.pct == null ? '' : m.pct, R.settings.method === 'weighted' ? m.weight : 1, m.included ? 'yes' : 'no']; });
@@ -2033,6 +2060,7 @@
         '<div class="ov-kpi"><span>Class absence</span><b>' + ovPct(S.classAbsencePct) + '</b></div>' +
         '<div class="ov-kpi' + (S.warn ? ' ov-kpi-warn' : '') + '"><span>Below ' + th + '%</span><b>' + (S.warn ? '⚠ ' : '') + S.warn + '</b></div>' +
         '<div class="ov-kpi"><span>No sessions counted yet</span><b>' + S.none + '</b></div></div>'));
+      if ((R.hidden || []).length) body.appendChild(h('<p class="small muted ov-hidden">Only the active modules are counted. Not included: ' + esc(R.hidden.map(function (m) { return m.title + (m.reason === 'archived' ? ' (archived)' : ' (delivery switched off)'); }).join(', ')) + '.</p>'));   // 2.40
       body.appendChild(h('<p class="small ov-mods"><b>Modules included:</b> ' + (R.modules.length ? R.modules.map(function (m) { return '<span class="ov-chip">' + esc(m.icon + ' ' + m.title) + ' · ' + m.sessions + ' session' + (m.sessions === 1 ? '' : 's') + (m.open ? ' (+' + m.open + ' open)' : '') + '</span>'; }).join(' ') : '<span class="muted">none</span>') + '</p>'));
       if (R.partial) body.appendChild(h('<p class="note small">Only the ' + R.modules.length + ' module(s) assigned to you are included; the group has ' + R.groupModules + ' teaching module(s). The platform administrator sees the complete syllabus.</p>'));
       body.appendChild(h('<p class="small muted ov-method">Each class is counted once, whether its attendance was taken inside the module or as a Teaching Session. Late counts as attended; excused classes and classes still open do not count. ' +
@@ -2117,7 +2145,7 @@
       })), widths: [13, 30].concat(C.map(function () { return 16; })), styles: warnRows };
       var info = { name: 'Report info', header: 0, widths: [30, 70], styles: { 0: 'title' }, rows: [
         ['Overall Pathology Attendance Report'], ['Group', R.group.label], ['Generated', tzShow(Date.now(), tz()) + ' (' + tz() + ')'],
-        ['Modules included', R.modules.map(function (m) { return m.title + ' (' + m.sessions + ')'; }).join('; ')], ['Sessions counted', R.summary.ended], ['Sessions still open (not counted)', R.summary.open],
+        ['Modules included', R.modules.map(function (m) { return m.title + ' (' + m.sessions + ')'; }).join('; ')], (R.hidden || []).length ? ['Not included', R.hidden.map(function (m) { return m.title + (m.reason === 'archived' ? ' (archived)' : ' (delivery switched off)'); }).join('; ')] : [], ['Sessions counted', R.summary.ended], ['Sessions still open (not counted)', R.summary.open],
         ['Students', R.summary.students], ['Below ' + th + '%', R.summary.warn], ['No sessions counted yet', R.summary.none], ['Class attendance %', R.summary.classPct], ['Class absence %', R.summary.classAbsencePct],
         ['Calculation', 'Attendance % = round(attended ÷ (attended + absent) × 100); late counts as attended; excused and open sessions do not count; Absence % = 100 − Attendance %.'],
         ['Warning', 'Attendance % below ' + th + '% (the platform threshold) — the same rule as the Teaching Sessions table.'],
@@ -2128,7 +2156,8 @@
       var th = R.settings.threshold;
       return '<h1>' + esc(title) + '</h1><p class="sub">' + esc(R.group.label) + '</p>' +
         '<div class="meta"><span><b>Generated:</b> ' + esc(tzShow(Date.now(), tz())) + '</span><span><b>Sessions counted:</b> ' + R.summary.ended + (R.summary.open ? ' (+' + R.summary.open + ' open, not counted)' : '') + '</span><span><b>Warning threshold:</b> below ' + th + '%</span>' +
-        '<span><b>Modules:</b> ' + esc(R.modules.map(function (m) { return m.title + ' (' + m.sessions + ')'; }).join(', ') || '—') + '</span></div>';
+        '<span><b>Modules:</b> ' + esc(R.modules.map(function (m) { return m.title + ' (' + m.sessions + ')'; }).join(', ') || '—') + '</span>' +
+        ((R.hidden || []).length ? '<span><b>Not included:</b> ' + esc(R.hidden.map(function (m) { return m.title + (m.reason === 'archived' ? ' (archived)' : ' (switched off)'); }).join(', ')) + '</span>' : '') + '</div>';
     }
     var SIG = '<div class="sig"><div>Teacher — name and signature</div><div>Head of Department — signature</div><div>Date</div></div>';
     var NOTE = function () { return '<p class="note">Each class is counted once (module attendance and Teaching Sessions). Late counts as attended; excused and open sessions do not count. Attendance % = attended ÷ (attended + absent), rounded; Absence % = 100 − Attendance %. ⚠ = below ' + R.settings.threshold + '%.' + (R.partial ? ' Only the modules assigned to this teacher are included.' : '') + '</p>'; };
