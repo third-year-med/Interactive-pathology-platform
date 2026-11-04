@@ -6,8 +6,8 @@ build of a module; `SETUP.md` is the user-facing setup guide.
 
 Essentials:
 - **ACTIVE MODULES ONLY (user, 2026-10-31 — applies to every task until the user changes it):** work only on
-  `introduction-to-pathology` (`intropath`), `cell-injury-condensed` (`cellcondensed`), `inflammation-new` (`inflnew`) and
-  `neoplasia-new` (`neonew`). All other modules are ARCHIVED (`modules/INACTIVE`: `cellinjury`, `inflhealing`, `inflcondensed`,
+  `introduction-to-pathology` (`intropath`), `cell-injury-condensed` (`cellcondensed`), `inflammation-new` (`inflnew`),
+  `neoplasia-new` (`neonew`) and `Granulomatous-and-parasitic-diseases` (`granuloma`, added 2026-11-04). All other modules are ARCHIVED (`modules/INACTIVE`: `cellinjury`, `inflhealing`, `inflcondensed`,
   `neoplasm`): never modify, rebuild, patch, refresh or delete them, even to fix an error — `apply.sh` and
   `tools/module-release.js` refuse them. A change to a shared component (patches, Portal.gs, platform-nav, tests) that
   could affect other modules needs the user's explicit approval first. Token policy: inspect only the files the task
@@ -20,6 +20,7 @@ Essentials:
   the condensed modules `third-year-med-inflammation-condensed` (`inflcondensed`) and `cell-injury-condensed` (`cellcondensed`);
   `inflammation-new` (**Inflammation (New)**, `inflnew`, `in_` — the user's own inflammation syllabus, NOT condensed, 2026-10-29; Healing topics t14–t19 added 2026-10-30, practical t13 kept last);
   `neoplasia-new` (**Neoplasia (New)**, `neonew`, `nn_` — the user's own neoplasia syllabus "Neoplasia (Ch. 6)", NOT condensed, 2026-10-30; separate from Neoplasia `neoplasm`);
+  `Granulomatous-and-parasitic-diseases` (**Granulomatous and Parasitic Diseases**, `granuloma`, `gp_` — the user's syllabus "Chapter 6", NOT condensed, 2026-11-04; page URL has a capital G; HANDBOOK §4.2.4);
   `Gyn-pathology` is kept but not part of the platform. **Neoplasia (2026-10-19):** the OLD test module (repository `Neoplasia-platform`,
   DELETED 2026-10-19; key `neoplasia`) is retired — the NEW module is a fresh build in `third-year-med/neoplasia` with module key `neoplasm`,
   prefix `nm_` (never reuse the key `neoplasia`: old test data may sit under it on the backend). Built 2026-10-19 (build 1.0,

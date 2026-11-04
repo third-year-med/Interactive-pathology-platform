@@ -2,7 +2,7 @@
 # asks for one to be re-activated. One module key per line. apply.sh and tools/module-release.js refuse these pages;
 # ALLOW_INACTIVE=1 overrides it only for a throw-away test copy (never for the module repository itself).
 # Active modules: intropath (introduction-to-pathology), cellcondensed (cell-injury-condensed), inflnew (inflammation-new),
-# neonew (neoplasia-new).
+# neonew (neoplasia-new), granuloma (Granulomatous-and-parasitic-diseases).
 cellinjury
 inflhealing
 inflcondensed

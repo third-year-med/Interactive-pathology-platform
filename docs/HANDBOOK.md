@@ -17,6 +17,7 @@ in this repository, so every new session starts from it. State as of **2026-10-0
 | `cell-injury-condensed` | Module **Cell Injury & Cell Death — Condensed** (2026-10-18): an independent ~50 % shorter high-yield version of Cell Injury & Cell Death — one `index.html` (`cellcondensed`, `cc_`, its OWN content key) | `…/cell-injury-condensed/` |
 | `introduction-to-pathology` | Module **Introduction to Pathology** (Chapter 1, first card) — one `index.html` (`intropath`, `ip_`) | `…/introduction-to-pathology/` |
 | `neoplasia` | Module **Neoplasia** (Chapter 4, after Inflammation & Healing; 2026-10-19) — a NEW condensed build, one `index.html` (`neoplasm`, `nm_`, its OWN content key) | `…/neoplasia/` |
+| `Granulomatous-and-parasitic-diseases` | Module **Granulomatous and Parasitic Diseases** (Chapter 6, last card after Neoplasia (New); 2026-11-04) — the user's syllabus, NOT condensed, one `index.html` (`granuloma`, `gp_`, its OWN content key) | `…/Granulomatous-and-parasitic-diseases/` (capital G) |
 | `pathology-exams` | The Official Exams app — one `index.html` (`?m=<storage>`, `?g=<link code>`) | `…/pathology-exams/` |
 
 **Cancelled (2026-10-10):** the Vulva and Vagina modules (`Vulvar-pathology`, `vaginal-pathology`, their separate
@@ -492,6 +493,33 @@ and `neonew-ospe-stations.json` (18). Rehearsal on the real page: 24/24 pictures
 certificate error) → PEIR pictures can't be examined, so they are not used for Spotter/OSPE; the user asked to use PEIR "IPLab:
 Lab 7" for lab cases — needs the host allowed in the environment's Network access first.
 
+### 4.2.4 Granulomatous and Parasitic Diseases — the user's syllabus, NOT condensed (user, 2026-11-04)
+Repository `third-year-med/Granulomatous-and-parasitic-diseases` (created by the user; GitHub keeps the capital G, so the page is
+`https://third-year-med.github.io/Granulomatous-and-parasitic-diseases/`), title **"Granulomatous and Parasitic Diseases"**, module key
+**`granuloma`**, prefix **`gp_`**, build `1.0`, own content key (env `GP_CONTENT_KEY`). The user's prompt had no CONTENT STYLE section →
+full syllabus (user confirmed "Full syllabus"); front-page position: after Neoplasia (New). App code of `neoplasia-new` (all patches ✅);
+module-local changes only: UX_UNITS / UX_FLOW / UX_EXPECT_*, the Learn intro sentence, the two practical-topic references t15 → **t14**,
+`LMR_TRAP_EDITS = {}`. `VL_MODULES` left as in the model (the video-own-module patch anchors on it) → in 🎬 Video Lectures this module's
+tick box shows the key "granuloma" instead of its title; showing the title needs a shared change of the patch (ask the user first).
+Sources: syllabus "Chapter 6" pp. 116–153 (scanned PDF with OCR text; the 31 figures cropped from the page renders and embedded as
+`fig6_1…fig6_31`, credit "Course syllabus … p. N"); practical book (Harsh Mohan style, Exercises 14–17 — text rewritten into t14, its
+figures NOT used); "Granuloma mcq book" Q173–293 + "key answer mcq book" (both scanned images, read page by page).
+Content: 13 syllabus topics t01–t13 + Practical t14 (60 sections, ≈ 10,900 Learn words), 181 questions (every topic ≥ 8), 116 glossary
+terms, 10 cases, 4 flowcharts, 8 sequences, 8 comparisons, 31 syllabus figures, 14 Wikimedia Commons atlas pictures (Yale Rosen, Ed Uthman,
+Calicut Medical College, Nephron — CC BY / CC BY-SA, licence read from the Commons API). Wording notes: Gamna–Gandy (syllabus “Gamma
+Gandy”), filariasis item 5 taken from the chapter summary, the toxoplasma lymph-node microscopy that the OCR placed under filariasis,
+the practical book's “aerobic” Actinomyces and “liver” for miliary spleen. Deliverables (never committed): 🔒 `granuloma-assessment-bank.json`
+(91 items `aqb_gp_NNN[letter]`; 42 book items left out — outside the syllabus or key not settled / contradicting the syllabus: 189, 192–203,
+206, 209, 211, 212, 214, 231, 232, 247, 249–261, 263, 266, 269, 272, 278, 280, 283, 286; Q181's options are mislettered in the book (A, B, B,
+C, D) — key C = "increases the phagocytic power"), `granuloma-practical-pictures.json` (26 syllabus photographs `gp-prac-01…26` → t14),
+`granuloma-practical-cases.json` (13 practicals of Ex. 14–17), `granuloma-spotter-questions.json` (52, answers A–E 11/11/10/10/10) and
+`granuloma-ospe-stations.json` (14). Real-page rehearsal: 26/26 pictures, 91/91 bank items, 52/52 Spotter, 14/14 OSPE ready, practical file
+accepted; High-Yield print = PlatformHY (7 unit headings, 70 facts). **Network:** WebPath, WebPathology and PEIR are outside the session's
+network policy (TLS refused) → no link cards; Wikimedia Commons answered then rate-limited the session (HTTP 429) → only the TB, leprosy
+and sarcoidosis Commons pictures were added; a later session can add more (atlas ids continue at gp-img-015). No Robbins pictures were
+attached (the user ticked "Robbins pictures" — attach them or name the Drive folder for a picture-import batch `gp-robbins-NN`).
+e2e test "Granulomatous and Parasitic Diseases module (granuloma)…"; module smoke includes it.
+
 ### 4.3 Picture sources (user, 2026-10-19): use ALL of them, each under its own rules
 
 A new module searches every source for every section and practical specimen. Pictures are registered in the course's
@@ -850,7 +878,13 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
 - Preserve existing features and data; no redesigns or rewrites unless asked; smallest reliable fix.
 - After each step give: what changed, how it was tested, and the exact deployment steps.
 
-## 10. Current state (updated 2026-10-19)
+## 10. Current state (updated 2026-11-04)
+
+- **Granulomatous and Parasitic Diseases (2026-11-04, `third-year-med/Granulomatous-and-parasitic-diseases`, `granuloma`, `gp_`, build `1.0`)**
+  — built and pushed (commit baa5f74), see §4.2.4. User still to do: GitHub Pages ON (Settings → Pages → main / root), the four Code.gs
+  additions for `granuloma` (quiz pw `GRANULOMA-2026`), platformCheck, Deploy, front-page card after Neoplasia (New), Platform directory →
+  Modules → Add + Deliveries, test in incognito, master v1.0 + versioned content ON, then import the five deliverable files in ✏️ Edit
+  master draft. Active modules are now intropath, cellcondensed, inflnew, neonew and **granuloma**.
 
 - **Neoplasia (2026-10-19, `third-year-med/neoplasia`, module key `neoplasm`, prefix `nm_`, build `1.0`, own content key —
   env `NM_CONTENT_KEY` in sessions):** built from scratch, condensed from the start, with the app code of `cell-injury-condensed`
