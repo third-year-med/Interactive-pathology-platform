@@ -2924,10 +2924,50 @@ test('2.40 attendance closes by itself 1 hour after it opened (module attendance
   assert.ok(ro.hidden.some(function (m) { return m.title === 'Inflammation & Healing' && m.reason === 'archived'; }));
   assert.ok(!ro.modules.some(function (m) { return m.title === 'Inflammation & Healing'; }));
   X.PORTAL_ARCHIVED = {};
-  assert.strictEqual(X.PORTAL_VERSION, '2.40');
+  assert.ok(Number(X.PORTAL_VERSION) >= 2.40, 'Portal.gs 2.40 or later');
 });
 
 test('2.40 PORTAL_ARCHIVED in Portal.gs = the archived modules of modules/INACTIVE', function () {
   const keys = require('fs').readFileSync(path.join(__dirname, '..', 'modules', 'INACTIVE'), 'utf8').split('\n').map(function (l) { return l.trim(); }).filter(function (l) { return l && l[0] !== '#'; }).sort();
   assert.deepStrictEqual(Object.keys(createBackend({ files: FILES }).ctx.PORTAL_ARCHIVED).sort(), keys);
+});
+
+test('2.41 ✍ marking corrections: matching with repeated answers marked by text; submit fixed at once; ↻ re-mark old attempts; ✎ adjust one mark (teachers only)', function () {
+  const S = tsSetup(), CI = 'cellinjury-razi-a-26', X = S.b.ctx;
+  const ttok = assessFixture(S, CI), stu = login(S, CI, 'b1', 'basma-pass-1').token;
+  const T = function (action, o) { return S.call(Object.assign({ module: CI, action: action, token: ttok }, o || {})); };
+  const A = function (tok, action, o) { return S.call(Object.assign({ module: CI, action: action, stoken: tok }, o || {})); };
+  const mq = { id: 'm1', type: 'matching', topic: 't06', stem: 'Match the feature with the tumour type.', pairs: [{ left: 'Early lymphatic spread', right: 'Carcinoma' }, { left: 'Early spread by blood', right: 'Sarcoma' }, { left: 'Usually < 20 years', right: 'Sarcoma' }, { left: 'Most common form of malignancy', right: 'Carcinoma' }] };
+  const tq = { id: 't1', type: 'tf', topic: 't06', stem: 'Sarcomas are malignant.', answer: true };
+  S.call({ module: CI, action: 'upsert', token: ttok, collection: 'assessments', id: 'q3', data: { id: 'q3', title: 'Topic 6 quiz', status: 'published', publishedVersion: 1 } });
+  S.call({ module: CI, action: 'upsert', token: ttok, collection: 'assessmentversions', id: 'q3@1', data: { assessmentId: 'q3', version: 1, title: 'Topic 6 quiz', mode: 'fixed', questionIds: ['m1', 't1'], settings: { showScore: true, showAnswers: true }, questions: { m1: mq, t1: tq } } });
+  const store = X.assessStore_(CI);
+  store.put('assignment', 'asg3', { id: 'asg3', assessmentId: 'q3', assessmentTitle: 'Topic 6 quiz', targetType: 'all', emails: [], status: 'active', availableFrom: null, dueAt: null });
+  T('aePwSet', { assessmentId: 'q3', password: 'Topic-6' });
+  // the engine alone marks the other, identical "Sarcoma" / "Carcinoma" wrong (the bug)
+  const resp = { m1: { 0: 3, 1: 2, 2: 1, 3: 0 }, t1: true };   // every pair right by TEXT, none by position
+  assert.strictEqual(X.AE_gradeQuestion(mq, resp.m1).score, 0, 'the old rule: 0 of 4');
+  assert.deepStrictEqual(X.aeGradeQ_(mq, resp.m1).pairs, [true, true, true, true]);
+  assert.deepStrictEqual(X.aeGradeQ_(mq, { 0: 1, 1: 1, 2: 1, 3: 0 }).pairs, [false, true, true, true], 'a really wrong pair stays wrong');
+  // a signed-in student's submission is re-marked at once
+  const st = A(stu, 'startAttempt', { assignmentId: 'asg3', password: 'Topic-6' }); assert.ok(st.ok, JSON.stringify(st));
+  const sub = A(stu, 'submitAttempt', { attemptId: st.attempt.id, responses: resp }); assert.ok(sub.ok, JSON.stringify(sub));
+  assert.deepStrictEqual([sub.attempt.score, sub.attempt.total, sub.attempt.correct], [2, 2, 2]);
+  // an attempt marked earlier by the old rule → ↻ re-mark corrects it (teachers only)
+  const old = JSON.parse(JSON.stringify(store.get('attempt', st.attempt.id))); old.id = 'oldatt'; old.email = 'wesal@uni.ly'; old.name = 'Wesal';
+  const g = X.AE_gradeAttempt(old, resp); Object.assign(old, { score: g.score, correct: g.correct, incorrect: g.incorrect, answers: g.answers, firstScore: undefined, remarkedAt: undefined });
+  store.put('attempt', 'oldatt', old); assert.strictEqual(store.get('attempt', 'oldatt').score, 1);
+  assert.strictEqual(A(stu, 'aeRemark', { assessmentId: 'q3' }).ok, false, 'not for students');
+  const rm = T('aeRemark', { assessmentId: 'q3' }); assert.ok(rm.ok, JSON.stringify(rm));
+  assert.deepStrictEqual([rm.checked, rm.changed.map(function (c) { return [c.name, c.before, c.after]; })], [2, [['Wesal', 1, 2]]]);
+  const fixed = X.assessStore_(CI).get('attempt', 'oldatt'); assert.deepStrictEqual([fixed.score, fixed.percent, fixed.correct, fixed.firstScore], [2, 100, 2, 1]);
+  assert.strictEqual(T('aeRemark', { assessmentId: 'q3' }).changed.length, 0, 'nothing left to change');
+  // ✎ adjust one mark: half a mark for the TF question, with a note; then back to automatic
+  assert.strictEqual(T('aeAdjustMark', { attemptId: 'oldatt', qid: 't1', mark: 2 }).ok, false, 'a mark is 0–1');
+  const ad = T('aeAdjustMark', { attemptId: 'oldatt', qid: 't1', mark: 0.5, note: 'Disputed wording', by: 'Dr. W' });
+  assert.ok(ad.ok, JSON.stringify(ad)); assert.deepStrictEqual([ad.before, ad.score, ad.percent], [2, 1.5, 75]);
+  const a1 = ad.answers.filter(function (a) { return a.qid === 't1'; })[0]; assert.deepStrictEqual([a1.mark, a1.autoMark, a1.override.note, a1.correct], [0.5, 1, 'Disputed wording', false]);
+  assert.strictEqual(T('aeRemark', { assessmentId: 'q3' }).changed.length, 0, 're-marking keeps the teacher\'s adjusted mark');
+  assert.strictEqual(T('aeAdjustMark', { attemptId: 'oldatt', qid: 't1', mark: null }).score, 2, 'automatic mark again');
+  assert.strictEqual(A(stu, 'aeAdjustMark', { attemptId: 'oldatt', qid: 't1', mark: 1 }).ok, false, 'not for students');
 });

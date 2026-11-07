@@ -6237,7 +6237,7 @@ test('🎬 Video Lectures: 5th main tab; each module shows its own videos; categ
     await p.click('[data-a=vlc-new]'); await p.waitForSelector('.vlc-form'); await p.waitForTimeout(150);
     await p.fill('.vlc-form input[type=text]', 'Revision sessions'); await p.fill('.vlc-form textarea', 'Before the exam');
     await p.click('.vlc-icons button[aria-label="Icon 📝"]'); await p.click('.modal-foot .btn-primary'); await p.waitForSelector('.modal', { state: 'detached' });
-    await p.waitForFunction(function () { return /Revision sessions/.test(document.querySelector('.vlc-grid').textContent); });
+    await p.waitForFunction(function () { return /Revision sessions/.test((document.querySelector('.vlc-grid') || {}).textContent || ''); });
     assert.deepStrictEqual(await p.$$eval('.vlc-card', function (c) { return c.map(function (x) { return x.querySelector('b').textContent + ':' + x.querySelector('.vlc-n').textContent; }); }), ['Revision sessions:0 videos', 'Other lectures:1 video']);
     // move the video: Other lectures → ✎ Edit → Category
     await p.click('.vlc-card.vlc-other'); await p.waitForSelector('.vl-card');
@@ -6255,7 +6255,7 @@ test('🎬 Video Lectures: 5th main tab; each module shows its own videos; categ
     main.call({ module: 'cellinjury', action: 'videoSave', token: tt.token, video: { title: 'Apoptosis basics', url: 'https://youtu.be/apoapoapoap', modules: ['cellinjury'], chapter: 'Cell death', status: 'published' } });
     await p.evaluate(function () { return Views.videos.load(); }); await p.waitForSelector('[data-a=vlc-convert]');
     await p.click('[data-a=vlc-convert]'); await p.click('.modal-foot .btn-primary');
-    await p.waitForFunction(function () { return /Cell death/.test(document.querySelector('.vlc-grid').textContent); }, null, { timeout: 20000 });
+    await p.waitForFunction(function () { return /Cell death/.test((document.querySelector('.vlc-grid') || {}).textContent || ''); }, null, { timeout: 20000 });
     assert.ok(!(await p.$('[data-a=vlc-convert]')), 'nothing left to convert');
     // drag folders: Cell death first
     const fh = await box('.vlc-card:nth-child(2) .pa-handle'), f1 = await box('.vlc-card:nth-child(1) .vlc-ico');
@@ -6273,6 +6273,63 @@ test('🎬 Video Lectures: 5th main tab; each module shows its own videos; categ
     assert.deepStrictEqual(main.call({ module: 'cellinjury', action: 'videoList', token: tt.token }).cats.map(function (c) { return c.name; }), ['Cell death']);
     await p.waitForFunction(function () { const g = document.querySelector('.vlc-grid'), o = document.querySelector('.vlc-other .vlc-n'); return !!g && !/Revision sessions/.test(g.textContent) && !!o && o.textContent === '1 video'; }, null, { timeout: 20000 });
     assert.deepStrictEqual(lib().filter(function (v) { return v.title === 'Necrosis and apoptosis'; })[0].cats, {});
+    await p.context().close();
+    assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
+  } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
+});
+
+/* ✍ Marking corrections (patch ae-marking + Portal.gs 2.40, user 2026-11-07): an attempt marked by the old matching rule
+   (a repeated answer "Sarcoma" counted wrong) → 📊 Results → ↻ Re-mark corrects it and lists the change; ✎ on a question
+   gives a mark by hand with a note (✍), the score follows; back to the automatic mark. Synthetic course (no key). */
+test('✍ Results: ↻ Re-mark corrects a matching question with repeated answers; ✎ adjusts one mark by hand (✍), then back to automatic', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const mod = syntheticModule(CI_PAGE, { topics: [{ id: 't06', title: 'Mesenchymal tumours', summary: 's', sections: [{ id: 's0601', heading: 'S', body: 'Text', tables: [], figures: [], keyPoints: [] }] }], images: [] });
+  const keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['cellinjury'] }).modules.cellinjury;
+  const mq = { id: 'mk1', type: 'matching', topic: 't06', stem: 'Match the feature with the tumour type.', pairs: [{ left: 'Early lymphatic spread', right: 'Carcinoma' }, { left: 'Early spread by blood', right: 'Sarcoma' }, { left: 'Usually < 20 years', right: 'Sarcoma' }, { left: 'Most common form of malignancy', right: 'Carcinoma' }] };
+  const tq = { id: 'mk2', type: 'tf', topic: 't06', stem: 'Sarcomas are malignant.', answer: true };
+  const up = function (c, id, d) { assert.ok(main.call({ module: 'cellinjury', action: 'upsert', token: tt.token, collection: c, id: id, data: d }).ok); };
+  up('assessments', 'mkq', { id: 'mkq', title: 'Topic 6 quiz (marking)', status: 'published', publishedVersion: 1, questionIds: ['mk1', 'mk2'], settings: { passPct: 50, showScore: true } });
+  up('assessmentversions', 'mkq@1', { assessmentId: 'mkq', version: 1, title: 'Topic 6 quiz (marking)', mode: 'fixed', questionIds: ['mk1', 'mk2'], settings: { showScore: true }, questions: { mk1: mq, mk2: tq } });
+  const resp = { mk1: { 0: 3, 1: 2, 2: 1, 3: 0 }, mk2: true }, X = main.ctx, store = X.assessStore_('cellinjury');
+  const att = { id: 'mkatt1', assignmentId: 'mkasg', assessmentId: 'mkq', version: 1, attemptNo: 1, email: 'wesal@student.local', name: 'Wesal Test', status: 'submitted', startedAt: Date.now() - 300000, submittedAt: Date.now() - 10000, questions: [mq, tq], optionOrders: [], responses: resp, settings: { showScore: true, passPct: 50 } };
+  const g = X.AE_gradeAttempt(att, resp); Object.assign(att, { score: g.score, total: g.total, percent: g.percent, correct: g.correct, incorrect: g.incorrect, unanswered: g.unanswered, answers: g.answers });
+  assert.strictEqual(att.score, 1, 'marked by the old rule: the matching question 0');
+  store.put('attempt', att.id, att);
+  const start = errors.length;
+  try {
+    const p = await page();
+    await p.route('https://third-year-med.github.io/cell-injury-teaching-platform/**', function (route) { return route.fulfill({ status: 200, contentType: 'text/html', body: mod.html }); });
+    await p.addInitScript(function (v) { localStorage.setItem('ci_backend_token_v1', v); }, JSON.stringify({ token: tt.token, expiresAt: tt.expiresAt }));
+    await p.goto('https://third-year-med.github.io/cell-injury-teaching-platform/#/teacher/results');
+    await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+    await p.waitForSelector('#rs-asm', { timeout: 30000 });
+    await p.selectOption('#rs-asm', 'mkq');
+    await p.waitForSelector('[data-a=rs-remark]');
+    // ↻ Re-mark
+    await p.click('[data-a=rs-remark]'); await p.click('.modal-foot .btn-primary');
+    await p.waitForSelector('[data-a=rs-remark-list]', { timeout: 30000 });
+    assert.match(await p.textContent('[data-a=rs-remark-list]'), /Wesal Test\s*1 \/ 2\s*2 \/ 2/);
+    await p.click('.modal-foot .btn-primary'); await p.waitForSelector('.modal', { state: 'detached' });
+    assert.deepStrictEqual([X.assessStore_('cellinjury').get('attempt', 'mkatt1').score, X.assessStore_('cellinjury').get('attempt', 'mkatt1').firstScore], [2, 1]);
+    // ✎ adjust the TF mark to ½ with a note → ✍; the score follows
+    await p.waitForFunction(function () { return /Wesal Test/.test(document.body.innerText); });
+    await p.evaluate(function () { const r = ResultsUI.results().find(function (x) { return x.id === 'mkatt1'; }); ResultsUI.showStudent(r); });
+    await p.waitForSelector('.modal [data-a=rs-adjust]');
+    assert.deepStrictEqual(await p.$$eval('.modal [data-a=rs-adjust]', function (b) { return b.map(function (x) { return x.textContent; }); }), ['✎ 1', '✎ 1']);
+    await p.click('.modal [data-a=rs-adjust] >> nth=1');
+    await p.waitForSelector('.rs-adj'); await p.check('.rs-adj input[value="0.5"]'); await p.fill('.rs-adj input[type=text]', 'Disputed wording');
+    await p.click('.modal:has(.rs-adj) .modal-foot .btn-primary');
+    await p.waitForFunction(function () { return /Mark saved — score 2 → 1\.5 \/ 2/.test(document.body.innerText); }, null, { timeout: 30000 });
+    await p.waitForSelector('.modal [data-a=rs-adjust]');
+    assert.match(await p.textContent('.modal .table-scroll tbody tr:nth-child(2)'), /✍ 0\.5/);
+    const sv = X.assessStore_('cellinjury').get('attempt', 'mkatt1'); assert.deepStrictEqual([sv.score, sv.percent, sv.overrides.mk2.note], [1.5, 75, 'Disputed wording']);
+    // back to the automatic mark
+    await p.click('.modal [data-a=rs-adjust] >> nth=1'); await p.waitForSelector('.rs-adj'); await p.check('.rs-adj input[value="auto"]');
+    await p.click('.modal:has(.rs-adj) .modal-foot .btn-primary');
+    await p.waitForFunction(function () { return /score 1\.5 → 2 \/ 2/.test(document.body.innerText); }, null, { timeout: 30000 });
+    assert.strictEqual(X.assessStore_('cellinjury').get('attempt', 'mkatt1').score, 2);
     await p.context().close();
     assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
   } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }

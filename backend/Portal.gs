@@ -199,7 +199,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.40';
+var PORTAL_VERSION = '2.41';
 /** 2.40: the ARCHIVED modules (the platform repository's modules/INACTIVE, user 2026-10-31). Their deliveries are left out of
  *  the overall reports (Overall Pathology Attendance, Pathology Overall Results) even while still switched on. Keep this
  *  list equal to modules/INACTIVE (a test checks it); re-activating a module = remove it from both, then redeploy. */
@@ -241,6 +241,7 @@ function portalHook_(module, p) {
     var ap = assessPwHook_(String(module), act, p); if (ap) return ap;   // 2.19: one password per assessment (asked only to start it)
     if (act === 'aeCopyTargets' || act === 'aeCopyTo') return aeCopyHook_(String(module), act, p);   // 2.21: copy an assessment to other groups
     if (ATT_AUTO_ACTIONS[act]) attAutoClose_(String(module));   // 2.40: attendance closes by itself 1 hour after it opened
+    if (act === 'aeRemark' || act === 'aeAdjustMark') return aeMarkHook_(String(module), act, p);   // 2.41: re-mark an assessment / adjust one mark
     if (act === 'attMark' || act === 'attMarks') return attMarkHook_(String(module), act, p);
     if (act === 'teacherWho') return teacherWhoHook_(String(module), p);   // 2.35: the name of the teacher account that opened this module   // 2.25/2.26: Present / Late / Excused in the module report
     if (VL_ACTIONS[act]) return vlHook_(String(module), act, p);   // 2.38: 🎬 Video Lectures — one platform-wide library
@@ -3744,7 +3745,11 @@ function assessPwHook_(storage, act, p) {
   }
   if (act === 'submitAttempt') {
     var lk = LockService.getScriptLock(); lk.waitLock(30000);
-    try { return assessSvc_(storage).submitAttempt(String(p.attemptId || ''), email, p.responses || {}); } finally { lk.releaseLock(); }
+    try {
+      var sr = assessSvc_(storage).submitAttempt(String(p.attemptId || ''), email, p.responses || {});
+      try { if (sr && sr.ok && !sr.already) aeFixSubmitted_(storage, sr); } catch (e) { }   // 2.41: the fixed matching marking at once
+      return sr;
+    } finally { lk.releaseLock(); }
   }
   // startAttempt
   var store = assessStore_(storage), a = store.get('assignment', String(p.assignmentId || ''));
@@ -4228,6 +4233,81 @@ function vlHook_(S, act, p) {
         vlForget_(); return { ok: true, made: made, filed: filed };
       }
       return { ok: false, error: 'Unknown action.' };
+    } finally { lock.releaseLock(); }
+  });
+}
+
+/* ======================================================================
+ * 2.41 — ✍ Marking corrections (user 2026-11-07)
+ *   Matching questions whose right-hand answers repeat (e.g. "Carcinoma" twice) were marked by the POSITION of the chosen
+ *   answer, so choosing the other, identical "Carcinoma" counted as wrong. aeGradeQ_ marks a pair correct when the chosen
+ *   answer has the same text as the correct one (every other question type: the engine's own AE_gradeQuestion).
+ *   aeRegrade_ recalculates a submitted attempt from its stored responses + question snapshot, then applies the teacher's
+ *   adjusted marks (att.overrides {qid: {mark 0–1, note, by, at}}). The first automatic score is kept (att.firstScore).
+ *   submitAttempt (signed-in students): re-marked straight after submitting.
+ *   aeRemark      teacher of the storage: {assessmentId} → every submitted attempt re-marked; returns what changed
+ *   aeAdjustMark  teacher: {attemptId, qid, mark (0, .25, .5, .75, 1) | null = automatic again, note}
+ * ====================================================================== */
+function aeNorm_(x) { return typeof AE_normText === 'function' ? AE_normText(x) : String(x == null ? '' : x).toLowerCase().replace(/\s+/g, ' ').trim(); }
+function aeGradeQ_(q, resp) {
+  if (q && q.type === 'matching' && resp && typeof resp === 'object') {
+    var pairs = q.pairs || [], r = { answered: false, correct: false, score: 0 };
+    var given = function (v) { return v !== undefined && v !== null && v !== ''; };
+    if (!pairs.length || !pairs.some(function (_, k) { return given(resp[k]); })) return r;
+    r.answered = true;
+    var oks = pairs.map(function (pr, k) { var v = resp[k]; if (!given(v)) return false; var c = pairs[Number(v)]; return Number(v) === k || (!!c && aeNorm_(c.right) === aeNorm_(pr.right)); });
+    r.pairs = oks; r.correct = oks.every(Boolean); r.score = oks.filter(Boolean).length / oks.length; return r;
+  }
+  return AE_gradeQuestion(q, resp);
+}
+/** Recalculates a submitted attempt in place; true when its score or any mark changed. */
+function aeRegrade_(att) {
+  var over = att.overrides || {}, resp = att.responses || {}, score = 0, correct = 0, incorrect = 0, unanswered = 0;
+  var before = JSON.stringify([att.score, att.correct, att.incorrect, att.unanswered, att.answers]);
+  var answers = (att.questions || []).map(function (q) {
+    var r = resp[q.id], g = aeGradeQ_(q, r), mark = Math.round(AE_markFor(q, g) * 100) / 100, o = over[q.id];
+    var a = { qid: q.id, version: q.version || 1, topic: q.topic, type: q.type, answered: g.answered, correct: g.correct, mark: mark, response: r === undefined ? null : r };
+    if (o && typeof o.mark === 'number') { a.autoMark = mark; a.mark = o.mark; a.correct = o.mark >= 1; a.answered = a.answered || o.mark > 0; a.override = { mark: o.mark, note: o.note || '', by: o.by || '', at: o.at || 0 }; }
+    score += a.mark; if (!a.answered) unanswered++; else if (a.correct) correct++; else incorrect++;
+    return a;
+  });
+  score = Math.round(score * 100) / 100;
+  var total = (att.questions || []).length;
+  if (att.firstScore === undefined) att.firstScore = att.score;
+  att.score = score; att.total = total; att.percent = total ? Math.round((score / total) * 1000) / 10 : 0;
+  att.correct = correct; att.incorrect = incorrect; att.unanswered = unanswered; att.answers = answers;
+  return JSON.stringify([att.score, att.correct, att.incorrect, att.unanswered, att.answers]) !== before;
+}
+function aeFixSubmitted_(S, sr) {
+  var store = assessStore_(S), att = sr.attempt && store.get('attempt', String(sr.attempt.id || ''));
+  if (!att || att.status !== 'submitted' || !(att.questions || []).some(function (q) { return q.type === 'matching'; })) return;
+  if (aeRegrade_(att)) { att.remarkedAt = Date.now(); store.put('attempt', att.id, att); if (typeof AE_studentAttempt === 'function') sr.attempt = AE_studentAttempt(att, Date.now(), false); }
+}
+function aeMarkHook_(S, act, p) {
+  return authed_(S, p, function () {
+    if (typeof assessStore_ !== 'function' || typeof AE_gradeQuestion !== 'function') return { ok: false, error: 'Update Code.gs (assessments) first.' };
+    var store = assessStore_(S), lock = LockService.getScriptLock(); lock.waitLock(30000);
+    try {
+      if (act === 'aeRemark') {
+        var id = String(p.assessmentId || ''); if (!id) return { ok: false, error: 'Choose an assessment.' };
+        var list = store.list('attempt').filter(function (t) { return t.assessmentId === id && t.status === 'submitted'; }), changed = [];
+        list.forEach(function (t) {
+          var att = store.get('attempt', t.id) || t, s0 = att.score;
+          if (aeRegrade_(att)) { att.remarkedAt = Date.now(); store.put('attempt', att.id, att); if (att.score !== s0) changed.push({ id: att.id, name: att.name || '', email: att.email || '', before: s0, after: att.score, total: att.total }); }
+        });
+        return { ok: true, checked: list.length, changed: changed };
+      }
+      var a = store.get('attempt', String(p.attemptId || ''));
+      if (!a || a.status !== 'submitted') return { ok: false, code: 'notfound', error: 'This attempt was not found (or is not submitted).' };
+      var qid = String(p.qid || ''); if (!(a.questions || []).some(function (q) { return q.id === qid; })) return { ok: false, error: 'This question is not in the attempt.' };
+      a.overrides = Object.assign({}, a.overrides || {});
+      if (p.mark === null || p.mark === undefined || p.mark === '') delete a.overrides[qid];
+      else {
+        var m = Number(p.mark); if (!(m >= 0 && m <= 1)) return { ok: false, error: 'A mark is between 0 and 1.' };
+        a.overrides[qid] = { mark: Math.round(m * 100) / 100, note: String(p.note || '').slice(0, 300), by: String(p.by || '').slice(0, 80), at: Date.now() };
+      }
+      var s1 = a.score; aeRegrade_(a); a.remarkedAt = Date.now(); store.put('attempt', a.id, a);
+      return { ok: true, before: s1, score: a.score, total: a.total, percent: a.percent, answers: a.answers };
     } finally { lock.releaseLock(); }
   });
 }
