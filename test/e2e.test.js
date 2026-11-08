@@ -3890,7 +3890,7 @@ test('⚡ Topic quizzes: one quiz per topic (pool of its practice questions, 5 r
   groupFixture();
   const qs = [], tf = function (topic, i) { return { id: topic + '-q' + i, type: 'tf', topic: topic, stem: 'Statement ' + i + ' of ' + topic + '.', answer: i % 2 === 0, explanation: 'Because.' }; };
   for (let i = 1; i <= 7; i++) qs.push(tf('tA', i));
-  for (let i = 1; i <= 3; i++) qs.push(tf('tB', i));
+  for (let i = 1; i <= 2; i++) qs.push(tf('tB', i));   // fewer than 3 (patch tq-count) → skipped
   for (let i = 1; i <= 5; i++) qs.push(tf('tC', i));
   qs.push({ id: 'tA-short', type: 'short', topic: 'tA', stem: 'Explain.', model: 'x' });   // short answer: never in a quiz
   const topics = [{ id: 'tA', title: 'Cell adaptations', sections: [] }, { id: 'tB', title: 'Tiny topic', sections: [] }, { id: 'tC', title: 'Cell death', sections: [] }];
@@ -3908,12 +3908,12 @@ test('⚡ Topic quizzes: one quiz per topic (pool of its practice questions, 5 r
     await t.click('[data-a=topic-quizzes]');
     await t.waitForSelector('.modal .tq');
     const plan = await t.textContent('.modal');
-    assert.match(plan, /5 random questions[\s\S]*5 minutes[\s\S]*1 attempt[\s\S]*1Cell adaptations7✓ new quiz[\s\S]*2Tiny topic3⏭ skipped — fewer than 5 questions[\s\S]*3Cell death5✓ new quiz/);
+    assert.match(plan, /5 random questions[\s\S]*5 minutes[\s\S]*1 attempt[\s\S]*1Cell adaptations7✓ new quiz[\s\S]*2Tiny topic2⏭ skipped — fewer than 3 questions[\s\S]*3Cell death5✓ new quiz/);
     if (process.env.SHOTS) await (await t.$('.modal')).screenshot({ path: path.join(process.env.SHOTS, 'topic-quizzes.png') });
     await t.click('.modal .modal-foot .btn-primary');
     await t.waitForFunction(function () { var m = document.querySelector('.modal'); return m && /Topic quizzes — done/.test(m.textContent); }, null, { timeout: 60000 });
     const rep = await t.textContent('.modal');
-    assert.match(rep, /✓ Created 2: Topic 1, Topic 3[\s\S]*Skipped \(fewer than 5 questions\): Topic 2 — Tiny topic \(3\)[\s\S]*Test Misrata · Group A \(2026-27\) — 2 copied/);
+    assert.match(rep, /✓ Created 2: Topic 1, Topic 3[\s\S]*Skipped \(fewer than 3 questions\): Topic 2 — Tiny topic \(2\)[\s\S]*Test Misrata · Group A \(2026-27\) — 2 copied/);
     if (process.env.SHOTS) await (await t.$('.modal')).screenshot({ path: path.join(process.env.SHOTS, 'topic-quizzes-done.png') });
     // on the server: two pool quizzes with the requested settings, assigned to everyone, each with its own random password
     const a = autos(ST).sort(function (x, y) { return x.title.localeCompare(y.title); });
@@ -3955,6 +3955,26 @@ test('⚡ Topic quizzes: one quiz per topic (pool of its practice questions, 5 r
     assert.match(await t.textContent('.modal'), /Already there, kept: Topic 1, Topic 3[\s\S]*1 copied, 1 kept \(students started\)/);
     assert.strictEqual(autos(ST).length, 2); assert.strictEqual(autos(MS).length, 2);
     assert.strictEqual(main.ctx.assessStore_(ST).list('assignment').filter(function (g) { return a.some(function (x) { return x.id === g.assessmentId; }); }).length, 2, 'no second assignment');
+    // patch tq-count: questions per student + minutes, for THIS group only (untick "Also copy…"); a 5-question topic uses all 5
+    const tqRun = async function (n, mins) {
+      await t.evaluate(function () { document.querySelectorAll('.modal-back').forEach(function (m) { m.remove(); }); });
+      await t.click('[data-a=topic-quizzes]'); await t.waitForSelector('.modal .tq [data-a=tq-n]');
+      await t.fill('.modal [data-a=tq-n]', String(n)); await t.press('.modal [data-a=tq-n]', 'Tab');
+      await t.waitForFunction(function (k) { const i = document.querySelector('.modal [data-a=tq-n]'); return i && i.value === String(k) && /each student gets/.test(document.querySelector('.modal').textContent); }, n);
+      if (mins) { await t.fill('.modal [data-a=tq-min]', String(mins)); await t.press('.modal [data-a=tq-min]', 'Tab'); await t.waitForFunction(function (k) { const i = document.querySelector('.modal [data-a=tq-min]'); return i && i.value === String(k); }, mins); }
+      const txt = await t.textContent('.modal');
+      await t.evaluate(function () { const m = document.querySelector('.modal'); [].forEach.call(m.querySelectorAll('.cg-opt'), function (l) { const c = l.querySelector('input[type=checkbox]'); if (!c) return; c.checked = /Refresh the/.test(l.textContent); }); });
+      await t.click('.modal .modal-foot .btn-primary');
+      await t.waitForFunction(function () { var m = document.querySelector('.modal'); return m && /Topic quizzes — done/.test(m.textContent); }, null, { timeout: 60000 });
+      return txt;
+    };
+    const t6 = await tqRun(6);
+    assert.match(t6, /6 random questions[\s\S]*6 minutes[\s\S]*Cell death5[\s\S]*uses all 5 \(fewer than 6\)[\s\S]*also sets them to 6 questions, 6 minutes/);
+    assert.deepStrictEqual(autos(ST).map(function (x) { return [x.poolCount, x.settings.timeLimitMin]; }), [[6, 6], [5, 6]], 'this group: 6 questions (Cell death: all its 5), 6 minutes');
+    assert.deepStrictEqual(autos(MS).map(function (x) { return [x.poolCount, x.settings.timeLimitMin]; }), [[5, 5], [5, 5]], 'the other group keeps 5');
+    await tqRun(5, 7);
+    assert.deepStrictEqual(autos(ST).map(function (x) { return [x.poolCount, x.settings.timeLimitMin]; }), [[5, 7], [5, 7]], 'back to 5 questions, minutes set separately');
+    await t.evaluate(function () { document.querySelectorAll('.modal-back').forEach(function (m) { m.remove(); }); });
     // rs-review patch: a student of this group takes Topic 1 → 📊 Results → Most-missed questions → 🎞️ Review in class
     main.addStudents(ST, [{ username: 'rvstu', name: 'Review Student', password: PW, mustChange: false }]);
     const rs = main.call({ module: ST, action: 'studentLogin', username: 'rvstu', password: PW }).token;
