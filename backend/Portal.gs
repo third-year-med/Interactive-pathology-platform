@@ -199,7 +199,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.41';
+var PORTAL_VERSION = '2.42';
 /** 2.40: the ARCHIVED modules (the platform repository's modules/INACTIVE, user 2026-10-31). Their deliveries are left out of
  *  the overall reports (Overall Pathology Attendance, Pathology Overall Results) even while still switched on. Keep this
  *  list equal to modules/INACTIVE (a test checks it); re-activating a module = remove it from both, then redeploy. */
@@ -285,6 +285,7 @@ function portalHook_(module, p) {
     case 'rosterSetActive': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return rosterSetActive_(p); }); });
     case 'rosterResetPassword': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return rosterResetPassword_(p); }); });
     case 'rosterResetMany': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return rosterResetMany_(p); }); });
+    case 'rosterRemoveAll': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return rosterRemoveAll_(p); }); });   // 2.42
     case 'rosterSync': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return rosterSync_(p.groupId); }); });
     case 'rosterImport': return authed_(PORTAL_MODULE, p, function () { return rosterWrite_(function () { return rosterImport_(p); }); });
     case 'portalGroupSetPassword': return portalGroupSetPassword_(p);
@@ -1172,6 +1173,24 @@ function rosterModulePassword_(module, p) {
 
 /** Bulk reset (one pass over the sheets, so a whole class takes seconds). Every member in scope gets a temporary password
  *  (must choose their own at the next sign-in) in all of the group's modules; their open sessions end. */
+/** 2.42 — removes the WHOLE student list of one group (user 2026-11-08): the group's memberships and the students' accounts
+ *  in the group's modules (their sessions end at once). Other groups are not touched. Needs confirm = "DELETE". */
+function rosterRemoveAll_(p) {
+  var g = rosterGroupOr_(p.groupId); if (!g) return dirErr_('Choose a group.');
+  if (String(p.confirm || '') !== 'DELETE') return dirErr_('Type DELETE to remove the whole student list of this group.');
+  var members = dirAll_(DIR.MEMB).filter(function (m) { return m.groupId === g.groupId; });
+  var st = rosterStorages_(g.groupId), idx = rosterAccounts_(), accs = [];
+  members.forEach(function (m) {
+    st.forEach(function (x) { var a = idx[x.storage + '|' + m.studentId]; if (a) { revokeStudentSessions_(x.storage, a.username, '__none__'); accs.push(a._row); } });
+  });
+  rosterDeleteRows_(SHEETS.STUDENTS, accs);
+  rosterDeleteRows_(DIR.MEMB, members.map(function (m) { return m._row; }));
+  return { ok: true, removed: members.length, accounts: accs.length };
+}
+/** Deletes rows from the bottom up, so the row numbers left to delete stay right. */
+function rosterDeleteRows_(name, rows) {
+  rows.slice().sort(function (a, b) { return b - a; }).forEach(function (r) { deleteRow_(name, r); });
+}
 function rosterResetMany_(p) {
   var g = rosterGroupOr_(p.groupId); if (!g) return dirErr_('Choose a group.');
   var scope = p.scope === 'all' ? 'all' : 'temp', shared = String(p.password || '');

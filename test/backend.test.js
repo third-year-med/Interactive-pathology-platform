@@ -2971,3 +2971,18 @@ test('2.41 ✍ marking corrections: matching with repeated answers marked by tex
   assert.strictEqual(T('aeAdjustMark', { attemptId: 'oldatt', qid: 't1', mark: null }).score, 2, 'automatic mark again');
   assert.strictEqual(A(stu, 'aeAdjustMark', { attemptId: 'oldatt', qid: 't1', mark: 1 }).ok, false, 'not for students');
 });
+
+test('2.42 Platform Directory: Remove all from group — needs the word DELETE; removes that group\'s list and accounts only; other groups untouched', function () {
+  const S = groupsSetup();
+  const before = S.dir('rosterGet', { groupId: S.ra.groupId }).members.length;
+  const mb = S.dir('rosterGet', { groupId: S.ma.groupId }).members.length;
+  assert.ok(before >= 1 && mb >= 1, 'both groups have students');
+  assert.strictEqual(S.dir('rosterRemoveAll', { groupId: S.ra.groupId }).ok, false, 'needs the typed word');
+  assert.strictEqual(S.dir('rosterRemoveAll', { groupId: S.ra.groupId, confirm: 'delete' }).ok, false, 'case matters');
+  assert.strictEqual(S.dir('rosterGet', { groupId: S.ra.groupId }).members.length, before, 'nothing removed yet');
+  const r = S.dir('rosterRemoveAll', { groupId: S.ra.groupId, confirm: 'DELETE' });
+  assert.ok(r.ok, JSON.stringify(r)); assert.strictEqual(r.removed, before);
+  assert.strictEqual(S.dir('rosterGet', { groupId: S.ra.groupId }).members.length, 0, 'the group list is empty');
+  assert.strictEqual(S.dir('rosterGet', { groupId: S.ma.groupId }).members.length, mb, 'the other group keeps its list');
+  assert.strictEqual(S.dir('rosterRemoveAll', { groupId: 'nope', confirm: 'DELETE' }).ok, false);
+});

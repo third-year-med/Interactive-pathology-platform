@@ -2498,6 +2498,7 @@
       };
       box.appendChild(add);
       if (r.members.length) box.appendChild(bulkReset(r));
+      if (r.members.length) box.appendChild(removeAllBox(r));   // 2.42: remove the whole list of this group
       if (lastAdded) box.appendChild(addedPanel(lastAdded));
       // the list
       box.appendChild(h('<h3>Students in this group (' + r.members.length + ')</h3>'));
@@ -2528,6 +2529,22 @@
       box.appendChild(tb);
     }
     function rosterLink() { var g = byId('groups', 'groupId', rosterGroup); return g ? groupLink(g.linkCode) : ''; }
+    /** 2.42: remove the whole student list of this group (typed confirmation); other groups and their accounts are kept. */
+    function removeAllBox(r) {
+      var b = h('<div class="roster-bulk"><h3>Remove the whole student list</h3><p class="small muted">Removes all ' + r.members.length + ' students from this group and their accounts in its modules. They lose access at once. Other groups are not affected. Results and attendance records are kept. Use this to clear a list that was entered wrongly, then add it again.</p><div class="dir-act"><button class="btn danger" type="button">🗑 Remove all from this group</button></div></div>');
+      $('button', b).onclick = function () {
+        var typed = window.prompt('This removes ALL ' + r.members.length + ' students from this group. Type DELETE to confirm.', '');
+        if (typed === null) return;
+        if (String(typed).trim() !== 'DELETE') return toast('Nothing was removed — the word DELETE was not typed.');
+        $('button', b).disabled = true;
+        rosterCall('rosterRemoveAll', { confirm: 'DELETE' }).then(function (x) {
+          $('button', b).disabled = false;
+          if (!x.ok) return toast(x.error);
+          lastAdded = null; toast(x.removed + ' student(s) removed from this group.'); draw();
+        });
+      };
+      return b;
+    }
     /** Temporary passwords for many students in one go. */
     function bulkReset(r) {
       var temp = r.members.filter(function (m) { return m.active && (m.needsPassword || Object.keys(m.accounts).some(function (k) { return m.accounts[k] === 'mustchange' || m.accounts[k] === 'missing'; })); }).length;
