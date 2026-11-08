@@ -6355,6 +6355,57 @@ test('✍ Results: ↻ Re-mark corrects a matching question with repeated answer
   } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
 });
 
+/* 👥 Remove many students at once (patch students-bulk-remove, user 2026-11-08): Teacher Portal → Students has a checkbox per
+   student, "select all shown" (follows the search), 🗑 Remove selected (N) and Remove all students (the word DELETE must be
+   typed); the accounts go via the existing deleteStudent; results are kept. Synthetic course (no key). */
+test('👥 Students: select + 🗑 Remove selected; select-all follows the search; Remove all needs the word DELETE', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const mod = syntheticModule(CI_PAGE, { topics: [], images: [] });
+  const keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['cellinjury'] }).modules.cellinjury;
+  const call = function (a, o) { return main.call(Object.assign({ module: 'cellinjury', action: a, token: tt.token }, o || {})); };
+  call('listStudents').students.forEach(function (x) { call('deleteStudent', { username: x.username }); });
+  const mk = function (id, name) { return { username: id, name: name, password: 'pass-1234', mustChange: false }; };
+  assert.ok(call('bulkAddStudents', { students: [mk('90001', 'Alpha One'), mk('90002', 'Alpha Two'), mk('90003', 'Beta Three'), mk('90004', 'Beta Four'), mk('90005', 'Gamma Five')] }).ok);
+  const ids = function () { return call('listStudents').students.map(function (x) { return x.username; }).sort(); };
+  const start = errors.length;
+  try {
+    const p = await page();
+    await p.route('https://third-year-med.github.io/cell-injury-teaching-platform/**', function (route) { return route.fulfill({ status: 200, contentType: 'text/html', body: mod.html }); });
+    await p.addInitScript(function (v) { localStorage.setItem('ci_backend_token_v1', v); }, JSON.stringify({ token: tt.token, expiresAt: tt.expiresAt }));
+    await p.goto('https://third-year-med.github.io/cell-injury-teaching-platform/#/teacher/students');
+    await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+    await p.waitForSelector('[data-a=stu-ck]', { timeout: 20000 });
+    assert.strictEqual(await p.$$eval('[data-a=stu-ck]', function (c) { return c.length; }), 5);
+    assert.strictEqual(await p.$eval('[data-a=stu-rm-sel]', function (b) { return b.disabled; }), true, 'nothing selected → disabled');
+    // search "Beta" → select all shown → only the 2 Beta students; then remove them
+    await p.fill('.card input[type=search]', 'Beta'); await p.waitForFunction(function () { return document.querySelectorAll('[data-a=stu-ck]').length === 2; });
+    await p.check('[data-a=stu-all]');
+    assert.match(await p.textContent('[data-a=stu-rm-sel]'), /Remove selected \(2\)/);
+    await p.click('[data-a=stu-rm-sel]'); await p.click('.modal-foot .btn-danger');
+    await p.waitForFunction(function () { return /2 students removed/.test(document.body.innerText); }, null, { timeout: 30000 });
+    assert.deepStrictEqual(ids(), ['90001', '90002', '90005']);
+    // tick one by hand → remove selected
+    await p.fill('.card input[type=search]', ''); await p.waitForFunction(function () { return document.querySelectorAll('[data-a=stu-ck]').length === 3; });
+    await p.check('[data-a=stu-ck] >> nth=2');
+    await p.click('[data-a=stu-rm-sel]'); await p.click('.modal-foot .btn-danger');
+    await p.waitForFunction(function () { return document.querySelectorAll('[data-a=stu-ck]').length === 2; }, null, { timeout: 30000 });
+    assert.deepStrictEqual(ids(), ['90001', '90002']);
+    // Remove all: a wrong word removes nothing; DELETE removes everyone
+    await p.click('[data-a=stu-rm-all]'); await p.waitForSelector('.modal input'); await p.fill('.modal input', 'delete');
+    await p.click('.modal-foot .btn-primary'); await p.waitForFunction(function () { return /DELETE was not typed/.test(document.body.innerText); });
+    assert.deepStrictEqual(ids(), ['90001', '90002'], 'nothing removed');
+    await p.waitForSelector('.modal', { state: 'detached' }).catch(function () { });
+    await p.click('[data-a=stu-rm-all]'); await p.waitForSelector('.modal input'); await p.fill('.modal input', 'DELETE'); await p.click('.modal-foot .btn-primary');
+    await p.waitForFunction(function () { return /2 students removed/.test(document.body.innerText) && document.querySelectorAll('[data-a=stu-ck]').length === 0; }, null, { timeout: 30000 });
+    assert.deepStrictEqual(ids(), []);
+    if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'students-bulk.png') });
+    await p.context().close();
+    assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
+  } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
+});
+
 /* 📝 OSPE exam for the practical cases (patch ospe, user 2026-10-29): stations with pictures from the Learn Practical topic only
    (a station whose picture is missing is left out), a clinical scenario and short-answer parts with marks; timed, forward
    only, answers kept while typing; self-marking against model answers → score and %; teacher import + station editor. */
