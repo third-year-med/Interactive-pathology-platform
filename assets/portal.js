@@ -471,9 +471,24 @@
   }
   /** Opens a module as the signed-in teacher: the backend creates that module's own teacher session (checked again by
    *  the module on every request), it is placed where the module keeps its teacher session, and the module opens. */
-  function teacherOpen(m, hash, btn, group) {
+  function teacherOpen(m, hash, btn, group, fresh) {
     var g = grpOk(group) ? group : '', dest = withHash(withGroup(m.url, g), hash);
-    if (!teacherDirect(m)) { location.href = dest; return; }
+    if (!teacherDirect(m)) {
+      // a platform module whose connection settings this page does not have: the module list loaded with the page may be out
+      // of date (the entry was completed later) — reload it once; never open the module on its sign-in screen (2026-11-10)
+      if (m.moduleKey && (!m.handoff || m.handoff === 'neo') && !fresh && tget()) {
+        if (btn) { btn.disabled = true; btn.dataset.l = btn.textContent; btn.textContent = 'Opening…'; }
+        post(CFG.backendUrl, { module: 'portal', action: 'portalInfo' }).then(function (r) {
+          if (btn) { btn.disabled = false; btn.textContent = btn.dataset.l; }
+          if (r && r.ok) { INFO = r; MODULES = r.modules || []; }
+          var n = r && r.ok && (r.modules || []).filter(function (x) { return x.id === m.id; })[0];
+          if (n && teacherDirect(n)) return teacherOpen(n, hash, btn, group, true);
+          toast('“' + (m.title || m.id) + '” cannot be opened as a teacher yet: complete its connection in Teacher Management → Advanced (backend module key, “Open students straight in” = Platform modules, storage prefix), then try again.');
+        });
+        return;
+      }
+      location.href = dest; return;
+    }
     var t = tget(); if (!t) { viewTeacher(); return; }
     var sk = sessKey(m, g);
     try { sessionStorage.removeItem('pf_draft:' + sk); } catch (e) { }

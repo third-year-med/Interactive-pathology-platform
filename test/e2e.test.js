@@ -157,6 +157,39 @@ test('sign-in: wrong password refused; right one unlocks only the modules regist
   await p.context().close();
 });
 
+/* Platform Home: a module entry completed AFTER the page loaded (2026-11-10): the teacher's Open reloads the module list once
+   and signs the teacher in, instead of opening the module on its sign-in screen; a still-incomplete entry shows a message. */
+test('teacher Open: an out-of-date module list is reloaded once (teacher signed in, no sign-in screen); an incomplete entry gives a message', { skip: SKIP }, async function () {
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const at = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const reg = main.call({ module: 'portal', action: 'portalAdminGet', token: at }).modules, ci = reg.filter(function (m) { return m.id === 'cellinjury'; })[0];
+  main.call({ module: 'portal', action: 'dirGet', token: at });   // the directory copies the module list on first use: let it copy the complete entry
+  const put = function (l) { assert.ok(main.call({ module: 'portal', action: 'portalAdminSave', token: at, modules: l }).ok); };
+  const save = function (prefix) { put(reg.map(function (m) { return m.id === 'cellinjury' ? Object.assign({}, m, { storagePrefix: prefix }) : m; })); };
+  try {
+    save('');   // incomplete when the page loads
+    const p = await page(), navs = navigations;
+    await p.goto(url + '#/teacher'); await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+    await dash(p, 'modules');
+    await p.evaluate(function () { localStorage.removeItem('ci_backend_token_v1'); });
+    // still incomplete: a message, no navigation
+    let n0 = navs.length;
+    await p.click('#t-modules .mod[data-id="cellinjury"] .t-open');
+    await p.waitForFunction(function () { return /cannot be opened as a teacher yet/.test(document.body.innerText); }, null, { timeout: 15000 });
+    assert.ok(!navs.slice(n0).some(function (u) { return /cell-injury-teaching-platform/.test(u); }), 'not opened on the sign-in screen');
+    // completed on the server meanwhile: the same (old) page reloads the list and opens it as the teacher
+    save(ci.storagePrefix);
+    n0 = navs.length;
+    await p.click('#t-modules .mod[data-id="cellinjury"] .t-open');
+    await p.waitForFunction(function () { return !!localStorage.getItem('ci_backend_token_v1'); }, null, { timeout: 15000 });
+    await p.waitForTimeout(400);
+    assert.ok(navs.slice(n0).some(function (u) { return /cell-injury-teaching-platform\/$/.test(u); }), 'module opened');
+    const tok = JSON.parse(await p.evaluate(function () { return localStorage.getItem('ci_backend_token_v1'); })).token;
+    assert.strictEqual(main.call({ module: 'cellinjury', action: 'studentSession', token: tok }).role, 'teacher', 'opened as the teacher');
+    await p.context().close();
+  } finally { put(reg); }
+});
+
 test('teacher panel: status changes are shown at once, but never open a module without an account', { skip: SKIP }, async function () {
   const p = await page();
   await p.goto(url + '#/teacher');
