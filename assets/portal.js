@@ -617,6 +617,14 @@
   /** 📋 Module Report (2.36, user 2026-10-29): for one group + module, each CURRENT student of the group (removed = inactive
    *  students are left out) with only the attendance % and the assessments done % (done of given). Admin: every group;
    *  a personal teacher: their own groups (reportOverview / reportDelivery apply the same rule). Loaded when opened. */
+  /** A test account (user 2026-11-10), left out of the Module Report and the Annual Assessment unless "Include test
+   *  accounts" is ticked: "test" in the name or ID, the default name "Pathology Student", a placeholder ID
+   *  (11223344, 12345678, …) or an ID of fewer than 5 digits (e.g. 1234). Real university IDs have 8–10 digits. */
+  function isTestAccount(s) {
+    var n = String((s && s.name) || '').trim(), id = String((s && s.studentId) || '').trim();
+    return /(^|[^a-z])test([^a-z]|$)/i.test(n + ' ' + id) || /^pathology student$/i.test(n) ||
+      /^(11223344|12345678|123456789|1234567890|0+)$/.test(id) || /^\d{1,4}$/.test(id);
+  }
   function modReportSection(call) {
     var sec = h('<section class="t-sec" id="t-modrep"><p class="small muted">Choose the group and module. Students removed from the group are not listed. Only the assessments HELD in the class count (taken by at least one student — cancelled or never-taken ones do not).</p><div class="mr-pick"><p class="muted small">Loading…</p></div><div class="mr-out"></div></section>');
     var pick = $('.mr-pick', sec), out = $('.mr-out', sec), loaded = false, KEY = 'pp_modrep';
@@ -650,7 +658,7 @@
         var names = true; try { names = localStorage.getItem('pp_modrep_names') !== '0'; } catch (e) { }
         // test accounts (name or ID with the word "test") are left out unless "Include test accounts" is ticked (user 2026-11-10)
         var tests = false; try { tests = localStorage.getItem('pp_modrep_tests') === '1'; } catch (e) { }
-        var isTest = function (s) { return /(^|[^a-z])test([^a-z]|$)/i.test(String(s.name || '') + ' ' + String(s.studentId || '')); };
+        var isTest = isTestAccount;
         var act = x.students.filter(function (s) { return s.active; }), nTest = act.filter(isTest).length;
         var all = tests ? act : act.filter(function (s) { return !isTest(s); }), st = [];
         var order = function () { st = all.slice().sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); }); };   // name order, also with names hidden (user 2026-11-10)
@@ -1723,7 +1731,7 @@
   function annFromDay(s) { if (!s) return ''; var t = new Date(s + 'T12:00:00').getTime(); return isFinite(t) ? t : ''; }
   function annualSection(call, onSummary) {
     var sec = h('<section class="t-sec" id="t-annual"><div class="an-body"><p class="muted small">Loading…</p></div></section>');
-    var body = $('.an-body', sec), G = null, groupId = '', R = null, tab = 'class', q = '', show = 'all', pq = '', pst = 'all', pmod = '';
+    var body = $('.an-body', sec), G = null, groupId = '', R = null, tab = 'class', q = '', show = 'all', pq = '', pst = 'all', pmod = '', pOpen = {};
     function fail(r) {
       if (r.code === 'auth') { sdel(TKEY); toast('Your session has ended — please sign in again.'); route(); return; }
       if (r.code === 'mustchange') { teacherPwForm(true); return; }
@@ -1743,9 +1751,21 @@
       body.innerHTML = '<p class="muted small">Loading the quizzes and presentations of the year…</p>';
       call('annOverall', { groupId: groupId }).then(function (r) {
         if (!r.ok) { fail(r); if (onSummary && r.code === 'badaction') onSummary({ none: 'Update Portal.gs (2.31)' }); return; }
-        R = R0 = r; draw();
+        R = R0 = annDropTests(r); draw();
         if (onSummary) onSummary({ group: r.group.label, students: r.summary.students, quizzes: r.summary.quizzes, presDone: r.summary.presDone, presTotal: r.summary.presTotal, behind: r.summary.behind });
       });
+    }
+    /** test accounts are left out (list, counts, class mean, exports) unless "Include test accounts" is ticked (2026-11-10) */
+    function annTestsOn() { try { return localStorage.getItem('pp_ann_tests') === '1'; } catch (e) { return false; } }
+    function annDropTests(r) {
+      var t = r.students.filter(isTestAccount); r.testAccounts = t;
+      if (!t.length || annTestsOn()) return r;
+      r.students = r.students.filter(function (x) { return !isTestAccount(x); });
+      var act = r.students.filter(function (x) { return x.active; }), tot = act.filter(function (x) { return x.total != null; }).map(function (x) { return x.total; });
+      Object.assign(r.summary, { students: act.length, inactive: r.students.length - act.length, behind: act.filter(function (x) { return x.behind; }).length,
+        presDone: act.reduce(function (a, x) { return a + x.pres.done; }, 0), presTotal: act.length * r.slots,
+        mean: tot.length ? Math.round(tot.reduce(function (a, b) { return a + b; }, 0) / tot.length * 10) / 10 : null });
+      return r;
     }
     function stu(id) { return R.students.filter(function (x) { return x.studentId === id; })[0]; }
     function modTitle(id) { var m = R.modules.filter(function (x) { return x.moduleId === id; })[0]; return m ? m.title : ''; }
@@ -1772,7 +1792,9 @@
     function draw() {
       var S = R.summary; body.innerHTML = '';
       var top = h('<div class="ts-top"><label class="ts-g">Group <select class="an-g">' + G.groups.map(function (x) { return '<option value="' + esc(x.groupId) + '"' + (x.groupId === groupId ? ' selected' : '') + '>' + esc(x.label) + '</option>'; }).join('') + '</select></label>' +
-        '<button class="btn small" type="button" data-a="r">↻ Refresh</button></div>');
+        '<button class="btn small" type="button" data-a="r">↻ Refresh</button>' +
+        ((R.testAccounts || []).length ? '<label class="small an-tests" style="display:inline-flex;gap:.35rem;align-items:center;margin-left:.6rem"><input type="checkbox" data-a="tests"' + (annTestsOn() ? ' checked' : '') + '> Include test accounts <span class="muted" dir="auto">(' + R.testAccounts.length + (annTestsOn() ? ' shown' : ' left out') + ': ' + R.testAccounts.map(function (x) { return esc(x.name) + ' ' + esc(x.studentId); }).join(', ') + ')</span></label>' : '') + '</div>');
+      if ($('[data-a=tests]', top)) $('[data-a=tests]', top).onchange = function () { try { localStorage.setItem('pp_ann_tests', this.checked ? '1' : '0'); } catch (e) { } load(); };
       $('.an-g', top).onchange = function () { groupId = this.value; try { sessionStorage.setItem('pp_ts_group', groupId); } catch (e) { } load(); };
       $('[data-a=r]', top).onclick = load;
       body.appendChild(top);
@@ -1852,7 +1874,7 @@
     }
     var detailOpen = null;
     function reloadKeep(id) {
-      call('annOverall', { groupId: groupId }).then(function (r) { if (!r.ok) return fail(r); R = R0 = r; draw(); if (id && detailOpen) detailOpen(id); });
+      call('annOverall', { groupId: groupId }).then(function (r) { if (!r.ok) return fail(r); R = R0 = annDropTests(r); draw(); if (id && detailOpen) detailOpen(id); });
     }
     /* the presentation slots of one student, each with ✏ Edit */
     function slotsInto(box, x, also) {
@@ -1920,28 +1942,51 @@
       var w = h('<div class="ts-block an-pres"><div class="roster-tools"><button class="btn primary" type="button" data-a="auto">⚙ Auto-assign topics…</button><span class="small muted">fills only empty slots — nothing you entered is changed</span></div>' +
         '<div class="ov-filter"><label>Find<input type="search" class="an-pq" placeholder="Student or topic" value="' + esc(pq) + '"></label>' +
         '<label>Status<select class="an-pst">' + [['all', 'All'], ['empty', 'Not assigned'], ['assigned', 'Assigned'], ['overdue', 'Overdue'], ['completed', 'Completed'], ['absent', 'Absent'], ['notdone', 'Not completed']].map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === pst ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
-        '<label>Module<select class="an-pmod"><option value="">All modules</option>' + R.modules.map(function (m) { return '<option value="' + esc(m.moduleId) + '"' + (m.moduleId === pmod ? ' selected' : '') + '>' + esc(m.title) + '</option>'; }).join('') + '</select></label><span class="small muted an-pcount"></span></div>' +
-        '<div class="tbl-wrap"><table class="dir-tbl an-ptbl"><thead><tr><th>Student</th><th class="n">#</th><th>Topic</th><th>Module</th><th>Planned</th><th>Status</th><th class="n">Mark</th><th>Comment</th><th></th></tr></thead><tbody></tbody></table></div></div>');
+        '<label>Module<select class="an-pmod"><option value="">All modules</option>' + R.modules.map(function (m) { return '<option value="' + esc(m.moduleId) + '"' + (m.moduleId === pmod ? ' selected' : '') + '>' + esc(m.title) + '</option>'; }).join('') + '</select></label>' +
+        '<span class="small muted an-pcount"></span></div>' +
+        '<div class="roster-tools"><button class="btn small" type="button" data-a="pall">⊞ Open all</button><button class="btn small" type="button" data-a="pnone">⊟ Close all</button><span class="small muted">One row per student — open a row (or ✏ Edit) to see, assign, mark or edit each presentation.</span></div>' +
+        '<div class="tbl-wrap"><table class="dir-tbl an-ptbl"><thead><tr><th>Student</th><th class="n">Presented</th><th>Topics</th><th class="n">Mark</th><th>Status</th><th></th></tr></thead><tbody></tbody></table></div></div>');
+      // one row per student (user 2026-11-10): presented n / slots, the topics, the summed mark / (slots × max), status; the
+      // slots open under the row (the same per-slot table as the student's detail, with ✏ Edit / ＋ Assign)
+      var max = annMax(), mk = function (p) { return p.status === 'completed' ? Number(p.mark) || 0 : 0; }, num = function (v) { return String(Math.round(v * 10) / 10); };
+      var ICON = { completed: '✓', assigned: '•', absent: '✗', notdone: '✗' };
       function rows() {
-        var k = pq.trim().toLowerCase(), tb = $('tbody', w), n = 0; tb.innerHTML = '';
+        var k = pq.trim().toLowerCase(), tb = $('tbody', w), n = 0, ns = 0; tb.innerHTML = '';
         sorted().filter(function (x) { return x.active; }).forEach(function (x) {
-          for (var s = 1; s <= R.slots; s++) (function (slot) {
-            var p = x.presentations.filter(function (y) { return y.slot === slot; })[0];
-            if (pst === 'empty' ? p : pst === 'overdue' ? !(p && p.overdue) : pst !== 'all' && (!p || p.status !== pst)) return;
-            if (pmod && (!p || p.moduleId !== pmod)) return;
-            if (k && String(x.studentId + ' ' + x.name + ' ' + (p ? p.topic : '')).toLowerCase().indexOf(k) < 0) return;
-            n++;
-            var tr = h('<tr data-student="' + esc(x.studentId) + '" data-slot="' + slot + '"' + (p && p.overdue ? ' class="ts-warn"' : '') + '><td dir="auto">' + esc(x.name) + ' <span class="small muted">' + esc(x.studentId) + '</span></td><td class="n">' + slot + '</td>' +
-              (p ? '<td dir="auto">' + esc(p.topic) + '</td><td class="small">' + esc(modTitle(p.moduleId)) + '</td><td class="small">' + esc(annDay(p.dueAt)) + (p.overdue ? ' ⚠' : '') + '</td><td>' + esc(ANN_ST[p.status]) + '</td><td class="n"><b>' + (p.status === 'completed' ? p.mark : p.status === 'assigned' ? '' : '0') + '</b></td><td class="small" dir="auto">' + esc(p.comment) + '</td>'
-                : '<td colspan="6" class="muted small">Not assigned yet</td>') +
-              '<td><button class="btn small" type="button">' + (p ? (p.status === 'assigned' ? '✓ Mark / ✏ Edit' : '✏ Edit') : '＋ Assign') + '</button></td></tr>');
-            $('button', tr).onclick = function () { editor(x, slot, rows); };
-            tb.appendChild(tr);
-          })(s);
+          var ok = [];
+          for (var s = 1; s <= R.slots; s++) {
+            var p = x.presentations.filter(function (y) { return y.slot === s; })[0];
+            if (pst === 'empty' ? p : pst === 'overdue' ? !(p && p.overdue) : pst !== 'all' && (!p || p.status !== pst)) continue;
+            if (pmod && (!p || p.moduleId !== pmod)) continue;
+            if (k && String(x.studentId + ' ' + x.name + ' ' + (p ? p.topic : '')).toLowerCase().indexOf(k) < 0) continue;
+            ok.push(s);
+          }
+          if (!ok.length) return;
+          n++; ns += ok.length;
+          var P = x.presentations.filter(function (y) { return y.slot <= R.slots; }).sort(function (a, b) { return a.slot - b.slot; });
+          var done = P.filter(function (y) { return y.status === 'completed'; }).length, empty = R.slots - P.length, over = P.filter(function (y) { return y.overdue; }).length;
+          var waiting = P.filter(function (y) { return y.status === 'assigned' && !y.overdue; }).length, missed = P.filter(function (y) { return y.status === 'absent' || y.status === 'notdone'; }).length;
+          var stat = [done ? '<span class="an-ok">' + done + ' completed</span>' : '', over ? '<span class="mr-red">⚠ ' + over + ' overdue</span>' : '', waiting ? waiting + ' assigned' : '', missed ? '<span class="mr-red">' + missed + ' absent / not completed</span>' : '', empty ? '<span class="muted">' + empty + ' not assigned</span>' : ''].filter(Boolean).join(' · ');
+          var open = !!pOpen[x.studentId];
+          var tr = h('<tr data-student="' + esc(x.studentId) + '" class="an-prow' + (over ? ' ts-warn' : '') + '" tabindex="0" aria-expanded="' + open + '"><td dir="auto">' + esc(x.name) + ' <span class="small muted">' + esc(x.studentId) + '</span></td>' +
+            '<td class="n"><b>' + done + ' / ' + R.slots + '</b></td>' +
+            '<td class="small" dir="auto">' + (P.length ? P.map(function (y) { return '<div>' + y.slot + '. ' + esc(y.topic) + ' <span class="muted">' + (ICON[y.status] || '') + '</span></div>'; }).join('') : '<span class="muted">Not assigned yet</span>') + '</td>' +
+            '<td class="n"><b>' + num(P.reduce(function (a, y) { return a + mk(y); }, 0)) + ' / ' + (R.slots * max) + '</b></td>' +
+            '<td class="small">' + stat + '</td>' +
+            '<td><button class="btn small" type="button" data-a="pe">' + (open ? '▴ Close' : '✏ Edit') + '</button></td></tr>');
+          var det = h('<tr class="an-pdet" data-for="' + esc(x.studentId) + '"' + (open ? '' : ' hidden') + '><td colspan="6"><div class="an-slots"></div></td></tr>');
+          var fill = function () { slotsInto($('.an-slots', det), stu(x.studentId), rows); };
+          if (open) fill();
+          var toggle = function () { pOpen[x.studentId] = !pOpen[x.studentId]; if (pOpen[x.studentId]) fill(); det.hidden = !pOpen[x.studentId]; tr.setAttribute('aria-expanded', String(!!pOpen[x.studentId])); $('[data-a=pe]', tr).textContent = pOpen[x.studentId] ? '▴ Close' : '✏ Edit'; };
+          tr.onclick = function (e) { if (!e.target.closest('a')) toggle(); };
+          tr.onkeydown = function (e) { if ((e.key === 'Enter' || e.key === ' ') && e.target === tr) { e.preventDefault(); toggle(); } };
+          tb.appendChild(tr); tb.appendChild(det);
         });
-        if (!n) tb.appendChild(h('<tr><td colspan="9" class="muted small">Nothing matches.</td></tr>'));
-        $('.an-pcount', w).textContent = n + ' presentation slot' + (n === 1 ? '' : 's');
+        if (!n) tb.appendChild(h('<tr><td colspan="6" class="muted small">Nothing matches.</td></tr>'));
+        $('.an-pcount', w).textContent = n + ' student' + (n === 1 ? '' : 's') + (pst !== 'all' || pmod || k ? ' · ' + ns + ' matching presentation slot' + (ns === 1 ? '' : 's') : '');
       }
+      $('[data-a=pall]', w).onclick = function () { sorted().forEach(function (x) { pOpen[x.studentId] = true; }); rows(); };
+      $('[data-a=pnone]', w).onclick = function () { pOpen = {}; rows(); };
       $('.an-pq', w).oninput = function () { pq = this.value; rows(); };
       $('.an-pst', w).onchange = function () { pst = this.value; rows(); };
       $('.an-pmod', w).onchange = function () { pmod = this.value; rows(); };

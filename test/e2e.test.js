@@ -1203,7 +1203,7 @@ test('Step 10: Results & attendance — Admin tab (all groups) and a personal te
     assert.match(mcsv, /^\ufeff?Student ID,Student name,Attendance % \(sessions attended \/ total sessions\),Assessment score % \(marks obtained \/ total marks\),Assessments done \(done \/ held\)\r\n[\s\S]*ahmed,Student Ahmed,100% \(1\/1\),0% \(0\/20\),0\/1/);
     assert.ok(mcsv.indexOf(gone.name) < 0);
     assert.ok(!/TEST STUDENT|mr-tst/.test(printed + mcsv) && !(await q.$('#t-modrep .mr-tbl tr[data-student="mr-tst"]')), 'test account left out (screen, Print, Excel)');
-    assert.match(await q.textContent('#t-modrep .roster-tools'), /Include test accounts\s*\(1 left out\)/);
+    assert.match(await q.textContent('#t-modrep .roster-tools'), /Include test accounts\s*\(\d+ left out\)/);
     await q.check('#t-modrep [data-a=mr-tests]');
     await q.waitForSelector('#t-modrep .mr-tbl tr[data-student="mr-tst"]');
     await q.uncheck('#t-modrep [data-a=mr-tests]');
@@ -3352,7 +3352,7 @@ test('🏅 Annual Assessment (2.31/2.32): quizzes /20 from the modules\' attempt
   const inst = sv('institution', { name: 'Annual Test University', shortName: 'ATU' });
   const g = sv('group', { institutionId: inst.institutionId, name: 'Group N', academicYear: '2026-27', linkCode: 'an-a' });
   sv('delivery', { groupId: g.groupId, moduleId: 'cellinjury', status: 'available' }); sv('delivery', { groupId: g.groupId, moduleId: 'inflhealing', status: 'available' });
-  A('rosterAdd', { groupId: g.groupId, mustChange: false, students: [{ studentId: '28010001', name: 'Huda First', password: 'pass-n1-xyz' }, { studentId: '28010002', name: 'Imad Second', password: 'pass-n2-xyz' }] });
+  A('rosterAdd', { groupId: g.groupId, mustChange: false, students: [{ studentId: '28010001', name: 'Huda First', password: 'pass-n1-xyz' }, { studentId: '28010002', name: 'Imad Second', password: 'pass-n2-xyz' }, { studentId: '11223344', name: 'Pathology Student', password: 'pass-n3-xyz' }] });   // the last: a test account, left out
   const CI = 'cellinjury-an-a', IH = 'inflhealing-an-a'; let n = 0;
   const att = function (st, id, ref, pct) { n++; main.ctx.assessStore_(st).put('attempt', 'an' + n, { id: 'an' + n, assessmentId: ref, assessmentTitle: ref === 'tq1' ? 'Topic 1 quiz — Adaptations' : 'Topic 1 quiz — Acute inflammation', email: id + '@student.local', status: 'submitted', percent: pct, submittedAt: Date.now() - 864e5 * (3 - n) }); };
   att(CI, '28010001', 'tq1', 80); att(IH, '28010001', 'tq2', 60); att(IH, '28010002', 'tq2', 100);   // Huda 140/200 → 14; Imad missed tq1 → 100/200 → 10
@@ -3372,6 +3372,14 @@ test('🏅 Annual Assessment (2.31/2.32): quizzes /20 from the modules\' attempt
   assert.deepStrictEqual((await cells('28010002')).slice(0, 7), ['28010002', 'Imad Second', '1 / 2 · 1 missed', '10', '0 / 2', '0', '10'], 'missed quiz counts 0');
   assert.match((await cells('28010002'))[7], /1 quiz missed[\s\S]*2 presentations not assigned/);
   assert.match(await p.textContent('#t-annual .ov-kpis'), /Students2[\s\S]*Quizzes counted2[\s\S]*Presentations marked0 \/ 4[\s\S]*Behind⚠ 2/);
+  // the test account is left out (list, counts) unless "Include test accounts" is ticked
+  assert.strictEqual(await p.$('#t-annual .an-tbl tr[data-student="11223344"]'), null, 'test account left out');
+  assert.match(await p.textContent('#t-annual .an-tests'), /Include test accounts\s*\(1 left out: Pathology Student 11223344\)/);
+  await p.check('#t-annual [data-a=tests]');
+  await p.waitForSelector('#t-annual .an-tbl tr[data-student="11223344"]', { timeout: 15000 });
+  assert.match(await p.textContent('#t-annual .ov-kpis'), /Students3/);
+  await p.uncheck('#t-annual [data-a=tests]');
+  await p.waitForFunction(function () { return document.querySelector('#t-annual .an-tbl') && !document.querySelector('#t-annual .an-tbl tr[data-student="11223344"]') && /Students2/.test(document.querySelector('#t-annual .ov-kpis').textContent); }, null, { timeout: 15000 });
   // 🎤 Presentations → ⚙ Auto-assign (topics from the topic quizzes) → mark one with the rubric
   await p.click('#t-annual .an-tab[data-t=pres]');
   await p.click('#t-annual [data-a=auto]');
@@ -3379,11 +3387,16 @@ test('🏅 Annual Assessment (2.31/2.32): quizzes /20 from the modules\' attempt
   assert.match(await p.textContent('.an-modal'), /Fills the 4 empty slot[\s\S]*Topic 1 — Adaptations[\s\S]*Topic 3 — Apoptosis/);
   await p.fill('.an-modal .an-more', 'Hyperplasia\nMetaplasia');
   await p.click('.an-modal button[type=submit]');
-  await p.waitForFunction(function () { return !document.querySelector('.an-modal') && document.querySelectorAll('#t-annual .an-ptbl tbody tr[data-slot]').length === 4 && !/Not assigned yet/.test(document.querySelector('#t-annual .an-ptbl').textContent); }, null, { timeout: 15000 });
-  const topics = await p.$$eval('#t-annual .an-ptbl tr[data-student="28010001"] td:nth-child(3)', function (c) { return c.map(function (x) { return x.textContent; }); });
+  // one row per student (2026-11-10): presented n / 2, topics, mark / 10; the slots open underneath
+  await p.waitForFunction(function () { return !document.querySelector('.an-modal') && document.querySelectorAll('#t-annual .an-ptbl tbody tr.an-prow').length === 2 && !/Not assigned yet/.test(document.querySelector('#t-annual .an-ptbl').textContent); }, null, { timeout: 15000 });
+  assert.match(await p.textContent('#t-annual .an-ptbl tr.an-prow[data-student="28010001"]'), /Huda First 28010001\s*0 \/ 2[\s\S]*1\. [\s\S]*2\. [\s\S]*0 \/ 10\s*2 assigned\s*✏ Edit/);
+  assert.strictEqual(await p.$$eval('#t-annual .an-ptbl tr.an-prow', function (x) { return x.length; }), 2, 'each student once');
+  await p.click('#t-annual [data-a=pall]');
+  await p.waitForFunction(function () { return document.querySelectorAll('#t-annual .an-ptbl tr.an-pdet:not([hidden]) tr[data-slot]').length === 4; });
+  const topics = await p.$$eval('#t-annual .an-pdet[data-for="28010001"] tr[data-slot] td:nth-child(2)', function (c) { return c.map(function (x) { return x.textContent; }); });
   assert.strictEqual(new Set(topics).size, 2, 'two different topics: ' + topics);
   if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'annual-presentations.png'), fullPage: true });
-  await p.click('#t-annual .an-ptbl tr[data-student="28010001"][data-slot="1"] button');
+  await p.click('#t-annual .an-pdet[data-for="28010001"] tr[data-slot="1"] button');
   await p.waitForSelector('.an-modal form');
   assert.ok(await p.isHidden('.an-modal .an-mark'), 'no mark while assigned');
   await p.selectOption('.an-modal select[name=status]', 'completed');
@@ -3398,7 +3411,8 @@ test('🏅 Annual Assessment (2.31/2.32): quizzes /20 from the modules\' attempt
   await p.fill('.an-modal textarea[name=comment]', 'Clear and accurate');
   if (process.env.SHOTS) await (await p.$('.an-modal form')).screenshot({ path: path.join(process.env.SHOTS, 'annual-mark.png') });
   await p.click('.an-modal button[type=submit]');
-  await p.waitForFunction(function () { var r = document.querySelector('#t-annual .an-ptbl tr[data-student="28010001"][data-slot="1"]'); return !document.querySelector('.an-modal') && r && /Completed/.test(r.textContent) && /Clear and accurate/.test(r.textContent); });
+  await p.waitForFunction(function () { var r = document.querySelector('#t-annual .an-pdet[data-for="28010001"]:not([hidden]) tr[data-slot="1"]'); return !document.querySelector('.an-modal') && r && /Completed/.test(r.textContent) && /Clear and accurate/.test(r.textContent); });
+  assert.match(await p.textContent('#t-annual .an-ptbl tr.an-prow[data-student="28010001"]'), /1 \/ 2[\s\S]*4 \/ 10\s*1 completed · 1 assigned/);
   // 📋 Class: Huda 14 + 4 = 18; Imad excused from tq1 → 100 % of 1 quiz → 20
   await p.click('#t-annual .an-tab[data-t=class]');
   await p.waitForSelector('#t-annual .an-tbl');

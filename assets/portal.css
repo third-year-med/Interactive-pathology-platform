@@ -456,3 +456,6 @@ code.pw{font-size:14px;font-weight:700;letter-spacing:.03em}
 
 /* 📋 Module Report: below 75 % attendance / 60 % score in red (also when printed) */
 .mr-tbl tr.mr-low td{background:#fdecec}.mr-red,.mr-red b{color:#c62828;font-weight:700}.mr-sub{font-weight:400;font-size:.78em;opacity:.75;margin-top:2px}
+/* 🎤 Presentations: one row per student, slots open underneath (2026-11-10) */
+.an-ptbl tr.an-prow{cursor:pointer}.an-ptbl tr.an-prow:hover td{background:rgba(15,42,74,.04)}.an-ptbl tr.an-prow td{vertical-align:top}
+.an-ptbl tr.an-pdet>td{background:#f6f8fb;padding:.4rem .6rem .8rem}.an-ptbl tr.an-pdet .tbl-wrap{margin:0}.an-ok{color:#1b7f3b;font-weight:600}
