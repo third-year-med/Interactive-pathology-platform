@@ -5110,6 +5110,15 @@ test('Inflammation (New) module (inflnew): every topic, section, view and slide 
     await q.waitForSelector('#view-teacher', { state: 'visible', timeout: 10000 });
     const plan = await q.evaluate(function () { return AssessUI.topicQuizPlan().topics.filter(function (x) { return x.ok; }).length; });
     assert.ok(plan === 18, '⚡ Topic quizzes: every topic but the practical has ≥ 5 practice questions (' + plan + ')');
+    // quiz-image-links patch: assessment copies keep the picture links; an older copy without them takes the module's; neutral names in a quiz
+    const ql = await q.evaluate(function () {
+      const q0 = Object.keys(Q_BY_ID).map(function (k) { return Q_BY_ID[k]; }).filter(function (x) { return (x.links || []).length && x.type === 'mcq'; })[0]; if (!q0) return null;
+      const snap = snapshotQuestion(q0), old = Object.assign({}, snap); delete old.links;
+      const c1 = buildQuestionCard(old, { mode: 'quiz', number: 1, total: 1 }).el, c2 = buildQuestionCard(snap, { mode: 'practice' }).el;
+      const a1 = c1.querySelector('.q-links a'), a2 = c2.querySelector('.q-links a');
+      return { n: Object.keys(Q_BY_ID).filter(function (k) { return (Q_BY_ID[k].links || []).length; }).length, kept: (snap.links || []).length, quiz: a1 && a1.textContent, href: a1 && a1.href, url: q0.links[0].url, title: q0.links[0].title, practice: a2 && a2.textContent };
+    });
+    assert.ok(ql && ql.kept > 0 && ql.href === ql.url && /^.{0,3}Open image/.test(ql.quiz) && ql.quiz.indexOf(ql.title) < 0 && ql.practice.indexOf(ql.title) >= 0, 'quiz-image-links: ' + JSON.stringify(ql));
     await q.context().close();
     assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
   } finally {
