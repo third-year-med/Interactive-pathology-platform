@@ -3407,6 +3407,16 @@ test('🏅 Annual Assessment (2.31/2.32): quizzes /20 from the modules\' attempt
   await p.selectOption('.an-modal select[name=moduleId]', 'inflhealing');
   assert.ok(!(await pick()).opts.some(function (o) { return /Adaptations|Apoptosis/.test(o); }), 'only the chosen module\'s topics');
   await p.selectOption('.an-modal select[name=moduleId]', 'cellinjury');
+  // two consecutive topics, one presentation
+  await p.selectOption('.an-modal select[name=tsel]', 'Adaptations');
+  assert.ok(await p.isVisible('.an-modal .an-tnext'), 'the next-topic box shows');
+  assert.match(await p.textContent('.an-modal .an-tnext'), /Also the next topic — Topic 2 — Necrosis/);
+  await p.check('.an-modal input[name=tnext]');
+  assert.strictEqual((await pick()).topic, 'Adaptations + Necrosis');
+  await p.uncheck('.an-modal input[name=tnext]');
+  assert.strictEqual((await pick()).topic, 'Adaptations');
+  await p.selectOption('.an-modal select[name=tsel]', 'Apoptosis');
+  assert.ok(!(await p.isVisible('.an-modal .an-tnext')), 'no next topic after the last one');
   await p.selectOption('.an-modal select[name=tsel]', '__other');
   assert.strictEqual((await pick()).other, false, 'Other topic shows the text box');
   await p.click('.an-modal [data-a=c]');
@@ -3467,6 +3477,7 @@ test('🏅 Annual Assessment (2.31/2.32): quizzes /20 from the modules\' attempt
   await p.click('#t-annual .an-pdet[data-for="28010001"] tr[data-slot="1"] [data-a=rep]');
   await p.waitForSelector('.an-modal input[name=why]');
   assert.match(await p.textContent('.an-modal'), /Completed 4 \/ 5[\s\S]*the new mark replaces this one/);
+  await p.selectOption('.an-modal select[name=moduleId]', 'cellinjury'); await p.selectOption('.an-modal select[name=tsel]', 'Adaptations'); await p.check('.an-modal input[name=tnext]');   // the repeat covers two topics
   await p.waitForTimeout(150); await p.fill('.an-modal input[name=why]', 'weak delivery');
   await p.click('.an-modal button[type=submit]');
   await p.waitForFunction(function () { var r = document.querySelector('#t-annual .an-pdet[data-for="28010001"]:not([hidden]) tr[data-slot="1"]'); return !document.querySelector('.an-modal') && r && /Assigned\s*🔁 Repeat/.test(r.textContent); }, null, { timeout: 15000 });
@@ -3475,6 +3486,7 @@ test('🏅 Annual Assessment (2.31/2.32): quizzes /20 from the modules\' attempt
   await p.click('#t-annual .an-pdet[data-for="28010001"] tr[data-slot="1"] [data-a=e]');
   await p.waitForSelector('.an-modal select[name=status]');
   assert.match(await p.textContent('.an-modal'), /Changes \(\d+\)[\s\S]*was Completed \(4\)/, 'the old result in the history');
+  assert.deepStrictEqual(await p.evaluate(function () { var f = document.querySelector('.an-modal form'); return [f.tsel.value, f.tnext.checked, f.topic.value]; }), ['Adaptations', true, 'Adaptations + Necrosis'], 'a saved pair reopens as the topic + the next one');
   await p.selectOption('.an-modal select[name=status]', 'completed');
   await p.check('.an-modal input[name=mark][value="5"]');
   await p.click('.an-modal button[type=submit]');

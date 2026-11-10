@@ -1898,13 +1898,18 @@
       var mod = p.moduleId || (R.modules.length === 1 ? R.modules[0].moduleId : '');
       return '<label>Module<select name="moduleId"><option value="">— choose the module —</option>' + R.modules.map(function (mm) { return '<option value="' + esc(mm.moduleId) + '"' + (mm.moduleId === mod ? ' selected' : '') + '>' + esc((mm.icon ? mm.icon + ' ' : '') + mm.title) + '</option>'; }).join('') + '</select></label>' +
         '<label>Topic<select name="tsel"></select></label>' +
+        '<label class="small an-tnext" style="display:none;gap:.4rem;align-items:center"><input type="checkbox" name="tnext"> <span>＋ Also the next topic — <b class="an-tnext-t" dir="auto"></b> (two topics, one presentation)</span></label>' +
         '<label class="an-tother" hidden>Other topic<input name="topic" maxlength="200" dir="auto" value="' + esc(p.topic || '') + '" placeholder="Type the topic"></label>';
     }
     function topicPickerBind(f, p) {
-      var other = f.querySelector('.an-tother');
+      var other = f.querySelector('.an-tother'), nx = f.querySelector('.an-tnext'), JOIN = ' + ';
+      // two consecutive topics as one presentation (user 2026-11-10): saved as "Topic A + Topic B"
+      var nextOf = function (v) { var L = R.topics.filter(function (t) { return t.moduleId === f.moduleId.value; }), i = -1; L.forEach(function (t, k) { if (t.topic === v) i = k; }); return i >= 0 && L[i + 1] ? L[i + 1] : null; };
       function fill(keep) {
         var L = R.topics.filter(function (t) { return t.moduleId === f.moduleId.value; }), cur = keep ? f.topic.value.trim() : '';
-        var hit = L.filter(function (t) { return t.topic === cur; })[0];
+        var hit = L.filter(function (t) { return t.topic === cur; })[0], pair = false;
+        if (!hit && cur.indexOf(JOIN) > 0) L.forEach(function (t, k) { if (!hit && L[k + 1] && cur === t.topic + JOIN + L[k + 1].topic) { hit = t; pair = true; } });
+        f.tnext.checked = pair;
         f.tsel.innerHTML = '<option value="">' + (f.moduleId.value ? (L.length ? '— choose the topic —' : 'No topics known for this module — type it below') : '— choose the module first —') + '</option>' +
           L.map(function (t) { return '<option value="' + esc(t.topic) + '"' + (hit === t ? ' selected' : '') + '>Topic ' + t.n + ' — ' + esc(t.topic) + '</option>'; }).join('') +
           (f.moduleId.value ? '<option value="__other"' + (cur && !hit ? ' selected' : '') + '>✎ Other topic (type it)</option>' : '');
@@ -1915,8 +1920,11 @@
         var v = f.tsel.value, none = !R.topics.some(function (t) { return t.moduleId === f.moduleId.value; });
         var show = v === '__other' || (!!f.moduleId.value && none) || (!f.moduleId.value && !!f.topic.value.trim());
         other.hidden = !show; f.topic.required = show;
-        if (v && v !== '__other') f.topic.value = v; else if (!show && !keep) f.topic.value = '';
+        var n = v && v !== '__other' ? nextOf(v) : null;
+        nx.style.display = n ? 'flex' : 'none'; if (!n) f.tnext.checked = false; else nx.querySelector('.an-tnext-t').textContent = 'Topic ' + n.n + ' — ' + n.topic;
+        if (v && v !== '__other') f.topic.value = v + (n && f.tnext.checked ? JOIN + n.topic : ''); else if (!show && !keep) f.topic.value = '';
       }
+      f.tnext.onchange = function () { sync(false); };
       // an older slot without a module: find it from its topic
       if (!f.moduleId.value && p.topic) { var t0 = R.topics.filter(function (t) { return t.topic === p.topic; })[0]; if (t0) f.moduleId.value = t0.moduleId; }
       f.moduleId.onchange = function () { fill(false); };
