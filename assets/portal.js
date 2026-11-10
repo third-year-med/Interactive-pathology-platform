@@ -1883,12 +1883,48 @@
       for (var s = 1; s <= R.slots; s++) (function (slot) {
         var p = x.presentations.filter(function (y) { return y.slot === slot; })[0];
         var tr = h('<tr data-slot="' + slot + '"' + (p && p.overdue ? ' class="ts-warn"' : '') + '><td class="n">' + slot + '</td>' + (p ? '<td dir="auto">' + esc(p.topic) + '</td><td class="small">' + esc(modTitle(p.moduleId)) + '</td><td class="small">' + esc(annDay(p.dueAt)) + (p.overdue ? ' ⚠' : '') + '</td>' +
-          '<td>' + esc(ANN_ST[p.status]) + '</td><td class="n"><b>' + (p.status === 'completed' ? p.mark : p.status === 'assigned' ? '' : '0') + '</b></td><td class="small" dir="auto">' + esc(p.comment) + '</td>' : '<td colspan="6" class="muted small">Not assigned yet</td>') +
-          '<td><button class="btn small" type="button" data-a="e">' + (p ? '✏ Edit' : '＋ Assign') + '</button></td></tr>');
-        $('[data-a=e]', tr).onclick = function () { editor(stu(x.studentId), slot, function () { slotsInto(box, stu(x.studentId), also); if (also) also(); }); };
+          '<td>' + esc(ANN_ST[p.status]) + (annIsRepeat(p) ? ' <span class="an-rep" title="A repeat — the earlier result is kept in its history">🔁 Repeat</span>' : '') + '</td><td class="n"><b>' + (p.status === 'completed' ? p.mark : p.status === 'assigned' ? '' : '0') + '</b></td><td class="small" dir="auto">' + esc(p.comment) + '</td>' : '<td colspan="6" class="muted small">Not assigned yet</td>') +
+          '<td class="nowrap"><button class="btn small" type="button" data-a="e">' + (p ? '✏ Edit' : '＋ Assign') + '</button>' + (p && p.status !== 'assigned' ? ' <button class="btn small" type="button" data-a="rep" title="The student presents again — the new mark replaces this one; this result stays in the history">🔁 Repeat</button>' : '') + '</td></tr>');
+        var again = function () { slotsInto(box, stu(x.studentId), also); if (also) also(); };
+        $('[data-a=e]', tr).onclick = function () { editor(stu(x.studentId), slot, again); };
+        if ($('[data-a=rep]', tr)) $('[data-a=rep]', tr).onclick = function () { repeatDlg(stu(x.studentId), slot, again); };
         $('tbody', t).appendChild(tr);
       })(s);
       box.appendChild(t);
+    }
+    /** a repeat: back to Assigned after a result (completed, absent or not completed) — shown as 🔁 Repeat (2026-11-10) */
+    function annIsRepeat(p) { return p && p.status === 'assigned' && (p.history || []).some(function (y) { return y.status && y.status !== 'assigned'; }); }
+    /* ---- 🔁 Repeat (user 2026-11-10, option A): the presentation goes back to Assigned (same or new topic, new date, reason);
+       the new mark replaces the old one; the old status and mark stay in the slot's history ("Changes") ---- */
+    function repeatDlg(x, slot, after) {
+      var p = x.presentations.filter(function (y) { return y.slot === slot; })[0]; if (!p) return;
+      var old = document.querySelector('.an-modal'); if (old) old.remove();
+      var was = ANN_ST[p.status] + (p.status === 'completed' ? ' ' + p.mark + ' / ' + annMax() : '') + (p.presentedAt ? ', ' + annDay(p.presentedAt) : '');
+      var opts = R.topics.map(function (t) { return '<option value="' + esc(t.topic) + '">' + esc(t.module + ' · Topic ' + t.n) + '</option>'; }).join('');
+      var m = h('<div class="an-modal" role="dialog" aria-modal="true" aria-label="Repeat presentation"><form class="an-dlg">' +
+        '<h3>🔁 Repeat presentation ' + slot + ' — <span dir="auto">' + esc(x.name) + '</span></h3>' +
+        '<p class="small">Now: <b dir="auto">' + esc(p.topic) + '</b> — ' + esc(was) + '. The presentation goes back to <b>Assigned</b>; when you mark the repeat, <b>the new mark replaces this one</b>. This result stays in its history (✏ Edit → Changes).</p>' +
+        '<label>Topic<input name="topic" list="an-topics-r" required maxlength="200" value="' + esc(p.topic) + '"><datalist id="an-topics-r">' + opts + '</datalist></label>' +
+        '<label>New planned date<input type="date" name="dueAt"></label>' +
+        '<label>Reason (optional)<input name="why" maxlength="300" dir="auto" placeholder="e.g. weak delivery, incomplete content"></label>' +
+        '<p class="small err an-err" role="alert"></p><div class="roster-tools"><button class="btn primary" type="submit">🔁 Repeat</button><button class="btn" type="button" data-a="c">Cancel</button></div></form></div>');
+      var f = $('form', m), err = $('.an-err', m);
+      function close() { m.remove(); document.removeEventListener('keydown', key, true); }
+      function key(e) { if (e.key === 'Escape') close(); }
+      document.addEventListener('keydown', key, true);
+      $('[data-a=c]', m).onclick = close; m.onclick = function (e) { if (e.target === m) close(); };
+      f.onsubmit = function (e) {
+        e.preventDefault();
+        var topic = f.topic.value.trim(), t = R.topics.filter(function (y) { return y.topic === topic; })[0], btn = $('button[type=submit]', f);
+        var why = f.why.value.trim(), note = '🔁 Repeat — was ' + was + (topic !== p.topic ? ' (' + p.topic + ')' : '') + (why ? ': ' + why : '');
+        btn.disabled = true; err.textContent = '';
+        call('annPres', { groupId: groupId, studentId: x.studentId, slot: slot, topic: topic, moduleId: topic === p.topic ? p.moduleId : (t ? t.moduleId : ''), dueAt: annFromDay(f.dueAt.value), presentedAt: '', status: 'assigned', mark: '', rubric: null, comment: note.slice(0, 500) }).then(function (r) {
+          btn.disabled = false;
+          if (!r.ok) { if (r.code === 'auth' || r.code === 'badaction') { close(); return fail(r); } err.textContent = r.error || 'Could not save.'; return; }
+          patch(r); close(); toast('Set to repeat — mark it when the student presents again.'); if (after) after();
+        });
+      };
+      document.body.appendChild(m); f.dueAt.focus();
     }
     /* ---- the slot editor (a small dialog): topic, module, planned date, status, mark (or the 4-point rubric), comment ---- */
     function editor(x, slot, after) {
@@ -1966,11 +2002,12 @@
           var P = x.presentations.filter(function (y) { return y.slot <= R.slots; }).sort(function (a, b) { return a.slot - b.slot; });
           var done = P.filter(function (y) { return y.status === 'completed'; }).length, empty = R.slots - P.length, over = P.filter(function (y) { return y.overdue; }).length;
           var waiting = P.filter(function (y) { return y.status === 'assigned' && !y.overdue; }).length, missed = P.filter(function (y) { return y.status === 'absent' || y.status === 'notdone'; }).length;
-          var stat = [done ? '<span class="an-ok">' + done + ' completed</span>' : '', over ? '<span class="mr-red">⚠ ' + over + ' overdue</span>' : '', waiting ? waiting + ' assigned' : '', missed ? '<span class="mr-red">' + missed + ' absent / not completed</span>' : '', empty ? '<span class="muted">' + empty + ' not assigned</span>' : ''].filter(Boolean).join(' · ');
+          var reps = P.filter(annIsRepeat).length;
+          var stat = [reps ? '<span class="an-rep">🔁 ' + reps + ' repeat' + (reps === 1 ? '' : 's') + '</span>' : '', done ? '<span class="an-ok">' + done + ' completed</span>' : '', over ? '<span class="mr-red">⚠ ' + over + ' overdue</span>' : '', waiting ? waiting + ' assigned' : '', missed ? '<span class="mr-red">' + missed + ' absent / not completed</span>' : '', empty ? '<span class="muted">' + empty + ' not assigned</span>' : ''].filter(Boolean).join(' · ');
           var open = !!pOpen[x.studentId];
           var tr = h('<tr data-student="' + esc(x.studentId) + '" class="an-prow' + (over ? ' ts-warn' : '') + '" tabindex="0" aria-expanded="' + open + '"><td dir="auto">' + esc(x.name) + ' <span class="small muted">' + esc(x.studentId) + '</span></td>' +
             '<td class="n"><b>' + done + ' / ' + R.slots + '</b></td>' +
-            '<td class="small" dir="auto">' + (P.length ? P.map(function (y) { return '<div>' + y.slot + '. ' + esc(y.topic) + ' <span class="muted">' + (ICON[y.status] || '') + '</span></div>'; }).join('') : '<span class="muted">Not assigned yet</span>') + '</td>' +
+            '<td class="small" dir="auto">' + (P.length ? P.map(function (y) { return '<div>' + y.slot + '. ' + esc(y.topic) + ' <span class="muted">' + (annIsRepeat(y) ? '🔁' : ICON[y.status] || '') + '</span></div>'; }).join('') : '<span class="muted">Not assigned yet</span>') + '</td>' +
             '<td class="n"><b>' + num(P.reduce(function (a, y) { return a + mk(y); }, 0)) + ' / ' + (R.slots * max) + '</b></td>' +
             '<td class="small">' + stat + '</td>' +
             '<td><button class="btn small" type="button" data-a="pe">' + (open ? '▴ Close' : '✏ Edit') + '</button></td></tr>');

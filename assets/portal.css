@@ -459,3 +459,4 @@ code.pw{font-size:14px;font-weight:700;letter-spacing:.03em}
 /* 🎤 Presentations: one row per student, slots open underneath (2026-11-10) */
 .an-ptbl tr.an-prow{cursor:pointer}.an-ptbl tr.an-prow:hover td{background:rgba(15,42,74,.04)}.an-ptbl tr.an-prow td{vertical-align:top}
 .an-ptbl tr.an-pdet>td{background:#f6f8fb;padding:.4rem .6rem .8rem}.an-ptbl tr.an-pdet .tbl-wrap{margin:0}.an-ok{color:#1b7f3b;font-weight:600}
+.an-rep{color:#8a5a00;font-weight:600;white-space:nowrap}

@@ -3444,6 +3444,28 @@ test('🏅 Annual Assessment (2.31/2.32): quizzes /20 from the modules\' attempt
   // the marks persist on the server (a fresh read), with the correction history
   const srv = A('annOverall', { groupId: g.groupId }), hu = srv.students.filter(function (x) { return x.studentId === '28010001'; })[0];
   assert.deepStrictEqual([hu.quiz, hu.pres.mark, hu.total, hu.presentations[0].mark, hu.presentations[0].rubric.delivery], [16, 4, 20, 4, 0.5]);
+  // 🔁 Repeat (2026-11-10, option A): back to Assigned, old result kept in the history and the comment; the new mark replaces it
+  await p.click('#t-annual .an-tab[data-t=pres]');
+  await p.waitForSelector('#t-annual .an-ptbl tr.an-prow[data-student="28010001"]');
+  if (!(await p.$('#t-annual .an-pdet[data-for="28010001"]:not([hidden])'))) await p.click('#t-annual .an-ptbl tr.an-prow[data-student="28010001"] [data-a=pe]');
+  assert.strictEqual(await p.$('#t-annual .an-pdet[data-for="28010001"] tr[data-slot="2"] [data-a=rep]'), null, 'no Repeat before a result');
+  await p.click('#t-annual .an-pdet[data-for="28010001"] tr[data-slot="1"] [data-a=rep]');
+  await p.waitForSelector('.an-modal input[name=why]');
+  assert.match(await p.textContent('.an-modal'), /Completed 4 \/ 5[\s\S]*the new mark replaces this one/);
+  await p.waitForTimeout(150); await p.fill('.an-modal input[name=why]', 'weak delivery');
+  await p.click('.an-modal button[type=submit]');
+  await p.waitForFunction(function () { var r = document.querySelector('#t-annual .an-pdet[data-for="28010001"]:not([hidden]) tr[data-slot="1"]'); return !document.querySelector('.an-modal') && r && /Assigned\s*🔁 Repeat/.test(r.textContent); }, null, { timeout: 15000 });
+  assert.match(await p.textContent('#t-annual .an-pdet[data-for="28010001"] tr[data-slot="1"]'), /🔁 Repeat — was Completed 4 \/ 5[\s\S]*: weak delivery/);
+  assert.match(await p.textContent('#t-annual .an-ptbl tr.an-prow[data-student="28010001"]'), /0 \/ 2[\s\S]*0 \/ 10\s*🔁 1 repeat/);
+  await p.click('#t-annual .an-pdet[data-for="28010001"] tr[data-slot="1"] [data-a=e]');
+  await p.waitForSelector('.an-modal select[name=status]');
+  assert.match(await p.textContent('.an-modal'), /Changes \(\d+\)[\s\S]*was Completed \(4\)/, 'the old result in the history');
+  await p.selectOption('.an-modal select[name=status]', 'completed');
+  await p.check('.an-modal input[name=mark][value="5"]');
+  await p.click('.an-modal button[type=submit]');
+  await p.waitForFunction(function () { var r = document.querySelector('#t-annual .an-ptbl tr.an-prow[data-student="28010001"]'); return !document.querySelector('.an-modal') && r && /1 \/ 2[\s\S]*5 \/ 10/.test(r.textContent); }, null, { timeout: 15000 });
+  const hu2 = A('annOverall', { groupId: g.groupId }).students.filter(function (x) { return x.studentId === '28010001'; })[0];
+  assert.deepStrictEqual([hu2.pres.mark, hu2.total], [5, 21], 'the repeat mark replaces the old one');
   assert.strictEqual(errors.filter(function (e) { return !/ERR_TUNNEL|net::/.test(e); }).length, 0, errors.join('\n'));
   await p.context().close();
 });
