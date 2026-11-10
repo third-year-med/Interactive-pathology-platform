@@ -2029,8 +2029,9 @@
       function rows() {
         var k = pq.trim().toLowerCase(), tb = $('tbody', w), n = 0, ns = 0; tb.innerHTML = ''; shown = [];
         // students with more completed presentations first (2 / 2, then 1 / 2, then 0 / 2), then the usual order (user 2026-11-10)
-        var L = sorted().filter(function (x) { return x.active; }).map(function (x, i) { return { x: x, i: i, d: nDone(x) }; });
-        L.sort(function (a, b) { return (b.d - a.d) || (a.i - b.i); });
+        // then students with assigned presentations, then those with none assigned (user 2026-11-10)
+        var L = sorted().filter(function (x) { return x.active; }).map(function (x, i) { return { x: x, i: i, d: nDone(x), a: x.presentations.filter(function (y) { return y.slot <= R.slots; }).length }; });
+        L.sort(function (a, b) { return (b.d - a.d) || (b.a - a.a) || (a.i - b.i); });
         L.map(function (o) { return o.x; }).forEach(function (x) {
           var ok = [];
           for (var s = 1; s <= R.slots; s++) {

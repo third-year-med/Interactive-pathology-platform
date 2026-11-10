@@ -3501,6 +3501,12 @@ test('🏅 Annual Assessment (2.31/2.32): quizzes /20 from the modules\' attempt
   assert.match(ptxt, /Annual Pathology Assessment — Presentations[\s\S]*0–5 each[\s\S]*Mark \/10[\s\S]*28010001\s*Huda First\s*1 \/ 2\s*1\. [^—]*— completed \(5\)[\s\S]*5[\s\S]*28010002\s*Imad Second\s*0 \/ 2/);
   assert.ok(!/11223344/.test(ptxt), 'no test account in the printout');
   assert.ok(!/Quizzes counted/.test(ptxt), 'no quiz numbers on the presentations printout');
+  // order: completed → assigned → not assigned (a new student with nothing assigned comes last)
+  A('rosterAdd', { groupId: g.groupId, mustChange: false, students: [{ studentId: '28010000', name: 'Aya New', password: 'pass-n0-xyz' }] });
+  await p.click('#t-annual .ts-top [data-a=r]');
+  await p.waitForSelector('#t-annual .an-tab[data-t=pres]'); await p.click('#t-annual .an-tab[data-t=pres]');
+  await p.waitForFunction(function () { return document.querySelectorAll('#t-annual .an-ptbl tr.an-prow').length === 3; }, null, { timeout: 15000 });
+  assert.deepStrictEqual(await p.$$eval('#t-annual .an-ptbl tr.an-prow', function (x) { return x.map(function (r) { return r.dataset.student; }); }), ['28010001', '28010002', '28010000'], 'completed, then assigned, then not assigned');
   assert.strictEqual(errors.filter(function (e) { return !/ERR_TUNNEL|net::/.test(e); }).length, 0, errors.join('\n'));
   await p.context().close();
 });
