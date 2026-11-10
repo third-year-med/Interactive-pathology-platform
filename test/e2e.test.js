@@ -1209,10 +1209,12 @@ test('Step 10: Results & attendance — Admin tab (all groups) and a personal te
     await q.uncheck('#t-modrep [data-a=mr-tests]');
     await q.waitForFunction(function () { const c = document.querySelector('#t-modrep [data-a=mr-tests]'); return c && !c.checked && !document.querySelector('#t-modrep .mr-tbl tr[data-student="mr-tst"]'); });
     // "Show names" off: Student IDs only — on screen, in Print and in Excel; remembered; back on afterwards
+    const ord = function () { return q.$$eval('#t-modrep .mr-tbl tbody tr', function (x) { return x.map(function (r) { return r.dataset.student; }); }); }, ord1 = await ord();
     await q.uncheck('#t-modrep [data-a=mr-names]');
     await q.waitForFunction(function () { const c = document.querySelector('#t-modrep [data-a=mr-names]'), t = document.querySelector('#t-modrep .mr-tbl'); return c && !c.checked && t && !/Student name/.test(t.tHead.textContent); });
     assert.match(await q.textContent('#t-modrep .mr-tbl tr[data-student="ahmed"]'), /ahmed\s*100% \(1\/1\)/);
     assert.ok(!/Student Ahmed/.test(await q.textContent('#t-modrep .mr-tbl')), 'no names on screen');
+    assert.deepStrictEqual(await ord(), ord1, 'same (name) order with names hidden');
     const pr2 = await q.evaluate(function () {
       let html = ''; const w0 = window.open;
       window.open = function () { return { document: { write: function (x) { html += x; }, close: function () { } }, focus: function () { }, print: function () { } }; };

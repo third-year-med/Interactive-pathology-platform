@@ -646,14 +646,14 @@
       out.innerHTML = '<p class="muted small">Loading…</p>';
       call('reportDelivery', { deliveryId: d.deliveryId }).then(function (x) {
         if (!x.ok) { out.innerHTML = '<p class="err">' + esc(x.error) + '</p>'; return; }
-        // Student ID + name; "Show names" off = IDs only, in ID order — on screen, in Print and in Excel (user 2026-11-10)
+        // Student ID + name; "Show names" off = IDs only, in the same (name) order — on screen, in Print and in Excel (user 2026-11-10)
         var names = true; try { names = localStorage.getItem('pp_modrep_names') !== '0'; } catch (e) { }
         // test accounts (name or ID with the word "test") are left out unless "Include test accounts" is ticked (user 2026-11-10)
         var tests = false; try { tests = localStorage.getItem('pp_modrep_tests') === '1'; } catch (e) { }
         var isTest = function (s) { return /(^|[^a-z])test([^a-z]|$)/i.test(String(s.name || '') + ' ' + String(s.studentId || '')); };
         var act = x.students.filter(function (s) { return s.active; }), nTest = act.filter(isTest).length;
         var all = tests ? act : act.filter(function (s) { return !isTest(s); }), st = [];
-        var order = function () { st = all.slice().sort(names ? function (a, b) { return String(a.name).localeCompare(String(b.name)); } : function (a, b) { return String(a.studentId).localeCompare(String(b.studentId), undefined, { numeric: true }); }); };
+        var order = function () { st = all.slice().sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); }); };   // name order, also with names hidden (user 2026-11-10)
         order();
         var head = function (o, c) { return '<th>#</th><th>Student ID</th>' + (names ? '<th>Student name</th>' : '') + '<th class="n">' + H_ATT + o + S_ATT + c + '</th><th class="n">' + H_SC + o + S_SC + c + '</th>'; };
         var idName = function (s) { return '<td class="nowrap">' + esc(s.studentId) + '</td>' + (names ? '<td>' + esc(s.name) + '</td>' : ''); };
