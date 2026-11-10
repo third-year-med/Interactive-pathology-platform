@@ -1892,6 +1892,37 @@
       })(s);
       box.appendChild(t);
     }
+    /* ---- topic picker (user 2026-11-10): 1 · the module, 2 · that module's topics in order (Topic N — title), or "Other
+       topic" to type one. The chosen title goes into the hidden-or-shown text field "topic" that is saved. ---- */
+    function topicPickerHtml(p) {
+      var mod = p.moduleId || (R.modules.length === 1 ? R.modules[0].moduleId : '');
+      return '<label>Module<select name="moduleId"><option value="">— choose the module —</option>' + R.modules.map(function (mm) { return '<option value="' + esc(mm.moduleId) + '"' + (mm.moduleId === mod ? ' selected' : '') + '>' + esc((mm.icon ? mm.icon + ' ' : '') + mm.title) + '</option>'; }).join('') + '</select></label>' +
+        '<label>Topic<select name="tsel"></select></label>' +
+        '<label class="an-tother" hidden>Other topic<input name="topic" maxlength="200" dir="auto" value="' + esc(p.topic || '') + '" placeholder="Type the topic"></label>';
+    }
+    function topicPickerBind(f, p) {
+      var other = f.querySelector('.an-tother');
+      function fill(keep) {
+        var L = R.topics.filter(function (t) { return t.moduleId === f.moduleId.value; }), cur = keep ? f.topic.value.trim() : '';
+        var hit = L.filter(function (t) { return t.topic === cur; })[0];
+        f.tsel.innerHTML = '<option value="">' + (f.moduleId.value ? (L.length ? '— choose the topic —' : 'No topics known for this module — type it below') : '— choose the module first —') + '</option>' +
+          L.map(function (t) { return '<option value="' + esc(t.topic) + '"' + (hit === t ? ' selected' : '') + '>Topic ' + t.n + ' — ' + esc(t.topic) + '</option>'; }).join('') +
+          (f.moduleId.value ? '<option value="__other"' + (cur && !hit ? ' selected' : '') + '>✎ Other topic (type it)</option>' : '');
+        f.tsel.disabled = !f.moduleId.value;
+        sync(keep);
+      }
+      function sync(keep) {   // keep: opening the window — never clear the saved topic
+        var v = f.tsel.value, none = !R.topics.some(function (t) { return t.moduleId === f.moduleId.value; });
+        var show = v === '__other' || (!!f.moduleId.value && none) || (!f.moduleId.value && !!f.topic.value.trim());
+        other.hidden = !show; f.topic.required = show;
+        if (v && v !== '__other') f.topic.value = v; else if (!show && !keep) f.topic.value = '';
+      }
+      // an older slot without a module: find it from its topic
+      if (!f.moduleId.value && p.topic) { var t0 = R.topics.filter(function (t) { return t.topic === p.topic; })[0]; if (t0) f.moduleId.value = t0.moduleId; }
+      f.moduleId.onchange = function () { fill(false); };
+      f.tsel.onchange = function () { if (f.tsel.value === '__other') f.topic.value = ''; sync(false); if (!other.hidden) f.topic.focus(); };
+      fill(true);
+    }
     /** a repeat: back to Assigned after a result (completed, absent or not completed) — shown as 🔁 Repeat (2026-11-10) */
     function annIsRepeat(p) { return p && p.status === 'assigned' && (p.history || []).some(function (y) { return y.status && y.status !== 'assigned'; }); }
     /* ---- 🔁 Repeat (user 2026-11-10, option A): the presentation goes back to Assigned (same or new topic, new date, reason);
@@ -1900,11 +1931,10 @@
       var p = x.presentations.filter(function (y) { return y.slot === slot; })[0]; if (!p) return;
       var old = document.querySelector('.an-modal'); if (old) old.remove();
       var was = ANN_ST[p.status] + (p.status === 'completed' ? ' ' + p.mark + ' / ' + annMax() : '') + (p.presentedAt ? ', ' + annDay(p.presentedAt) : '');
-      var opts = R.topics.map(function (t) { return '<option value="' + esc(t.topic) + '">' + esc(t.module + ' · Topic ' + t.n) + '</option>'; }).join('');
       var m = h('<div class="an-modal" role="dialog" aria-modal="true" aria-label="Repeat presentation"><form class="an-dlg">' +
         '<h3>🔁 Repeat presentation ' + slot + ' — <span dir="auto">' + esc(x.name) + '</span></h3>' +
         '<p class="small">Now: <b dir="auto">' + esc(p.topic) + '</b> — ' + esc(was) + '. The presentation goes back to <b>Assigned</b>; when you mark the repeat, <b>the new mark replaces this one</b>. This result stays in its history (✏ Edit → Changes).</p>' +
-        '<label>Topic<input name="topic" list="an-topics-r" required maxlength="200" value="' + esc(p.topic) + '"><datalist id="an-topics-r">' + opts + '</datalist></label>' +
+        topicPickerHtml(p) +
         '<label>New planned date<input type="date" name="dueAt"></label>' +
         '<label>Reason (optional)<input name="why" maxlength="300" dir="auto" placeholder="e.g. weak delivery, incomplete content"></label>' +
         '<p class="small err an-err" role="alert"></p><div class="roster-tools"><button class="btn primary" type="submit">🔁 Repeat</button><button class="btn" type="button" data-a="c">Cancel</button></div></form></div>');
@@ -1913,12 +1943,14 @@
       function key(e) { if (e.key === 'Escape') close(); }
       document.addEventListener('keydown', key, true);
       $('[data-a=c]', m).onclick = close; m.onclick = function (e) { if (e.target === m) close(); };
+      topicPickerBind(f, p);
       f.onsubmit = function (e) {
         e.preventDefault();
-        var topic = f.topic.value.trim(), t = R.topics.filter(function (y) { return y.topic === topic; })[0], btn = $('button[type=submit]', f);
+        var topic = f.topic.value.trim(), btn = $('button[type=submit]', f);
+        if (!topic) { err.textContent = 'Choose or type the topic.'; return; }
         var why = f.why.value.trim(), note = '🔁 Repeat — was ' + was + (topic !== p.topic ? ' (' + p.topic + ')' : '') + (why ? ': ' + why : '');
         btn.disabled = true; err.textContent = '';
-        call('annPres', { groupId: groupId, studentId: x.studentId, slot: slot, topic: topic, moduleId: topic === p.topic ? p.moduleId : (t ? t.moduleId : ''), dueAt: annFromDay(f.dueAt.value), presentedAt: '', status: 'assigned', mark: '', rubric: null, comment: note.slice(0, 500) }).then(function (r) {
+        call('annPres', { groupId: groupId, studentId: x.studentId, slot: slot, topic: topic, moduleId: f.moduleId.value, dueAt: annFromDay(f.dueAt.value), presentedAt: '', status: 'assigned', mark: '', rubric: null, comment: note.slice(0, 500) }).then(function (r) {
           btn.disabled = false;
           if (!r.ok) { if (r.code === 'auth' || r.code === 'badaction') { close(); return fail(r); } err.textContent = r.error || 'Could not save.'; return; }
           patch(r); close(); toast('Set to repeat — mark it when the student presents again.'); if (after) after();
@@ -1930,12 +1962,10 @@
     function editor(x, slot, after) {
       var p = x.presentations.filter(function (y) { return y.slot === slot; })[0] || { topic: '', moduleId: '', dueAt: null, presentedAt: null, status: 'assigned', mark: null, rubric: null, comment: '', history: [] };
       var old = document.querySelector('.an-modal'); if (old) old.remove();
-      var opts = R.topics.map(function (t) { return '<option value="' + esc(t.topic) + '">' + esc(t.module + ' · Topic ' + t.n) + '</option>'; }).join('');
       var m = h('<div class="an-modal" role="dialog" aria-modal="true" aria-label="Presentation"><form class="an-dlg">' +
         '<h3>🎤 Presentation ' + slot + ' — <span dir="auto">' + esc(x.name) + '</span></h3>' +
-        '<label>Topic<input name="topic" list="an-topics" required maxlength="200" value="' + esc(p.topic) + '" placeholder="Choose from the list or type a topic"><datalist id="an-topics">' + opts + '</datalist></label>' +
-        '<div class="an-row"><label>Module<select name="moduleId"><option value="">—</option>' + R.modules.map(function (mm) { return '<option value="' + esc(mm.moduleId) + '"' + (mm.moduleId === p.moduleId ? ' selected' : '') + '>' + esc(mm.title) + '</option>'; }).join('') + '</select></label>' +
-        '<label>Planned date<input type="date" name="dueAt" value="' + esc(annDay(p.dueAt)) + '"></label></div>' +
+        topicPickerHtml(p) +
+        '<label>Planned date<input type="date" name="dueAt" value="' + esc(annDay(p.dueAt)) + '"></label>' +
         '<div class="an-row"><label>Status<select name="status">' + Object.keys(ANN_ST).map(function (k) { return '<option value="' + k + '"' + (k === p.status ? ' selected' : '') + '>' + ANN_ST[k] + '</option>'; }).join('') + '</select></label>' +
         '<label class="an-pon">Presented on<input type="date" name="presentedAt" value="' + esc(annDay(p.presentedAt)) + '"></label></div>' +
         '<fieldset class="an-mark"><legend>Mark (0–' + annMax() + ') — your decision</legend><div class="an-marks">' + Array.apply(null, Array(annMax() * 2 + 1)).map(function (_, i) { return i / 2; }).map(function (v) { return '<label class="an-mk"><input type="radio" name="mark" value="' + v + '"' + (p.mark === v ? ' checked' : '') + '> ' + v + '</label>'; }).join('') + '</div>' +
@@ -1949,7 +1979,7 @@
       Array.prototype.forEach.call(m.querySelectorAll('[data-r]'), function (c) { c.onchange = function () { var r = rubric(), v = m.querySelector('input[name=mark][value="' + r.sum + '"]'); if (v) v.checked = true; }; });
       f.status.onchange = sync; sync();
       f.addEventListener('change', function () { err.textContent = ''; });
-      f.topic.onchange = function () { var t = R.topics.filter(function (y) { return y.topic === f.topic.value; })[0]; if (t && !f.moduleId.value) f.moduleId.value = t.moduleId; };
+      topicPickerBind(f, p);
       function close() { m.remove(); document.removeEventListener('keydown', key, true); }
       function key(e) { if (e.key === 'Escape') close(); }
       document.addEventListener('keydown', key, true);
@@ -1971,7 +2001,7 @@
         save({ topic: f.topic.value.trim(), moduleId: f.moduleId.value, dueAt: annFromDay(f.dueAt.value), presentedAt: st === 'assigned' ? '' : annFromDay(f.presentedAt.value), status: st,
           mark: st === 'completed' ? Number(mk) : '', rubric: st === 'completed' && r.any ? r.o : null, comment: f.comment.value }, $('button[type=submit]', f));
       };
-      document.body.appendChild(m); f.topic.focus();
+      document.body.appendChild(m); (f.moduleId.value ? f.tsel : f.moduleId).focus();
     }
     /* ---- 🎤 Presentations: every slot of every student, with ⚙ Auto-assign ---- */
     function presTab(pane) {

@@ -3398,6 +3398,21 @@ test('🏅 Annual Assessment (2.31/2.32): quizzes /20 from the modules\' attempt
   if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'annual-presentations.png'), fullPage: true });
   await p.click('#t-annual .an-pdet[data-for="28010001"] tr[data-slot="1"] button');
   await p.waitForSelector('.an-modal form');
+  // the topic picker (2026-11-10): the module first, then only that module's topics in order, or "Other topic"
+  const pick = function () { return p.evaluate(function () { var f = document.querySelector('.an-modal form'); return { mod: f.moduleId.value, opts: [].map.call(f.tsel.options, function (o) { return o.textContent; }), sel: f.tsel.value, topic: f.topic.value, other: f.querySelector('.an-tother').hidden }; }); };
+  const pk = await pick();
+  if (pk.mod === 'cellinjury') assert.ok(pk.opts.indexOf('Topic 1 — Adaptations') > 0 && pk.opts.indexOf('Topic 3 — Apoptosis') > 0 && pk.opts[pk.opts.length - 1] === '✎ Other topic (type it)' && pk.sel === pk.topic, JSON.stringify(pk));
+  else assert.ok(pk.topic, 'a saved topic is kept: ' + JSON.stringify(pk));
+  const topic0 = pk.topic;
+  await p.selectOption('.an-modal select[name=moduleId]', 'inflhealing');
+  assert.ok(!(await pick()).opts.some(function (o) { return /Adaptations|Apoptosis/.test(o); }), 'only the chosen module\'s topics');
+  await p.selectOption('.an-modal select[name=moduleId]', 'cellinjury');
+  await p.selectOption('.an-modal select[name=tsel]', '__other');
+  assert.strictEqual((await pick()).other, false, 'Other topic shows the text box');
+  await p.click('.an-modal [data-a=c]');
+  await p.click('#t-annual .an-pdet[data-for="28010001"] tr[data-slot="1"] button');
+  await p.waitForSelector('.an-modal form');
+  assert.strictEqual((await pick()).topic, topic0, 'Cancel changed nothing');
   assert.ok(await p.isHidden('.an-modal .an-mark'), 'no mark while assigned');
   await p.selectOption('.an-modal select[name=status]', 'completed');
   await p.click('.an-modal button[type=submit]');
@@ -5180,6 +5195,10 @@ test('Inflammation (New) module (inflnew): every topic, section, view and slide 
     await q.waitForSelector('#view-teacher', { state: 'visible', timeout: 10000 });
     const plan = await q.evaluate(function () { return AssessUI.topicQuizPlan().topics.filter(function (x) { return x.ok; }).length; });
     assert.ok(plan === 18, '⚡ Topic quizzes: every topic but the practical has ≥ 5 practice questions (' + plan + ')');
+    // ann-topics-report patch: the teacher's page sent the full topic list (19, in the module's order) for the Annual Assessment
+    await q.waitForFunction(function () { return Object.keys(sessionStorage).some(function (k) { return /^ann_topics_sent_v1/.test(k); }); }, null, { timeout: 20000 });
+    const tl = JSON.parse(main.ctx.getSetting_('anntopics:inflnew') || '[]');
+    assert.deepStrictEqual(tl.map(function (t) { return t.n; }), Array.from({ length: 19 }, function (_, i) { return i + 1; }), 'all 19 topics reported');
     // quiz-image-links patch: assessment copies keep the picture links; an older copy without them takes the module's; neutral names in a quiz
     const ql = await q.evaluate(function () {
       const q0 = Object.keys(Q_BY_ID).map(function (k) { return Q_BY_ID[k]; }).filter(function (x) { return (x.links || []).length && x.type === 'mcq'; })[0]; if (!q0) return null;

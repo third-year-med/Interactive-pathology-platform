@@ -199,7 +199,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.43';
+var PORTAL_VERSION = '2.44';
 /** 2.40: the ARCHIVED modules (the platform repository's modules/INACTIVE, user 2026-10-31). Their deliveries are left out of
  *  the overall reports (Overall Pathology Attendance, Pathology Overall Results) even while still switched on. Keep this
  *  list equal to modules/INACTIVE (a test checks it); re-activating a module = remove it from both, then redeploy. */
@@ -3387,9 +3387,25 @@ function annPresSum_(list) {
   return { assigned: list.length, done: done, marked: marked, missed: missed, overdue: overdue, remaining: ANN_SLOTS - marked, mark: Math.min(10, Math.round(sum * 10) / 10) };
 }
 /** Topic quiz titles "Topic N quiz — Title" of the group's modules: the topic list for presentations. */
+/** 2.44 (user 2026-11-10): a teacher's module page reports its topics (display number + title, as the module shows them), so
+ *  the presentation topics list EVERY topic — not only those with a topic quiz. Kept per storage (a group page may differ). */
+function annTopicsReport_(S, p) {
+  return authed_(S, p, function () {
+    var L = (Array.isArray(p.topics) ? p.topics : []).slice(0, 80).map(function (t) { return { n: Math.round(Number(t && t.n)) || 0, topic: dirStr_(t && t.topic, 200) }; })
+      .filter(function (t) { return t.n > 0 && t.n < 200 && t.topic; });
+    if (!L.length) return { ok: false, error: 'No topics.' };
+    var json = JSON.stringify(L);
+    if (getSetting_('anntopics:' + S) !== json) setSetting_('anntopics:' + S, json);
+    return { ok: true, topics: L.length };
+  });
+}
 function annTopics_(g) {
   var want = {}; g.modules.forEach(function (m) { want[m.storage] = m; });
   var out = [], seen = {};
+  g.modules.forEach(function (m) {   // 2.44: the topic list the module reported (its group page, else the main page)
+    var L = tsJson_(getSetting_('anntopics:' + m.storage) || getSetting_('anntopics:' + m.moduleId), null) || [];
+    L.forEach(function (t) { var k = m.moduleId + '|' + t.n; if (seen[k] || !t.topic) return; seen[k] = 1; out.push({ moduleId: m.moduleId, module: m.title, n: Number(t.n), topic: String(t.topic) }); });
+  });
   rpRows_(SHEETS.CONTENT).forEach(function (r) {
     if (!want[r.module] || r.collection !== 'assessments' || isTrue_(r.deleted)) return;
     var x = unpackJson_(r), mm = x && /^Topic (\d+) quiz\s+[—–-]\s+(.+)$/.exec(String(x.title || '')); if (!mm) return;
@@ -3724,6 +3740,7 @@ function assessPwHook_(storage, act, p) {
     });
   }
   if (act === 'aeAutoClose' || act === 'aeReopen') return acloseHook_(storage, act, p);   // 2.43: in-class quizzes close by themselves
+  if (act === 'annTopicsReport') return annTopicsReport_(storage, p);   // 2.44: the module's full topic list for 🏅 Annual Assessment
   if (act === 'aePwList' || act === 'aePwSet') {
     return authed_(storage, p, function () {
       if (act === 'aePwList') return { ok: true, passwords: apwPublic_(apwMap_(storage)), attOnly: aattPublic_(aattMap_(storage)), autoClose: acloseMap_(storage) };

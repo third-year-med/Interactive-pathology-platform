@@ -2547,6 +2547,11 @@ test('2.31/2.32 annual assessment: quizzes /20 (best attempt, missed = 0, excuse
   X.assessStore_('cellinjury-razi-a-26').put('attempt', 'rb1', { id: 'rb1', assessmentId: 'tq2', assessmentTitle: 'Topic 2 quiz — Necrosis', email: 'basma@uni.ly', name: 'Basma One', status: 'submitted', percent: 75, submittedAt: now - 1000 });
   const o = A('annOverall'); assert.ok(o.ok, JSON.stringify(o).slice(0, 300));
   assert.deepStrictEqual(o.topics.map(function (t) { return [t.moduleId, t.n, t.topic]; }), [['cellinjury', 2, 'Necrosis']]);
+  // 2.44: the module page reports its full topic list (teacher only) → every topic, with the quiz-only ones still added
+  assert.strictEqual(S.call({ module: 'cellinjury-razi-a-26', action: 'annTopicsReport', topics: [{ n: 1, topic: 'Adaptations' }] }).ok, false, 'not without a teacher sign-in');
+  const rep = S.call({ module: 'cellinjury-razi-a-26', action: 'annTopicsReport', token: ttok, topics: [{ n: 1, topic: 'Adaptations' }, { n: 3, topic: 'Apoptosis' }, { n: 0, topic: 'bad' }, { n: 4, topic: '' }] });
+  assert.deepStrictEqual([rep.ok, rep.topics], [true, 2]);
+  assert.deepStrictEqual(A('annOverall').topics.map(function (t) { return [t.moduleId, t.n, t.topic]; }), [['cellinjury', 1, 'Adaptations'], ['cellinjury', 2, 'Necrosis'], ['cellinjury', 3, 'Apoptosis']]);
   assert.deepStrictEqual([o.slots, o.maxMark, o.summary.quizzes, o.rubric.length], [2, 5, 1, 5]);
   const ob = o.students.filter(function (x) { return x.studentId === 'b1'; })[0], oa = o.students.filter(function (x) { return x.studentId === 'ahmed'; })[0];
   assert.deepStrictEqual([ob.quiz, oa.quiz, oa.quizMissed], [15, 0, 1], 'b1 75 % → 15 / 20; ahmed missed it → 0');
