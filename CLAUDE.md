@@ -50,6 +50,7 @@ Essentials:
   A feature for all modules = a new patch there; a new module must pass `bash modules/patches/apply.sh --check`.
 - Test before every push: `cd test && node --test backend.test.js && node --test e2e.test.js` (real module pages from the
   sibling repos; set the content keys as env variables to unlock them). Reproduce bugs on the real page first.
+- **After every change to `assets/portal.js` or `assets/portal.css`, raise `?v=` on both in `index.html`** (e.g. `?v=2026-11-10b`), or browsers keep the old file (user 2026-11-10: the Module Report still showed the test student).
 - Keep the user's plan order, explain in plain language with exact buttons, preserve existing features and data.
 - **Merging (user's standing instruction, 2026-10-16):** once a change is finished and all tests pass, merge it into
   `main` and push directly (platform and module repos) — do not ask for authorization first. Still tell the user what
