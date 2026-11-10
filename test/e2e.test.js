@@ -1183,24 +1183,41 @@ test('Step 10: Results & attendance — Admin tab (all groups) and a personal te
   const gone = { studentId: 'mr-gone', name: 'Removed Student' };
   assert.ok(main.call({ module: 'portal', action: 'rosterSetActive', token: t, groupId: g.groupId, studentId: gone.studentId, active: false }).ok);
   const mrCheck = async function (q) {
-    assert.deepStrictEqual(await q.$$eval('#t-modrep .mr-tbl thead th', function (x) { return x.map(function (y) { return y.textContent; }); }), ['#', 'Student name', 'Attendance %(sessions attended / total sessions)', 'Assessment score %(marks obtained / total marks)']);
-    assert.match(await q.textContent('#t-modrep .mr-tbl tr[data-student="ahmed"]'), /Student Ahmed\s*100% \(1\/1\)\s*0% \(0\/20\)/);
+    assert.deepStrictEqual(await q.$$eval('#t-modrep .mr-tbl thead th', function (x) { return x.map(function (y) { return y.textContent; }); }), ['#', 'Student ID', 'Student name', 'Attendance %(sessions attended / total sessions)', 'Assessment score %(marks obtained / total marks)']);
+    assert.match(await q.textContent('#t-modrep .mr-tbl tr[data-student="ahmed"]'), /ahmed\s*Student Ahmed\s*100% \(1\/1\)\s*0% \(0\/20\)/);
     assert.strictEqual(await q.$('#t-modrep .mr-tbl tr[data-student="' + gone.studentId + '"]'), null, 'removed student not listed');
     // red: score below 60 % (Ahmed 0 %), attendance 100 % not red; the row is highlighted — on screen and in the printout
-    assert.deepStrictEqual(await q.$eval('#t-modrep .mr-tbl tr[data-student="ahmed"]', function (tr) { return [tr.classList.contains('mr-low'), tr.cells[2].classList.contains('mr-red'), tr.cells[3].classList.contains('mr-red'), getComputedStyle(tr.cells[3].querySelector('b')).color]; }), [true, false, true, 'rgb(198, 40, 40)']);
+    assert.deepStrictEqual(await q.$eval('#t-modrep .mr-tbl tr[data-student="ahmed"]', function (tr) { return [tr.classList.contains('mr-low'), tr.cells[3].classList.contains('mr-red'), tr.cells[4].classList.contains('mr-red'), getComputedStyle(tr.cells[4].querySelector('b')).color]; }), [true, false, true, 'rgb(198, 40, 40)']);
     const printed = await q.evaluate(function () {
       let html = ''; const w0 = window.open;
       window.open = function () { return { document: { write: function (x) { html += x; }, close: function () { } }, focus: function () { }, print: function () { } }; };
       document.querySelector('#t-modrep [data-a=mr-print]').click(); window.open = w0; return html;
     });
     assert.match(printed, /print-color-adjust:exact/);
-    assert.match(printed, /<tr class="low"><td>\d+<\/td><td>Student Ahmed<\/td><td class="n">100% \(1\/1\)<\/td><td class="n red">0% \(0\/20\)<\/td>/);
+    assert.match(printed, /<tr class="low"><td>\d+<\/td><td class="nowrap">ahmed<\/td><td>Student Ahmed<\/td><td class="n">100% \(1\/1\)<\/td><td class="n red">0% \(0\/20\)<\/td>/);
     assert.match(printed, /Attendance %<small>\(sessions attended \/ total sessions\)<\/small>[\s\S]*Assessment score %<small>\(marks obtained \/ total marks\)<\/small>/);
     assert.ok(!/Exam|Quiz|Practice/.test(await q.textContent('#t-modrep .mr-res')), 'nothing else');
     const [mdl] = await Promise.all([q.waitForEvent('download'), q.click('#t-modrep [data-a=mr-csv]')]);
     const mcsv = fs.readFileSync(await mdl.path(), 'utf8');
-    assert.match(mcsv, /^\ufeff?Student name,Attendance % \(sessions attended \/ total sessions\),Assessment score % \(marks obtained \/ total marks\),Assessments done \(done \/ held\)\r\n[\s\S]*Student Ahmed,100% \(1\/1\),0% \(0\/20\),0\/1/);
+    assert.match(mcsv, /^\ufeff?Student ID,Student name,Attendance % \(sessions attended \/ total sessions\),Assessment score % \(marks obtained \/ total marks\),Assessments done \(done \/ held\)\r\n[\s\S]*ahmed,Student Ahmed,100% \(1\/1\),0% \(0\/20\),0\/1/);
     assert.ok(mcsv.indexOf(gone.name) < 0);
+    // "Show names" off: Student IDs only — on screen, in Print and in Excel; remembered; back on afterwards
+    await q.uncheck('#t-modrep [data-a=mr-names]');
+    await q.waitForFunction(function () { const c = document.querySelector('#t-modrep [data-a=mr-names]'), t = document.querySelector('#t-modrep .mr-tbl'); return c && !c.checked && t && !/Student name/.test(t.tHead.textContent); });
+    assert.match(await q.textContent('#t-modrep .mr-tbl tr[data-student="ahmed"]'), /ahmed\s*100% \(1\/1\)/);
+    assert.ok(!/Student Ahmed/.test(await q.textContent('#t-modrep .mr-tbl')), 'no names on screen');
+    const pr2 = await q.evaluate(function () {
+      let html = ''; const w0 = window.open;
+      window.open = function () { return { document: { write: function (x) { html += x; }, close: function () { } }, focus: function () { }, print: function () { } }; };
+      document.querySelector('#t-modrep [data-a=mr-print]').click(); window.open = w0; return html;
+    });
+    assert.ok(!/Student Ahmed|Student name/.test(pr2) && /<td class="nowrap">ahmed<\/td><td class="n">100%/.test(pr2), 'no names printed');
+    const [mdl2] = await Promise.all([q.waitForEvent('download'), q.click('#t-modrep [data-a=mr-csv]')]);
+    const mcsv2 = fs.readFileSync(await mdl2.path(), 'utf8');
+    assert.match(mcsv2, /^\ufeff?Student ID,Attendance[\s\S]*\r\nahmed,100% \(1\/1\)/); assert.ok(!/Student Ahmed/.test(mcsv2), 'no names in Excel');
+    assert.strictEqual(await q.evaluate(function () { return localStorage.getItem('pp_modrep_names'); }), '0');
+    await q.check('#t-modrep [data-a=mr-names]');
+    await q.waitForFunction(function () { const t = document.querySelector('#t-modrep .mr-tbl'); return t && /Student name/.test(t.tHead.textContent); });
   };
   {
     await p.goto(url + '#/teacher'); await dash(p, 'modreport');

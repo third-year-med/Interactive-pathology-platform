@@ -646,20 +646,28 @@
       out.innerHTML = '<p class="muted small">Loading…</p>';
       call('reportDelivery', { deliveryId: d.deliveryId }).then(function (x) {
         if (!x.ok) { out.innerHTML = '<p class="err">' + esc(x.error) + '</p>'; return; }
-        var st = x.students.filter(function (s) { return s.active; }).sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
+        // Student ID + name; "Show names" off = IDs only, in ID order — on screen, in Print and in Excel (user 2026-11-10)
+        var names = true; try { names = localStorage.getItem('pp_modrep_names') !== '0'; } catch (e) { }
+        var all = x.students.filter(function (s) { return s.active; }), st = [];
+        var order = function () { st = all.slice().sort(names ? function (a, b) { return String(a.name).localeCompare(String(b.name)); } : function (a, b) { return String(a.studentId).localeCompare(String(b.studentId), undefined, { numeric: true }); }); };
+        order();
+        var head = function (o, c) { return '<th>#</th><th>Student ID</th>' + (names ? '<th>Student name</th>' : '') + '<th class="n">' + H_ATT + o + S_ATT + c + '</th><th class="n">' + H_SC + o + S_SC + c + '</th>'; };
+        var idName = function (s) { return '<td class="nowrap">' + esc(s.studentId) + '</td>' + (names ? '<td>' + esc(s.name) + '</td>' : ''); };
         var held = (x.assessGiven || []).length, title = d.institution + ' · ' + d.groupName + ' — ' + d.title;
         var w = h('<div class="note roster-res mr-res"><b>' + esc(title) + '</b><div class="small muted">' + st.length + ' student(s) · ' + x.sessions.length + ' attendance session(s) · ' + held + ' assessment(s) held in the class</div>' +
-          '<div class="roster-tools"><button class="btn" type="button" data-a="mr-csv">⬇ Download (Excel)</button><button class="btn" type="button" data-a="mr-print">🖨 Print</button></div>' +
-          '<div class="tbl-wrap"><table class="dir-tbl mr-tbl"><thead><tr><th>#</th><th>Student name</th><th class="n">' + H_ATT + '<div class="mr-sub">' + S_ATT + '</div></th><th class="n">' + H_SC + '<div class="mr-sub">' + S_SC + '</div></th></tr></thead><tbody>' +
+          '<div class="roster-tools"><button class="btn" type="button" data-a="mr-csv">⬇ Download (Excel)</button><button class="btn" type="button" data-a="mr-print">🖨 Print</button>' +
+          '<label class="small" style="display:inline-flex;gap:.35rem;align-items:center;margin-left:.6rem"><input type="checkbox" data-a="mr-names"' + (names ? ' checked' : '') + '> Show names <span class="muted">(untick = Student IDs only, e.g. to post the list)</span></label></div>' +
+          '<div class="tbl-wrap"><table class="dir-tbl mr-tbl"><thead><tr>' + head('<div class="mr-sub">', '</div>') + '</tr></thead><tbody>' +
           st.map(function (s, i) {
-            return '<tr data-student="' + esc(s.studentId) + '"' + (lowAtt(s) || lowSc(s) ? ' class="mr-low"' : '') + '><td>' + (i + 1) + '</td><td>' + esc(s.name) + '</td>' +
+            return '<tr data-student="' + esc(s.studentId) + '"' + (lowAtt(s) || lowSc(s) ? ' class="mr-low"' : '') + '><td>' + (i + 1) + '</td>' + idName(s) +
               '<td class="n' + (lowAtt(s) ? ' mr-red' : '') + '"><b>' + esc(attTxt(s)) + '</b></td>' +
               '<td class="n' + (lowSc(s) ? ' mr-red' : '') + '"><b>' + esc(scTxt(s)) + '</b></td></tr>';
           }).join('') + '</tbody></table></div>' +
           (st.length ? '<p class="small muted">' + NOTE + '<br><span class="mr-red"><b>Red</b></span>' + RED.slice(3) + '</p>' : '<p class="muted small">No current students in this group.</p>') + '</div>');
         $('[data-a=mr-csv]', w).onclick = function () {
           var q = function (v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
-          var rows = [['Student name', H_ATT + ' ' + S_ATT, H_SC + ' ' + S_SC, 'Assessments done (done / held)']].concat(st.map(function (s) { var a = s.assess || {}; return [s.name, attTxt(s), scTxt(s), a.given ? a.done + '/' + a.given : '']; }));
+          var cut = function (r) { if (!names) r.splice(1, 1); return r; };
+          var rows = [cut(['Student ID', 'Student name', H_ATT + ' ' + S_ATT, H_SC + ' ' + S_SC, 'Assessments done (done / held)'])].concat(st.map(function (s) { var a = s.assess || {}; return cut([s.studentId, s.name, attTxt(s), scTxt(s), a.given ? a.done + '/' + a.given : '']); }));
           var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + rows.map(function (r) { return r.map(q).join(','); }).join('\r\n')], { type: 'text/csv;charset=utf-8' }));
           a.download = 'module-report-' + d.storage + '.csv';
           document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
@@ -668,11 +676,12 @@
           var pw = window.open('', '_blank'); if (!pw) return toast('Allow pop-ups to print.');
           pw.document.write('<!doctype html><meta charset="utf-8"><title>' + esc(title) + '</title><style>body{font:14px system-ui,sans-serif;margin:24px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #999;padding:5px 8px;text-align:left}td.n,th.n{text-align:center}th small{display:block;font-weight:400;font-size:11px;color:#555}tr.low td{background:#fdecec}td.red{color:#c62828;font-weight:700}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}</style>' +
             '<h2>' + esc(title) + '</h2><p>' + st.length + ' student(s) · ' + x.sessions.length + ' attendance session(s) · ' + held + ' assessment(s) held in the class · ' + new Date().toISOString().slice(0, 10) + '</p>' +
-            '<table><thead><tr><th>#</th><th>Student name</th><th class="n">' + H_ATT + '<small>' + S_ATT + '</small></th><th class="n">' + H_SC + '<small>' + S_SC + '</small></th></tr></thead><tbody>' +
-            st.map(function (s, i) { return '<tr' + (lowAtt(s) || lowSc(s) ? ' class="low"' : '') + '><td>' + (i + 1) + '</td><td>' + esc(s.name) + '</td><td class="n' + (lowAtt(s) ? ' red' : '') + '">' + esc(attTxt(s)) + '</td><td class="n' + (lowSc(s) ? ' red' : '') + '">' + esc(scTxt(s)) + '</td></tr>'; }).join('') + '</tbody></table>' +
+            '<table><thead><tr>' + head('<small>', '</small>') + '</tr></thead><tbody>' +
+            st.map(function (s, i) { return '<tr' + (lowAtt(s) || lowSc(s) ? ' class="low"' : '') + '><td>' + (i + 1) + '</td>' + idName(s) + '<td class="n' + (lowAtt(s) ? ' red' : '') + '">' + esc(attTxt(s)) + '</td><td class="n' + (lowSc(s) ? ' red' : '') + '">' + esc(scTxt(s)) + '</td></tr>'; }).join('') + '</tbody></table>' +
             '<p style="font-size:12px">' + NOTE + '<br><span style="color:#c62828;font-weight:700">Red</span>' + RED.slice(3) + '</p>');
           pw.document.close(); pw.focus(); pw.print();
         };
+        $('[data-a=mr-names]', w).onchange = function () { try { localStorage.setItem('pp_modrep_names', this.checked ? '1' : '0'); } catch (e) { } show(d); };
         out.innerHTML = ''; out.appendChild(w);
       });
     }
