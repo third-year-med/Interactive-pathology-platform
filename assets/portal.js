@@ -648,7 +648,11 @@
         if (!x.ok) { out.innerHTML = '<p class="err">' + esc(x.error) + '</p>'; return; }
         // Student ID + name; "Show names" off = IDs only, in ID order — on screen, in Print and in Excel (user 2026-11-10)
         var names = true; try { names = localStorage.getItem('pp_modrep_names') !== '0'; } catch (e) { }
-        var all = x.students.filter(function (s) { return s.active; }), st = [];
+        // test accounts (name or ID with the word "test") are left out unless "Include test accounts" is ticked (user 2026-11-10)
+        var tests = false; try { tests = localStorage.getItem('pp_modrep_tests') === '1'; } catch (e) { }
+        var isTest = function (s) { return /(^|[^a-z])test([^a-z]|$)/i.test(String(s.name || '') + ' ' + String(s.studentId || '')); };
+        var act = x.students.filter(function (s) { return s.active; }), nTest = act.filter(isTest).length;
+        var all = tests ? act : act.filter(function (s) { return !isTest(s); }), st = [];
         var order = function () { st = all.slice().sort(names ? function (a, b) { return String(a.name).localeCompare(String(b.name)); } : function (a, b) { return String(a.studentId).localeCompare(String(b.studentId), undefined, { numeric: true }); }); };
         order();
         var head = function (o, c) { return '<th>#</th><th>Student ID</th>' + (names ? '<th>Student name</th>' : '') + '<th class="n">' + H_ATT + o + S_ATT + c + '</th><th class="n">' + H_SC + o + S_SC + c + '</th>'; };
@@ -656,7 +660,8 @@
         var held = (x.assessGiven || []).length, title = d.institution + ' · ' + d.groupName + ' — ' + d.title;
         var w = h('<div class="note roster-res mr-res"><b>' + esc(title) + '</b><div class="small muted">' + st.length + ' student(s) · ' + x.sessions.length + ' attendance session(s) · ' + held + ' assessment(s) held in the class</div>' +
           '<div class="roster-tools"><button class="btn" type="button" data-a="mr-csv">⬇ Download (Excel)</button><button class="btn" type="button" data-a="mr-print">🖨 Print</button>' +
-          '<label class="small" style="display:inline-flex;gap:.35rem;align-items:center;margin-left:.6rem"><input type="checkbox" data-a="mr-names"' + (names ? ' checked' : '') + '> Show names <span class="muted">(untick = Student IDs only, e.g. to post the list)</span></label></div>' +
+          '<label class="small" style="display:inline-flex;gap:.35rem;align-items:center;margin-left:.6rem"><input type="checkbox" data-a="mr-names"' + (names ? ' checked' : '') + '> Show names <span class="muted">(untick = Student IDs only, e.g. to post the list)</span></label>' +
+          (nTest ? '<label class="small" style="display:inline-flex;gap:.35rem;align-items:center;margin-left:.6rem"><input type="checkbox" data-a="mr-tests"' + (tests ? ' checked' : '') + '> Include test accounts <span class="muted">(' + nTest + (tests ? ' shown' : ' left out') + ')</span></label>' : '') + '</div>' +
           '<div class="tbl-wrap"><table class="dir-tbl mr-tbl"><thead><tr>' + head('<div class="mr-sub">', '</div>') + '</tr></thead><tbody>' +
           st.map(function (s, i) {
             return '<tr data-student="' + esc(s.studentId) + '"' + (lowAtt(s) || lowSc(s) ? ' class="mr-low"' : '') + '><td>' + (i + 1) + '</td>' + idName(s) +
@@ -681,6 +686,7 @@
             '<p style="font-size:12px">' + NOTE + '<br><span style="color:#c62828;font-weight:700">Red</span>' + RED.slice(3) + '</p>');
           pw.document.close(); pw.focus(); pw.print();
         };
+        if ($('[data-a=mr-tests]', w)) $('[data-a=mr-tests]', w).onchange = function () { try { localStorage.setItem('pp_modrep_tests', this.checked ? '1' : '0'); } catch (e) { } show(d); };
         $('[data-a=mr-names]', w).onchange = function () { try { localStorage.setItem('pp_modrep_names', this.checked ? '1' : '0'); } catch (e) { } show(d); };
         out.innerHTML = ''; out.appendChild(w);
       });

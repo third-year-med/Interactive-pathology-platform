@@ -1181,6 +1181,7 @@ test('Step 10: Results & attendance — Admin tab (all groups) and a personal te
   const ad = main.call({ module: 'portal', action: 'rosterAdd', token: t, groupId: g.groupId, students: [{ studentId: 'mr-gone', name: 'Removed Student', password: 'removed-pw-1' }] });
   assert.ok(ad.ok, JSON.stringify(ad));
   const gone = { studentId: 'mr-gone', name: 'Removed Student' };
+  assert.ok(main.call({ module: 'portal', action: 'rosterAdd', token: t, groupId: g.groupId, students: [{ studentId: 'mr-tst', name: 'TEST STUDENT', password: 'test-pw-123' }] }).ok);   // a test account: left out of the Module Report
   assert.ok(main.call({ module: 'portal', action: 'rosterSetActive', token: t, groupId: g.groupId, studentId: gone.studentId, active: false }).ok);
   const mrCheck = async function (q) {
     assert.deepStrictEqual(await q.$$eval('#t-modrep .mr-tbl thead th', function (x) { return x.map(function (y) { return y.textContent; }); }), ['#', 'Student ID', 'Student name', 'Attendance %(sessions attended / total sessions)', 'Assessment score %(marks obtained / total marks)']);
@@ -1201,6 +1202,12 @@ test('Step 10: Results & attendance — Admin tab (all groups) and a personal te
     const mcsv = fs.readFileSync(await mdl.path(), 'utf8');
     assert.match(mcsv, /^\ufeff?Student ID,Student name,Attendance % \(sessions attended \/ total sessions\),Assessment score % \(marks obtained \/ total marks\),Assessments done \(done \/ held\)\r\n[\s\S]*ahmed,Student Ahmed,100% \(1\/1\),0% \(0\/20\),0\/1/);
     assert.ok(mcsv.indexOf(gone.name) < 0);
+    assert.ok(!/TEST STUDENT|mr-tst/.test(printed + mcsv) && !(await q.$('#t-modrep .mr-tbl tr[data-student="mr-tst"]')), 'test account left out (screen, Print, Excel)');
+    assert.match(await q.textContent('#t-modrep .roster-tools'), /Include test accounts\s*\(1 left out\)/);
+    await q.check('#t-modrep [data-a=mr-tests]');
+    await q.waitForSelector('#t-modrep .mr-tbl tr[data-student="mr-tst"]');
+    await q.uncheck('#t-modrep [data-a=mr-tests]');
+    await q.waitForFunction(function () { const c = document.querySelector('#t-modrep [data-a=mr-tests]'); return c && !c.checked && !document.querySelector('#t-modrep .mr-tbl tr[data-student="mr-tst"]'); });
     // "Show names" off: Student IDs only — on screen, in Print and in Excel; remembered; back on afterwards
     await q.uncheck('#t-modrep [data-a=mr-names]');
     await q.waitForFunction(function () { const c = document.querySelector('#t-modrep [data-a=mr-names]'), t = document.querySelector('#t-modrep .mr-tbl'); return c && !c.checked && t && !/Student name/.test(t.tHead.textContent); });
