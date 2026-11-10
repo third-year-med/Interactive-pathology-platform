@@ -3466,6 +3466,13 @@ test('🏅 Annual Assessment (2.31/2.32): quizzes /20 from the modules\' attempt
   await p.waitForFunction(function () { var r = document.querySelector('#t-annual .an-ptbl tr.an-prow[data-student="28010001"]'); return !document.querySelector('.an-modal') && r && /1 \/ 2[\s\S]*5 \/ 10/.test(r.textContent); }, null, { timeout: 15000 });
   const hu2 = A('annOverall', { groupId: g.groupId }).students.filter(function (x) { return x.studentId === '28010001'; })[0];
   assert.deepStrictEqual([hu2.pres.mark, hu2.total], [5, 21], 'the repeat mark replaces the old one');
+  // completed first, and 🖨 Print list (same order)
+  assert.deepStrictEqual(await p.$$eval('#t-annual .an-ptbl tr.an-prow', function (x) { return x.map(function (r) { return r.dataset.student; }); }), ['28010001', '28010002'], 'the student with a completed presentation first');
+  await p.click('#t-annual [data-a=pprint]');
+  await p.waitForFunction(function () { var f = document.querySelector('iframe.ov-print'); return f && f.contentDocument && /Presentations/.test(f.contentDocument.body.textContent) && /Huda First/.test(f.contentDocument.body.textContent); });
+  const ptxt = await p.evaluate(function () { return document.querySelector('iframe.ov-print').contentDocument.body.textContent; });
+  assert.match(ptxt, /Annual Pathology Assessment — Presentations[\s\S]*0–5 each[\s\S]*Mark \/10[\s\S]*28010001\s*Huda First\s*1 \/ 2\s*1\. [^—]*— completed \(5\)[\s\S]*5[\s\S]*28010002\s*Imad Second\s*0 \/ 2/);
+  assert.ok(!/11223344/.test(ptxt), 'no test account in the printout');
   assert.strictEqual(errors.filter(function (e) { return !/ERR_TUNNEL|net::/.test(e); }).length, 0, errors.join('\n'));
   await p.context().close();
 });

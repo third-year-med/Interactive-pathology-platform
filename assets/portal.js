@@ -1980,15 +1980,20 @@
         '<label>Status<select class="an-pst">' + [['all', 'All'], ['empty', 'Not assigned'], ['assigned', 'Assigned'], ['overdue', 'Overdue'], ['completed', 'Completed'], ['absent', 'Absent'], ['notdone', 'Not completed']].map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === pst ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
         '<label>Module<select class="an-pmod"><option value="">All modules</option>' + R.modules.map(function (m) { return '<option value="' + esc(m.moduleId) + '"' + (m.moduleId === pmod ? ' selected' : '') + '>' + esc(m.title) + '</option>'; }).join('') + '</select></label>' +
         '<span class="small muted an-pcount"></span></div>' +
-        '<div class="roster-tools"><button class="btn small" type="button" data-a="pall">⊞ Open all</button><button class="btn small" type="button" data-a="pnone">⊟ Close all</button><span class="small muted">One row per student — open a row (or ✏ Edit) to see, assign, mark or edit each presentation.</span></div>' +
+        '<div class="roster-tools"><button class="btn small" type="button" data-a="pall">⊞ Open all</button><button class="btn small" type="button" data-a="pnone">⊟ Close all</button><button class="btn small" type="button" data-a="pprint">🖨 Print list</button><span class="small muted">Completed first · one row per student — open a row (or ✏ Edit) to see, assign, mark or edit each presentation.</span></div>' +
         '<div class="tbl-wrap"><table class="dir-tbl an-ptbl"><thead><tr><th>Student</th><th class="n">Presented</th><th>Topics</th><th class="n">Mark</th><th>Status</th><th></th></tr></thead><tbody></tbody></table></div></div>');
       // one row per student (user 2026-11-10): presented n / slots, the topics, the summed mark / (slots × max), status; the
       // slots open under the row (the same per-slot table as the student's detail, with ✏ Edit / ＋ Assign)
       var max = annMax(), mk = function (p) { return p.status === 'completed' ? Number(p.mark) || 0 : 0; }, num = function (v) { return String(Math.round(v * 10) / 10); };
       var ICON = { completed: '✓', assigned: '•', absent: '✗', notdone: '✗' };
+      var shown = [];
+      var nDone = function (x) { return x.presentations.filter(function (y) { return y.slot <= R.slots && y.status === 'completed'; }).length; };
       function rows() {
-        var k = pq.trim().toLowerCase(), tb = $('tbody', w), n = 0, ns = 0; tb.innerHTML = '';
-        sorted().filter(function (x) { return x.active; }).forEach(function (x) {
+        var k = pq.trim().toLowerCase(), tb = $('tbody', w), n = 0, ns = 0; tb.innerHTML = ''; shown = [];
+        // students with more completed presentations first (2 / 2, then 1 / 2, then 0 / 2), then the usual order (user 2026-11-10)
+        var L = sorted().filter(function (x) { return x.active; }).map(function (x, i) { return { x: x, i: i, d: nDone(x) }; });
+        L.sort(function (a, b) { return (b.d - a.d) || (a.i - b.i); });
+        L.map(function (o) { return o.x; }).forEach(function (x) {
           var ok = [];
           for (var s = 1; s <= R.slots; s++) {
             var p = x.presentations.filter(function (y) { return y.slot === s; })[0];
@@ -1998,7 +2003,7 @@
             ok.push(s);
           }
           if (!ok.length) return;
-          n++; ns += ok.length;
+          n++; ns += ok.length; shown.push(x);
           var P = x.presentations.filter(function (y) { return y.slot <= R.slots; }).sort(function (a, b) { return a.slot - b.slot; });
           var done = P.filter(function (y) { return y.status === 'completed'; }).length, empty = R.slots - P.length, over = P.filter(function (y) { return y.overdue; }).length;
           var waiting = P.filter(function (y) { return y.status === 'assigned' && !y.overdue; }).length, missed = P.filter(function (y) { return y.status === 'absent' || y.status === 'notdone'; }).length;
@@ -2024,6 +2029,20 @@
       }
       $('[data-a=pall]', w).onclick = function () { sorted().forEach(function (x) { pOpen[x.studentId] = true; }); rows(); };
       $('[data-a=pnone]', w).onclick = function () { pOpen = {}; rows(); };
+      // 🖨 the list as shown (same order, same filters): presented, each topic with its status and mark, mark / 10, status
+      $('[data-a=pprint]', w).onclick = function () {
+        var mx = R.slots * max, filt = [pst !== 'all' ? 'status: ' + $('.an-pst', w).selectedOptions[0].textContent : '', pmod ? 'module: ' + modTitle(pmod) : '', pq.trim() ? 'search: “' + pq.trim() + '”' : ''].filter(Boolean).join(' · ');
+        ovPrint('Presentations — ' + R.group.label, printHead('Annual Pathology Assessment — Presentations') + (filt ? '<p class="note">Shown: ' + esc(filt) + '</p>' : '') +
+          '<table><thead><tr><th>#</th><th>Student ID</th><th>Name</th><th class="n">Presented</th><th>Topics</th><th class="n">Mark /' + mx + '</th><th>Status</th></tr></thead><tbody>' +
+          shown.map(function (x, i) {
+            var P = x.presentations.filter(function (y) { return y.slot <= R.slots; }).sort(function (a, b) { return a.slot - b.slot; }), d = nDone(x);
+            var line = function (y) { return y.slot + '. <span dir="auto">' + esc(y.topic) + '</span> — ' + (annIsRepeat(y) ? '🔁 repeat, ' : '') + esc(ANN_ST[y.status]).toLowerCase() + (y.status === 'completed' ? ' (' + y.mark + ')' : y.status !== 'assigned' ? ' (0)' : '') + (y.dueAt && y.status === 'assigned' ? ', planned ' + esc(annDay(y.dueAt)) : ''); };
+            var empty = R.slots - P.length, bad = P.filter(function (y) { return y.overdue || y.status === 'absent' || y.status === 'notdone'; }).length;
+            return '<tr' + (bad ? ' class="warn"' : '') + '><td class="n">' + (i + 1) + '</td><td>' + esc(x.studentId) + '</td><td dir="auto">' + esc(x.name) + '</td><td class="n">' + d + ' / ' + R.slots + '</td><td>' + (P.length ? P.map(line).join('<br>') : '—') + (empty && P.length ? '<br>' + empty + ' not assigned' : '') + '</td>' +
+              '<td class="n"><b>' + num(P.reduce(function (a, y) { return a + mk(y); }, 0)) + '</b></td><td>' + (d === R.slots ? 'all completed' : [P.filter(function (y) { return y.overdue; }).length ? P.filter(function (y) { return y.overdue; }).length + ' overdue' : '', empty ? empty + ' not assigned' : ''].filter(Boolean).join(', ') || 'in progress') + '</td></tr>';
+          }).join('') + '</tbody></table>' +
+          '<p class="note">Presentations: ' + R.slots + ' per student, 0–' + max + ' marks each (absent or not completed = 0; a repeat counts its new mark). Red rows: overdue, absent or not completed.</p>' + SIG);
+      };
       $('.an-pq', w).oninput = function () { pq = this.value; rows(); };
       $('.an-pst', w).onchange = function () { pst = this.value; rows(); };
       $('.an-pmod', w).onchange = function () { pmod = this.value; rows(); };
@@ -2092,7 +2111,7 @@
       PlatformXlsx.download(fname('xlsx'), [reg, qz, pr, info]);
     }
     function printHead(title) {
-      return '<h1>' + esc(title) + '</h1><p class="sub">' + esc(R.group.label) + '</p><div class="meta"><span><b>Generated:</b> ' + esc(new Date().toLocaleString()) + '</span><span><b>Quizzes counted:</b> ' + counted().length + '</span><span><b>Presentations:</b> ' + R.slots + ' per student, 0–2 each</span></div>';
+      return '<h1>' + esc(title) + '</h1><p class="sub">' + esc(R.group.label) + '</p><div class="meta"><span><b>Generated:</b> ' + esc(new Date().toLocaleString()) + '</span><span><b>Quizzes counted:</b> ' + counted().length + '</span><span><b>Presentations:</b> ' + R.slots + ' per student, 0–' + annMax() + ' each</span></div>';
     }
     var NOTE = '<p class="note">Quizzes /20 = 20 × the average of the best attempt of every counted quiz (a missed quiz counts 0; an excused quiz is left out for that student). Presentations /10 = the teacher’s marks (absent or not completed = 0). Total /30 = quizzes + presentations.</p>';
     var SIG = '<div class="sig"><div>Teacher — name and signature</div><div>Head of Department — signature</div><div>Date</div></div>';
