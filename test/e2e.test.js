@@ -3473,6 +3473,7 @@ test('🏅 Annual Assessment (2.31/2.32): quizzes /20 from the modules\' attempt
   const ptxt = await p.evaluate(function () { return document.querySelector('iframe.ov-print').contentDocument.body.textContent; });
   assert.match(ptxt, /Annual Pathology Assessment — Presentations[\s\S]*0–5 each[\s\S]*Mark \/10[\s\S]*28010001\s*Huda First\s*1 \/ 2\s*1\. [^—]*— completed \(5\)[\s\S]*5[\s\S]*28010002\s*Imad Second\s*0 \/ 2/);
   assert.ok(!/11223344/.test(ptxt), 'no test account in the printout');
+  assert.ok(!/Quizzes counted/.test(ptxt), 'no quiz numbers on the presentations printout');
   assert.strictEqual(errors.filter(function (e) { return !/ERR_TUNNEL|net::/.test(e); }).length, 0, errors.join('\n'));
   await p.context().close();
 });

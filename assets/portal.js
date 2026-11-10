@@ -2032,7 +2032,7 @@
       // 🖨 the list as shown (same order, same filters): presented, each topic with its status and mark, mark / 10, status
       $('[data-a=pprint]', w).onclick = function () {
         var mx = R.slots * max, filt = [pst !== 'all' ? 'status: ' + $('.an-pst', w).selectedOptions[0].textContent : '', pmod ? 'module: ' + modTitle(pmod) : '', pq.trim() ? 'search: “' + pq.trim() + '”' : ''].filter(Boolean).join(' · ');
-        ovPrint('Presentations — ' + R.group.label, printHead('Annual Pathology Assessment — Presentations') + (filt ? '<p class="note">Shown: ' + esc(filt) + '</p>' : '') +
+        ovPrint('Presentations — ' + R.group.label, printHead('Annual Pathology Assessment — Presentations', true) + (filt ? '<p class="note">Shown: ' + esc(filt) + '</p>' : '') +
           '<table><thead><tr><th>#</th><th>Student ID</th><th>Name</th><th class="n">Presented</th><th>Topics</th><th class="n">Mark /' + mx + '</th><th>Status</th></tr></thead><tbody>' +
           shown.map(function (x, i) {
             var P = x.presentations.filter(function (y) { return y.slot <= R.slots; }).sort(function (a, b) { return a.slot - b.slot; }), d = nDone(x);
@@ -2110,8 +2110,8 @@
         ['Presentations /10', R.slots + ' presentations, 0–' + annMax() + ' marks each, given by the teacher; absent or not completed = 0.'], ['Total /30', 'Quizzes /20 + Presentations /10.']] };
       PlatformXlsx.download(fname('xlsx'), [reg, qz, pr, info]);
     }
-    function printHead(title) {
-      return '<h1>' + esc(title) + '</h1><p class="sub">' + esc(R.group.label) + '</p><div class="meta"><span><b>Generated:</b> ' + esc(new Date().toLocaleString()) + '</span><span><b>Quizzes counted:</b> ' + counted().length + '</span><span><b>Presentations:</b> ' + R.slots + ' per student, 0–' + annMax() + ' each</span></div>';
+    function printHead(title, noQuiz) {   // noQuiz: the presentations printout leaves out the quiz count (user 2026-11-10)
+      return '<h1>' + esc(title) + '</h1><p class="sub">' + esc(R.group.label) + '</p><div class="meta"><span><b>Generated:</b> ' + esc(new Date().toLocaleString()) + '</span>' + (noQuiz ? '' : '<span><b>Quizzes counted:</b> ' + counted().length + '</span>') + '<span><b>Presentations:</b> ' + R.slots + ' per student, 0–' + annMax() + ' each</span></div>';
     }
     var NOTE = '<p class="note">Quizzes /20 = 20 × the average of the best attempt of every counted quiz (a missed quiz counts 0; an excused quiz is left out for that student). Presentations /10 = the teacher’s marks (absent or not completed = 0). Total /30 = quizzes + presentations.</p>';
     var SIG = '<div class="sig"><div>Teacher — name and signature</div><div>Head of Department — signature</div><div>Date</div></div>';
