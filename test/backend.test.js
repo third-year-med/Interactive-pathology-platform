@@ -2986,3 +2986,32 @@ test('2.42 Platform Directory: Remove all from group — needs the word DELETE; 
   assert.strictEqual(S.dir('rosterGet', { groupId: S.ma.groupId }).members.length, mb, 'the other group keeps its list');
   assert.strictEqual(S.dir('rosterRemoveAll', { groupId: 'nope', confirm: 'DELETE' }).ok, false);
 });
+
+test('2.43 in-class quizzes close by themselves: h hours after the first start nobody new can start or submit; the list shows it closed; reopen for one student', function () {
+  const S = tsSetup(), CI = 'cellinjury-razi-a-26', X = S.b.ctx;
+  const ttok = assessFixture(S, CI), a1 = login(S, CI, 'b1', 'basma-pass-1').token, a2 = login(S, CI, 'ahmed', PW).token;
+  const T = function (action, o) { return S.call(Object.assign({ module: CI, action: action, token: ttok }, o || {})); };
+  const A = function (tok, action, o) { return S.call(Object.assign({ module: CI, action: action, stoken: tok }, o || {})); };
+  T('aePwSet', { assessmentId: 'q1', password: 'Class-26' });
+  assert.strictEqual(A(a1, 'aeAutoClose', { assessmentIds: ['q1'], hours: 3 }).ok, false, 'teachers only');
+  const ac = T('aeAutoClose', { assessmentIds: ['q1'], hours: 3 }); assert.ok(ac.ok, JSON.stringify(ac)); assert.strictEqual(ac.autoClose.q1.h, 3);
+  assert.strictEqual(T('aePwList').autoClose.q1.h, 3);
+  // in class: Basma starts and submits
+  const s1 = A(a1, 'startAttempt', { assignmentId: 'asg1', password: 'class-26' }); assert.ok(s1.ok, JSON.stringify(s1));
+  assert.ok(A(a1, 'submitAttempt', { attemptId: s1.attempt.id, responses: { x1: true } }).ok, 'submitted in class');
+  // six days later (the first start moved back): Ahmed cannot start; his list shows it closed
+  const store = X.assessStore_(CI), att = store.get('attempt', s1.attempt.id); att.startedAt = Date.now() - 6 * 864e5; store.put('attempt', att.id, att);
+  const it = A(a2, 'getMyAssessments').items.filter(function (i) { return i.assignment.id === 'asg1'; })[0];
+  assert.deepStrictEqual([it.canStart, it.closedAfterClass, it.assignment.window], [false, true, 'closed']);
+  const late = A(a2, 'startAttempt', { assignmentId: 'asg1', password: 'class-26' });
+  assert.deepStrictEqual([late.ok, late.code], [false, 'closed']); assert.match(late.error, /held in class and is now closed/);
+  // the teacher reopens it for Ahmed for 2 hours → he can start; once the reopening has run out, his submit is refused
+  assert.strictEqual(T('aeReopen', { assessmentId: 'q1', studentId: 'ahmed', hours: 2 }).ok, true);
+  const s2 = A(a2, 'startAttempt', { assignmentId: 'asg1', password: 'class-26' }); assert.ok(s2.ok, JSON.stringify(s2));
+  const m = JSON.parse(X.getSetting_('aclose:' + CI)); m.q1.reopen.ahmed = Date.now() - 1000; X.setSetting_('aclose:' + CI, JSON.stringify(m));
+  const sub = A(a2, 'submitAttempt', { attemptId: s2.attempt.id, responses: { x1: true } }); assert.deepStrictEqual([sub.ok, sub.code], [false, 'closed']);
+  // 0 hours = never closes: Ahmed submits
+  T('aeAutoClose', { assessmentIds: ['q1'], hours: 0 });
+  assert.ok(A(a2, 'submitAttempt', { attemptId: s2.attempt.id, responses: { x1: true } }).ok);
+  assert.deepStrictEqual(T('aePwList').autoClose, {});
+});

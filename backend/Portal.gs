@@ -199,7 +199,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.42';
+var PORTAL_VERSION = '2.43';
 /** 2.40: the ARCHIVED modules (the platform repository's modules/INACTIVE, user 2026-10-31). Their deliveries are left out of
  *  the overall reports (Overall Pathology Attendance, Pathology Overall Results) even while still switched on. Keep this
  *  list equal to modules/INACTIVE (a test checks it); re-activating a module = remove it from both, then redeploy. */
@@ -3723,9 +3723,10 @@ function assessPwHook_(storage, act, p) {
       } finally { lock.releaseLock(); }
     });
   }
+  if (act === 'aeAutoClose' || act === 'aeReopen') return acloseHook_(storage, act, p);   // 2.43: in-class quizzes close by themselves
   if (act === 'aePwList' || act === 'aePwSet') {
     return authed_(storage, p, function () {
-      if (act === 'aePwList') return { ok: true, passwords: apwPublic_(apwMap_(storage)), attOnly: aattPublic_(aattMap_(storage)) };
+      if (act === 'aePwList') return { ok: true, passwords: apwPublic_(apwMap_(storage)), attOnly: aattPublic_(aattMap_(storage)), autoClose: acloseMap_(storage) };
       var id = String(p.assessmentId || '').trim().slice(0, 120); if (!id) return { ok: false, error: 'Choose an assessment.' };
       var lock = LockService.getScriptLock(); lock.waitLock(20000);
       try {
@@ -3759,12 +3760,22 @@ function assessPwHook_(storage, act, p) {
       var pm = apwMap_(storage);   // 2.20: whether each assessment HAS a password (never the password itself)
       var am = aattMap_(storage);   // 2.29: attendance-only assessments (the student sees the rule before trying)
       (r.items || []).forEach(function (it) { it.passwordSet = !!(it.assessment && pm[it.assessment.id] && pm[it.assessment.id].pw); it.attendanceOnly = !!(it.assessment && am[it.assessment.id]); });
+      var cm = acloseMap_(storage);   // 2.43: an in-class quiz that has closed cannot be started any more
+      if (Object.keys(cm).length) {
+        var t0 = acloseFirstStarts_(storage), nowL = Date.now();
+        (r.items || []).forEach(function (it) {
+          var id = it.assessment && it.assessment.id, cs = id && acloseState_(cm, t0, id, st.username, nowL);
+          if (!cs || !cs.closed || it.inProgressId) return;
+          it.canStart = false; it.closedAfterClass = true; if (it.assignment) { it.assignment.window = 'closed'; if (!it.assignment.dueAt) it.assignment.dueAt = cs.closeAt; }   // the list shows "📅 Due <closing time> · The deadline has passed"
+        });
+      }
     }
     return r;
   }
   if (act === 'submitAttempt') {
     var lk = LockService.getScriptLock(); lk.waitLock(30000);
     try {
+      var cx = acloseSubmitCheck_(storage, String(p.attemptId || ''), st.username); if (cx) return cx;   // 2.43
       var sr = assessSvc_(storage).submitAttempt(String(p.attemptId || ''), email, p.responses || {});
       try { if (sr && sr.ok && !sr.already) aeFixSubmitted_(storage, sr); } catch (e) { }   // 2.41: the fixed matching marking at once
       return sr;
@@ -3776,6 +3787,7 @@ function assessPwHook_(storage, act, p) {
   var e = llNorm_(email), now = Date.now();
   var resume = store.list('attempt').some(function (t) { return t.assignmentId === a.id && llNorm_(t.email) === e && t.status === 'in_progress' && !(t.deadlineAt && now > Number(t.deadlineAt) + 15 * 60000); });
   var own = apwMap_(storage)[a.assessmentId];
+  if (!resume) { var cmS = acloseMap_(storage); if (cmS[a.assessmentId]) { var csS = acloseState_(cmS, acloseFirstStarts_(storage), a.assessmentId, st.username, now); if (csS.closed) return acloseRefusal_(a.assessmentTitle); } }   // 2.43
   if (!resume && aattMap_(storage)[a.assessmentId]) { var ao = aattCheck_(storage, st.username, now); if (ao) return ao; }   // 2.29: before the password
   if (!resume) {
     // 2.20: the class quiz password is retired — an assessment without its own password cannot be started
@@ -3878,7 +3890,7 @@ function aeCopyHook_(S, act, p) {
           var pw = pwMode === 'same' ? srcPw : apwRandom_();
           if (pw) {
             var lk2 = LockService.getScriptLock(); lk2.waitLock(20000);
-            try { var m = apwMap_(T); m[id] = { pw: pw, at: now, by: 'copy' }; setSetting_('apw:' + T, JSON.stringify(m)); } finally { lk2.releaseLock(); }
+            try { var m = apwMap_(T); m[id] = { pw: pw, at: now, by: 'copy' }; setSetting_('apw:' + T, JSON.stringify(m)); var cS = acloseMap_(S)[id]; if (cS) { var cT = acloseMap_(T); cT[id] = { h: cS.h, at: now, by: 'copy' }; setSetting_('aclose:' + T, JSON.stringify(cT)); } } finally { lk2.releaseLock(); }
             res.password = pwMode;
           }
         }
@@ -4327,6 +4339,62 @@ function aeMarkHook_(S, act, p) {
       }
       var s1 = a.score; aeRegrade_(a); a.remarkedAt = Date.now(); store.put('attempt', a.id, a);
       return { ok: true, before: s1, score: a.score, total: a.total, percent: a.percent, answers: a.answers };
+    } finally { lock.releaseLock(); }
+  });
+}
+
+/* ======================================================================
+ * 2.43 — In-class quizzes close by themselves (user 2026-11-10): a student took the 3 November class quiz on 9 November.
+ * Settings aclose:<storage> = {assessmentId: {h: hours, at, by, reopen: {username: until}}}. The quiz closes h hours after
+ * the FIRST student of this group started it. After that: a student who has not started cannot start (the list shows it
+ * closed); an attempt that was started before the closing time can still be submitted until its own time limit (or the
+ * closing time) + 15 minutes; later submissions are refused. A teacher can reopen it for one student for some hours.
+ *   aeAutoClose  teacher: {assessmentIds: [...], hours} (0 = never closes)
+ *   aeReopen     teacher: {assessmentId, studentId, hours}
+ * ====================================================================== */
+var ACLOSE_GRACE_MS = 15 * 60000;
+function acloseMap_(S) { try { return JSON.parse(getSetting_('aclose:' + S) || '{}') || {}; } catch (e) { return {}; } }
+/** {assessmentId: earliest startedAt of any attempt in this storage}. */
+function acloseFirstStarts_(S) {
+  var o = {};
+  assessStore_(S).list('attempt').forEach(function (t) { var a = t.assessmentId, s = Number(t.startedAt) || 0; if (a && s && (!o[a] || s < o[a])) o[a] = s; });
+  return o;
+}
+function acloseState_(cm, t0, id, username, now) {
+  var c = cm[id]; if (!c || !(Number(c.h) > 0) || !t0[id]) return { closed: false };
+  var closeAt = t0[id] + Number(c.h) * 3600000, ro = c.reopen && c.reopen[normUser_(username)];
+  return { closed: now > closeAt && !(ro && now < Number(ro)), closeAt: closeAt, reopenedUntil: ro && now < Number(ro) ? Number(ro) : 0 };
+}
+function acloseRefusal_(title) { return { ok: false, code: 'closed', error: '“' + String(title || 'This quiz') + '” was held in class and is now closed. Ask your teacher if you think this is a mistake.' }; }
+function acloseSubmitCheck_(S, attemptId, username) {
+  var cm = acloseMap_(S); if (!Object.keys(cm).length) return null;
+  var att = assessStore_(S).get('attempt', attemptId); if (!att || att.status === 'submitted' || !cm[att.assessmentId]) return null;
+  var now = Date.now(), cs = acloseState_(cm, acloseFirstStarts_(S), att.assessmentId, username, now);
+  if (!cs.closeAt || cs.reopenedUntil) return null;
+  var limit = Math.max(cs.closeAt, Number(att.deadlineAt) || 0) + ACLOSE_GRACE_MS;
+  if (Number(att.startedAt) <= cs.closeAt && now <= limit) return null;
+  if (now <= cs.closeAt) return null;
+  return acloseRefusal_(att.assessmentTitle || (assessStore_(S).getAssessment ? (assessStore_(S).getAssessment(att.assessmentId) || {}).title : ''));
+}
+function acloseHook_(S, act, p) {
+  return authed_(S, p, function () {
+    var lock = LockService.getScriptLock(); lock.waitLock(20000);
+    try {
+      var m = acloseMap_(S), now = Date.now();
+      if (act === 'aeAutoClose') {
+        var ids = (Array.isArray(p.assessmentIds) ? p.assessmentIds : [p.assessmentId]).map(function (x) { return String(x || '').trim().slice(0, 120); }).filter(Boolean).slice(0, 500);
+        if (!ids.length) return { ok: false, error: 'Choose an assessment.' };
+        var h = Math.round(Number(p.hours) * 10) / 10; if (!(h >= 0 && h <= 720)) return { ok: false, error: 'Hours: 0 (never) to 720.' };
+        ids.forEach(function (id) { if (!h) delete m[id]; else m[id] = Object.assign({}, m[id] || {}, { h: h, at: now, by: String(p.by || '').slice(0, 60) }); });
+      } else {
+        var id2 = String(p.assessmentId || '').trim(), u = normUser_(p.studentId), hh = Number(p.hours);
+        if (!m[id2]) return { ok: false, error: 'This quiz does not close by itself.' };
+        if (!u) return { ok: false, error: 'Enter the student ID.' };
+        if (!(hh > 0 && hh <= 168)) return { ok: false, error: 'Hours: 1 to 168.' };
+        m[id2].reopen = Object.assign({}, m[id2].reopen || {}); m[id2].reopen[u] = now + hh * 3600000;
+      }
+      setSetting_('aclose:' + S, JSON.stringify(m)); llForget_(S);
+      return { ok: true, autoClose: m };
     } finally { lock.releaseLock(); }
   });
 }

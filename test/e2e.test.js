@@ -3928,6 +3928,12 @@ test('⚡ Topic quizzes: one quiz per topic (pool of its practice questions, 5 r
     assert.strictEqual(a[0].questionIds.length, 7);
     assert.notStrictEqual(main.ctx.apwMap_(ST)[a[0].id].pw, main.ctx.apwMap_(ST)[a[1].id].pw, 'a password per quiz');
     assert.strictEqual(autos(MS).length, 2, 'copied to Misrata A');
+    // patch tq-autoclose: the closing time (default 3 h) is set on this group's topic quizzes BEFORE copying, so the copies carry it
+    assert.deepStrictEqual(a.map(function (x) { return main.ctx.acloseMap_(ST)[x.id] && main.ctx.acloseMap_(ST)[x.id].h; }), [3, 3]);
+    assert.deepStrictEqual(a.map(function (x) { return main.ctx.acloseMap_(MS)[x.id] && main.ctx.acloseMap_(MS)[x.id].h; }), [3, 3], 'copies carry it');
+    await t.evaluate(function () { AssessUI.render(AssessUI.box); });   // the "done" window stays open (the next step closes it)
+    await t.waitForFunction(function () { return document.querySelectorAll('[data-a=ac-reopen]').length === 2; }, null, { timeout: 30000 });
+    assert.match(await t.textContent('#view-teacher'), /⏱ closes 3 h after the first student starts/);
     // the student's list: topic quizzes in topic order (Topic 1 first), after any other assessment
     const sp = await page();
     await openSyntheticModule(sp, mod, [], { stubAssess: false });
