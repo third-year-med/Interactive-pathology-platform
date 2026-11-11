@@ -538,11 +538,14 @@ pp. 15–31, scanned PDF read page by page). **Pictures (user):** the lecture's 
 22 cropped from 200-dpi page renders, embedded as JPEG-in-SVG figures `fig_*` with credit "Course lecture … p. N"; one original SVG
 `fig_saliv` (VII → chorda tympani → lingual n. → submandibular ganglion; IX → tympanic n. → lesser petrosal n. → otic ganglion →
 auriculotemporal n.; sympathetic T1–T2 → superior cervical ganglion → external carotid plexus). The user's picture file (a .ppt of 27
-ClinicalKey/Elsevier figures: Costanzo, Guyton & Hall, Boron & Boulpaep) → `autonomic-pictures-elsevier1.json` (never committed; 10 chosen
-after checking each against the lecture, keys `an-elsevier1-01…10`, credit "© Elsevier (via ClinicalKey) — teaching use within this course
-only"); left out: brain-stem centres (puts the micturition centre in the brain stem — the lecture assigns simple micturition reflexes to the
-sacral cord), nicotinic-receptor subunit structure and brain-stem cranial-nerve nuclei (beyond the syllabus), plus duplicates and
-non-syllabus figures (sympathectomy supersensitivity, myenteric plexus, varicosity micrographs, co-transmission, NO, ENS levels).
+ClinicalKey/Elsevier figures: Costanzo, Guyton & Hall, Boron & Boulpaep) → `autonomic-pictures-elsevier2.json` (never committed; replaces
+the first file `…elsevier1.json`, which was never imported). User 2026-11-11: include the file's pictures ("very good pictures") and, where a
+file picture duplicates a lecture figure, KEEP BOTH — the user chooses later. 21 of 27 included, each checked against the lecture, keys
+`an-elsevier2-sNN` (NN = slide number in the .ppt), credit "© Elsevier (via ClinicalKey) — teaching use within this course only"; captions
+note where the book differs from the lecture (Guyton T1–L2 vs lecture T1–L3; adrenal medulla 80 % adrenaline; Horner T1–T2; Costanzo's
+micturition centre = the higher centre over the sacral reflex; extra detail "not required"). Duplicate kept on purpose: slide 14 (Guyton
+brain-stem centres) = the lecture's p. 22 figure. Left out (beyond the syllabus): slides 13 (sympathectomy supersensitivity), 20 (myenteric
+plexus), 23 (fast/slow EPSPs), 24 (ATP/NPY co-transmission), 25 (NO), 26 (enteric nervous system levels). Deck with the import ≈ 99 slides.
 **Scientific notes (wordingNote, flagged to the user):** sympathetic salivary receptor β1 added to the lecture's α1; Horner's enophthalmos is
 apparent; sympathetic cholinergic vasodilators to muscle doubtful in humans; vagus supplies the ventricles sparsely; parasympathetic coronary
 "VC" (in humans ACh usually dilates via NO); anticholinesterases act at all cholinergic sites ("reversible / irreversible" = the inhibitors);
@@ -925,7 +928,7 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   the first physiology module, very condensed, see §4.2.5; pushed (module commit 8fdea05). User still to do: GitHub Pages ON (Settings → Pages →
   main / root), the four Code.gs additions for `autonomic` (quiz pw `AUTONOMIC-2026`), platformCheck, Deploy, front-page card after Granulomatous
   and Parasitic Diseases, Platform directory → Modules → Add + Deliveries (dental group), test in incognito, master v1.0 + versioned content ON,
-  then import `autonomic-pictures-elsevier1.json` in ✏️ Edit master draft. Next physiology module (user): "Physiology of the Nerve".
+  then import `autonomic-pictures-elsevier2.json` (21 pictures) in ✏️ Edit master draft. Next physiology module (user): "Physiology of the Nerve".
   Active modules are now intropath, cellcondensed, inflnew, neonew, granuloma and **autonomic**.
 
 - **Granulomatous and Parasitic Diseases (2026-11-04, `third-year-med/Granulomatous-and-parasitic-diseases`, `granuloma`, `gp_`, build `1.0`)**
