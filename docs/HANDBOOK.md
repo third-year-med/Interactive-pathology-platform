@@ -941,6 +941,9 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   build (apply.sh + de-duplication). Tests: Autonomic real course 6 pages vs 54 for the full chapter; the 5 pathology pages with a full
   pathology course (decrypted Inflammation & Healing, read only, throw-away key) 25 vs 167 pages, 0 pictures / boxes / repeats; module
   smoke ✅; the Autonomic e2e test checks the handout.
+  **Layout v2 (user, same day: "font very small, spaces very narrow — comfortable reading"):** ~11 pt (html 15 px), line height 1.5,
+  15 mm margins, spaced bullets and headings, roomier tables (marker `handout-css v2`; the patch upgrades a page with the first layout).
+  Page counts with v2: Autonomic 11 (full chapter 54), the pathology test course 47 (167).
 - **🖨 Revision print choice (2026-11-11, user):** new patch `revision-print-choice` (README #79) — Review → Questions → 🖨 Print
   asks **Questions only** (compact two-column paper test, no answers) or **With answers** (the existing study sheet). Applied ON ITS
   OWN (only this patch, not apply.sh) to intropath, cellcondensed, inflnew, neonew and granuloma; autonomic already had it. Checked on

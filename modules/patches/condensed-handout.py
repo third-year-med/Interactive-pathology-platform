@@ -7,7 +7,7 @@ they add something, syllabus tables (compact). Removed: practical topics (title 
 RECALL / PRACTICAL callouts, summaries, references, wording notes, every coloured box. Duplicates: a statement is left out
 when its normalised text was already printed, or when ≥ 85 % of its words (≥ 60 % for key points and must-know lines, which
 restate the text) appear in one earlier statement of the same topic.
-Layout: ~9.5 pt, narrow margins, tight bullets, black and white, page numbers in the footer, Arabic/English (dir=auto).
+Layout (v2, user: "comfortable to read"): ~11 pt, line height 1.5, 15 mm margins, spaced bullets and headings, black and white, page numbers in the footer, Arabic/English (dir=auto).
 The existing print buttons are unchanged. Idempotent."""
 import sys
 
@@ -101,25 +101,29 @@ function printCondensedHandout() {
   const r = buildCondensedHandout();
   if (!r.items) { toast('There is nothing to put in a handout yet.', 'warn'); return; }
   const title = String(COURSE.title || '').replace(/["\\]/g, '');
-  const css = '@page{size:A4;margin:9mm 8mm 11mm;@bottom-center{content:"Page " counter(page) " of " counter(pages);font:8pt Arial,Helvetica,sans-serif;color:#555}@bottom-left{content:"' + title + ' — revision handout";font:8pt Arial,Helvetica,sans-serif;color:#777}}'
-    + 'html{font-size:12.6px!important}body{font-family:Arial,Helvetica,sans-serif!important;line-height:1.28!important;color:#000!important;padding:0!important;max-width:none!important}'
-    + 'header.print-head{margin:0 0 .35rem!important;padding:0 0 .2rem!important;border-bottom:1.5px solid #000!important}header.print-head .brand{color:#000!important;font-size:.72rem!important}'
-    + 'header.print-head h1{font-size:1.25rem!important;margin:.05rem 0!important;color:#000!important}header.print-head .sub,header.print-head p{font-size:.8rem!important;margin:0!important;color:#333!important}'
+  const css = '@page{size:A4;margin:15mm 14mm 16mm;@bottom-center{content:"Page " counter(page) " of " counter(pages);font:9pt Arial,Helvetica,sans-serif;color:#555}@bottom-left{content:"' + title + ' — revision handout";font:9pt Arial,Helvetica,sans-serif;color:#777}}'   /* handout-css v2: comfortable reading (user 2026-11-11) */
+    + 'html{font-size:15px!important}body{font-family:Arial,Helvetica,sans-serif!important;line-height:1.5!important;color:#000!important;padding:0!important;max-width:none!important}'
+    + 'header.print-head{margin:0 0 .8rem!important;padding:0 0 .4rem!important;border-bottom:1.5px solid #000!important}header.print-head .brand{color:#000!important;font-size:.75rem!important}'
+    + 'header.print-head h1{font-size:1.5rem!important;margin:.15rem 0!important;color:#000!important}header.print-head .sub,header.print-head p{font-size:.85rem!important;margin:0!important;color:#333!important}'
     + '.ho *{background:none!important;box-shadow:none!important;color:#000!important}'
-    + '.ho-topic h2{font-size:1.05rem!important;margin:.5rem 0 .15rem!important;padding:0 0 .05rem!important;border-bottom:1px solid #000!important;break-after:avoid;page-break-after:avoid}'
-    + '.ho h3{font-size:.95rem!important;margin:.3rem 0 .05rem!important;break-after:avoid;page-break-after:avoid}'
-    + '.ho h4{font-size:.9rem!important;font-style:italic;margin:.15rem 0 0!important;break-after:avoid;page-break-after:avoid}'
-    + '.ho ul{margin:0 0 .1rem!important;padding:0 0 0 1rem!important}.ho li{margin:0!important;padding:0!important;font-size:1rem!important;line-height:1.28!important}.ho li.l2{margin-left:1rem!important;list-style:circle}'
-    + '.ho-tb{width:100%;border-collapse:collapse;margin:.15rem 0 .3rem!important;font-size:.88rem!important;table-layout:auto;break-inside:auto}.ho-tb caption{text-align:left;font-weight:700;font-size:.88rem!important;padding:0 0 .05rem}'
-    + '.ho-tb th,.ho-tb td{border:.6px solid #555!important;padding:.08rem .25rem!important;vertical-align:top;overflow-wrap:break-word;hyphens:manual}.ho-tb th{font-weight:700}.ho-tb tr{break-inside:avoid;page-break-inside:avoid}';
+    + '.ho-topic h2{font-size:1.25rem!important;margin:1.2rem 0 .4rem!important;padding:0 0 .15rem!important;border-bottom:1.2px solid #000!important;break-after:avoid;page-break-after:avoid}'
+    + '.ho h3{font-size:1.08rem!important;margin:.8rem 0 .25rem!important;break-after:avoid;page-break-after:avoid}'
+    + '.ho h4{font-size:1rem!important;font-style:italic;margin:.45rem 0 .1rem!important;break-after:avoid;page-break-after:avoid}'
+    + '.ho ul{margin:0 0 .35rem!important;padding:0 0 0 1.3rem!important}.ho li{margin:0 0 .22rem!important;padding:0!important;font-size:1rem!important;line-height:1.5!important}.ho li.l2{margin-left:1.2rem!important;list-style:circle}'
+    + '.ho-tb{width:100%;border-collapse:collapse;margin:.35rem 0 .7rem!important;font-size:.93rem!important;line-height:1.4!important;table-layout:auto;break-inside:auto}.ho-tb caption{text-align:left;font-weight:700;font-size:.95rem!important;padding:0 0 .2rem}'
+    + '.ho-tb th,.ho-tb td{border:.6px solid #555!important;padding:.25rem .45rem!important;vertical-align:top;overflow-wrap:break-word;hyphens:manual}.ho-tb th{font-weight:700}.ho-tb tr{break-inside:avoid;page-break-inside:avoid}';
   printHTML(COURSE.title + ' — Revision handout', [COURSE.chapter, 'Condensed revision handout', plural(r.topics, 'topic')].filter(Boolean).join(' · '), '<div class="ho">' + r.html + '</div>', { css });
 }
 function printHTML(title, subtitle, bodyHtml, opts) {"""
 
+NEW_CSS = CODE[CODE.index("  const css = '@page{"):CODE.index("  printHTML(COURSE.title + ' — Revision handout'")]
 for path in sys.argv[1:]:
     s = open(path, encoding='utf-8').read(); n = 0
     if "'data-a': 'print-handout'" not in s:
         k = s.count(BTN_A); assert k >= 1, (path, 'Print Entire Chapter button'); s = s.replace(BTN_A, BTN_B); n += k
     if 'function buildCondensedHandout()' not in s:
         assert s.count(CODE_A) == 1, (path, CODE_A); s = s.replace(CODE_A, CODE); n += 1
+    if 'handout-css v2' not in s:   # a page with the first, very compact layout (2026-11-11): replace its CSS block
+        i = s.index("  const css = '@page{size:A4;margin:9mm 8mm 11mm;"); j = s.index("  printHTML(COURSE.title + ' — Revision handout'", i)
+        s = s[:i] + NEW_CSS + s[j:]; n += 1
     open(path, 'w', encoding='utf-8').write(s); print(path, 'changes:', n)
