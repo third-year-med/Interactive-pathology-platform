@@ -5452,6 +5452,9 @@ test('Autonomic Nervous System module (autonomic): every topic, section, view an
     assert.strictEqual(info.cfg.moduleKey, 'autonomic'); assert.strictEqual(info.cfg.storagePrefix, 'an_'); assert.strictEqual(info.cfg.platformHome, 'https://third-year-med.github.io/Interactive-pathology-platform/');
     assert.strictEqual(info.course, 'Autonomic Nervous System');
     assert.strictEqual(info.topics.length, 10);   // t01–t10, no practical topic (build 1.0)
+    const qx = await p.evaluate(function () { return { bad: DATA.questions.filter(function (q) { return !(q.difficulty >= 1 && q.difficulty <= 3); }).map(function (q) { return q.id; }), choice: typeof Views.revision.printChoice === 'function' && typeof Views.revision.printQuestionsOnly === 'function' }; });
+    assert.deepStrictEqual(qx.bad, [], 'question difficulty is 1–3 (the star display throws on 4)');
+    assert.ok(qx.choice, 'Revision 🖨 Print offers questions only / with answers (module-local)');
     assert.ok(await p.evaluate(function () { return !!sessionStorage.getItem('an_stu_session_v1') || !!localStorage.getItem('an_stu_session_v1'); }), 'its own storage prefix');
     for (const tp of info.topics) {
       for (const sc of tp.sections) {

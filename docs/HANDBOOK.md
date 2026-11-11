@@ -528,7 +528,9 @@ prefix, so the page is `https://third-year-med.github.io/third-year-med-autonomi
 module key **`autonomic`**, prefix **`an_`**, build `1.0`, own content key (env `AN_CONTENT_KEY`), quiz password `AUTONOMIC-2026`. Students: dental
 students in their own group; front-page card after Granulomatous and Parasitic Diseases. App code of `Granulomatous-and-parasitic-diseases`
 (module-local changes: title strings, footer source line, UX_UNITS / UX_FLOW / UX_EXPECT_* / UX_PREREQ for 5 units + finale t10, the Learn intro
-sentence). Shared "Pathology" labels of the platform (e.g. Pathology Overall Results, Pathology Spotter) are left as they are (user).
+sentence; user 2026-11-11: the print header says "Interactive Physiology Teaching Platform", default department / attendance course
+"Physiology", and Revision → 🖨 Print asks **Questions only** (compact two-column sheet with Name / Student ID / Date, no answers or
+explanations) or **With answers** (the usual study sheet) — Views.revision.printChoice / printQuestionsOnly, in THIS module only). Shared "Pathology" labels of the platform (e.g. Pathology Overall Results, Pathology Spotter) are left as they are (user).
 **Content style (user):** "very condensed, high-yield" — ≈ 35–40 % of a full write-up: 10 topics t01–t10 (organisation; ganglia and outflows;
 sympathetic; parasympathetic; salivary glands — dental focus; acetylcholine; noradrenaline and adrenal medulla; receptors; drugs; integration),
 NO practical topic, 24 sections, ≈ 3,700 Learn words (prose + key points + tables + summaries), 133 five-option single-best-answer MCQs (answer
@@ -914,6 +916,9 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   class server (the course could not be unlocked)". Fix: the page was re-encrypted with the key the user had put in Code.gs (no
   Code.gs change, no deploy). **Lesson: print the key FROM the key file (`cat`) in the session and copy that output into the report;
   before reporting, decrypt the committed index.html with exactly the reported key.**
+- **Question difficulty must be 1–3 (2026-11-11, Autonomic):** the app's `stars()` draws `'☆'.repeat(3 - n)`; a question with
+  difficulty 4 threw "Invalid count value: -1" and the Revision view showed "Something went wrong displaying this view". Questions use
+  1 Easy · 2 Moderate · 3 Hard; only CASES use 1–5. The module's e2e test now checks it.
 - **A .ppt of pictures (2026-11-11):** `soffice --headless --convert-to pptx` then unzip `ppt/media/*`; `ppt/slides/_rels/slideN.xml.rels`
   maps each slide to its picture; `soffice --convert-to pdf` + `pdftotext -layout` gives each slide's caption and source. Check each picture
   against the module's own syllabus before choosing it (labels, numbers, receptor assignments), not only against the topic.
