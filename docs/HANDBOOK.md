@@ -934,6 +934,11 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
 
 ## 10. Current state (updated 2026-11-11)
 
+- **🖨 Revision print choice (2026-11-11, user):** new patch `revision-print-choice` (README #79) — Review → Questions → 🖨 Print
+  asks **Questions only** (compact two-column paper test, no answers) or **With answers** (the existing study sheet). Applied ON ITS
+  OWN (only this patch, not apply.sh) to intropath, cellcondensed, inflnew, neonew and granuloma; autonomic already had it. Checked on
+  each page with a synthetic course + module smoke ✅. (apply.sh was not run on those pages because of the tq-autoclose /
+  ann-topics-report re-insertion bug, §8 — still open.)
 - **Autonomic Nervous System (2026-11-11, `third-year-med/third-year-med-autonomic-nervous-system`, `autonomic`, `an_`, build `1.0`)** —
   the first physiology module, very condensed, see §4.2.5; pushed (module commit 8fdea05). User still to do: GitHub Pages ON (Settings → Pages →
   main / root), the four Code.gs additions for `autonomic` (quiz pw `AUTONOMIC-2026`), platformCheck, Deploy, front-page card after Granulomatous
