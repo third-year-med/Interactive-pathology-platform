@@ -4793,12 +4793,20 @@ test('Assessment passwords (2.19/2.20): Assessments open without a password; eac
     await t.click('.apw-strip [data-a=pw-manage]');
     await t.waitForSelector('.apw-tbl tr[data-assessment="q1"]');
     if (process.env.SHOTS) await (await t.$('.apw-card')).screenshot({ path: path.join(process.env.SHOTS, 'teacher-assessment-passwords.png') });
+    // an old copy closed by the teacher (never started) is not listed; one closed by its deadline still is (2026-11-11)
+    [['q8', 'Quiz 8 — Old copy', 'closed', null], ['q9', 'Quiz 9 — Missed deadline', 'published', Date.now() - 86400000]].forEach(function (x) {
+      up('assessments', x[0], { id: x[0], title: x[1], status: x[2], publishedVersion: 1 });
+      up('assessmentversions', x[0] + '@1', { assessmentId: x[0], version: 1, title: x[1], mode: 'fixed', questionIds: ['x1'], settings: { showScore: true }, questions: { x1: q } });
+      main.ctx.assessStore_(ST).put('assignment', 'asg-' + x[0], { id: 'asg-' + x[0], assessmentId: x[0], assessmentTitle: x[1], targetType: 'all', emails: [], status: 'active', availableFrom: null, dueAt: x[3] });
+    });
     // ---- the student: no password to open; THIS quiz's password to start ----
     const s = await page(), none = [];
     await openSyntheticModule(s, mod, none, { stubAssess: false });
     await s.evaluate(function () { location.hash = '#/quiz'; });
     await s.waitForSelector('#view-quiz .assess-card', { timeout: 15000 });
     assert.strictEqual(await s.$('#quiz-pw'), null, 'no password page');
+    assert.ok(!/Quiz 8 — Old copy/.test(await s.textContent('#view-quiz')), 'a never-started quiz closed by the teacher is not listed');
+    assert.match(await s.textContent('#view-quiz details[data-group=other]'), /Quiz 9 — Missed deadline[\s\S]*The deadline has passed/);
     assert.match(await s.textContent('#view-quiz'), /Each assessment asks for its own password[\s\S]*Quiz 1 — Necrosis[\s\S]*Quiz 2 — Apoptosis|Each assessment asks for its own password[\s\S]*Quiz 2 — Apoptosis[\s\S]*Quiz 1 — Necrosis/);
     const card = function (title) { return '#view-quiz .assess-card:has(h3:text-is("' + title + '"))'; };
     card.in = function (title) { return card(title).replace('#view-quiz ', ''); };
