@@ -5455,6 +5455,9 @@ test('Autonomic Nervous System module (autonomic): every topic, section, view an
     const qx = await p.evaluate(function () { return { bad: DATA.questions.filter(function (q) { return !(q.difficulty >= 1 && q.difficulty <= 3); }).map(function (q) { return q.id; }), choice: typeof Views.revision.printChoice === 'function' && typeof Views.revision.printQuestionsOnly === 'function' }; });
     assert.deepStrictEqual(qx.bad, [], 'question difficulty is 1–3 (the star display throws on 4)');
     assert.ok(qx.choice, 'Revision 🖨 Print offers questions only / with answers (module-local)');
+    const ho = await p.evaluate(function () { const r = buildCondensedHandout(), d = document.createElement('div'); d.innerHTML = r.html; const li = Array.prototype.map.call(d.querySelectorAll('li'), function (x) { return x.textContent.trim().toLowerCase(); });
+      return { items: r.items, imgs: d.querySelectorAll('img,svg,figure').length, boxes: d.querySelectorAll('.callout,.keypoints,.mustknow-card').length, dup: li.length - new Set(li).size, tables: d.querySelectorAll('table').length, btn: document.querySelectorAll('[data-a=print-handout]').length >= 0 }; });
+    assert.ok(ho.items > 100 && !ho.imgs && !ho.boxes && !ho.dup && ho.tables >= 10, '📄 Condensed handout: bullets, tables, no pictures/boxes/repeats ' + JSON.stringify(ho));
     assert.ok(await p.evaluate(function () { return !!sessionStorage.getItem('an_stu_session_v1') || !!localStorage.getItem('an_stu_session_v1'); }), 'its own storage prefix');
     for (const tp of info.topics) {
       for (const sc of tp.sections) {

@@ -934,6 +934,13 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
 
 ## 10. Current state (updated 2026-11-11)
 
+- **📄 Print Condensed Handout (2026-11-11, user):** patch `condensed-handout` (README #80, in apply.sh ORDER) — a button beside
+  🖨️ Print Entire Chapter builds a compact bullet-point revision handout of the whole module from getTopics() (practical topics left out,
+  no pictures / boxes / links, callout text + key points merged without repeats, compact tables) and opens it in the print window (A4,
+  ~9.5 pt, page numbers, Save as PDF). Applied ON ITS OWN to intropath, cellcondensed, inflnew, neonew, granuloma; autonomic through its
+  build (apply.sh + de-duplication). Tests: Autonomic real course 6 pages vs 54 for the full chapter; the 5 pathology pages with a full
+  pathology course (decrypted Inflammation & Healing, read only, throw-away key) 25 vs 167 pages, 0 pictures / boxes / repeats; module
+  smoke ✅; the Autonomic e2e test checks the handout.
 - **🖨 Revision print choice (2026-11-11, user):** new patch `revision-print-choice` (README #79) — Review → Questions → 🖨 Print
   asks **Questions only** (compact two-column paper test, no answers) or **With answers** (the existing study sheet). Applied ON ITS
   OWN (only this patch, not apply.sh) to intropath, cellcondensed, inflnew, neonew and granuloma; autonomic already had it. Checked on
