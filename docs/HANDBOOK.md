@@ -909,6 +909,11 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   the second patch the first one's block is no longer followed by the anchor, so every `apply.sh` run adds another copy and `apply.sh --check`
   always reports ❌. The live Granulomatous page already carries 2 copies of each. The new Autonomic page was built with ONE copy of each
   (scratch de-duplication after apply.sh). Fix needs the user's approval (shared component): give each patch its own marker test.
+- **Wrong content key reported to the user (2026-11-11, Autonomic):** the key in the final report was typed instead of copied
+  from the key file, so the user's Code.gs held a key that did not match the page → "This copy of the platform does not match the
+  class server (the course could not be unlocked)". Fix: the page was re-encrypted with the key the user had put in Code.gs (no
+  Code.gs change, no deploy). **Lesson: print the key FROM the key file (`cat`) in the session and copy that output into the report;
+  before reporting, decrypt the committed index.html with exactly the reported key.**
 - **A .ppt of pictures (2026-11-11):** `soffice --headless --convert-to pptx` then unzip `ppt/media/*`; `ppt/slides/_rels/slideN.xml.rels`
   maps each slide to its picture; `soffice --convert-to pdf` + `pdftotext -layout` gives each slide's caption and source. Check each picture
   against the module's own syllabus before choosing it (labels, numbers, receptor assignments), not only against the topic.
