@@ -18,6 +18,7 @@ in this repository, so every new session starts from it. State as of **2026-10-0
 | `introduction-to-pathology` | Module **Introduction to Pathology** (Chapter 1, first card) — one `index.html` (`intropath`, `ip_`) | `…/introduction-to-pathology/` |
 | `neoplasia` | Module **Neoplasia** (Chapter 4, after Inflammation & Healing; 2026-10-19) — a NEW condensed build, one `index.html` (`neoplasm`, `nm_`, its OWN content key) | `…/neoplasia/` |
 | `Granulomatous-and-parasitic-diseases` | Module **Granulomatous and Parasitic Diseases** (Chapter 6, last card after Neoplasia (New); 2026-11-04) — the user's syllabus, NOT condensed, one `index.html` (`granuloma`, `gp_`, its OWN content key) | `…/Granulomatous-and-parasitic-diseases/` (capital G) |
+| `third-year-med-autonomic-nervous-system` | Module **Autonomic Nervous System** (2026-11-11) — the first PHYSIOLOGY module (Medical Physiology, Faculty of Dentistry), very condensed, one `index.html` (`autonomic`, `an_`, its OWN content key); card after Granulomatous and Parasitic Diseases | `…/third-year-med-autonomic-nervous-system/` |
 | `pathology-exams` | The Official Exams app — one `index.html` (`?m=<storage>`, `?g=<link code>`) | `…/pathology-exams/` |
 
 **Cancelled (2026-10-10):** the Vulva and Vagina modules (`Vulvar-pathology`, `vaginal-pathology`, their separate
@@ -520,6 +521,35 @@ and sarcoidosis Commons pictures were added; a later session can add more (atlas
 attached (the user ticked "Robbins pictures" — attach them or name the Drive folder for a picture-import batch `gp-robbins-NN`).
 e2e test "Granulomatous and Parasitic Diseases module (granuloma)…"; module smoke includes it.
 
+### 4.2.5 Autonomic Nervous System — the first PHYSIOLOGY module, VERY condensed (user, 2026-11-11)
+Repository `third-year-med/third-year-med-autonomic-nervous-system` (created by the user as "autonomic-nervous-system"; GitHub kept the owner
+prefix, so the page is `https://third-year-med.github.io/third-year-med-autonomic-nervous-system/`), title **"Autonomic Nervous System"**, subtitle
+"Interactive Physiology Teaching Platform", chapter line "Medical Physiology · Faculty of Dentistry" (the user: do NOT name the university),
+module key **`autonomic`**, prefix **`an_`**, build `1.0`, own content key (env `AN_CONTENT_KEY`), quiz password `AUTONOMIC-2026`. Students: dental
+students in their own group; front-page card after Granulomatous and Parasitic Diseases. App code of `Granulomatous-and-parasitic-diseases`
+(module-local changes: title strings, footer source line, UX_UNITS / UX_FLOW / UX_EXPECT_* / UX_PREREQ for 5 units + finale t10, the Learn intro
+sentence). Shared "Pathology" labels of the platform (e.g. Pathology Overall Results, Pathology Spotter) are left as they are (user).
+**Content style (user):** "very condensed, high-yield" — ≈ 35–40 % of a full write-up: 10 topics t01–t10 (organisation; ganglia and outflows;
+sympathetic; parasympathetic; salivary glands — dental focus; acetylcholine; noradrenaline and adrenal medulla; receptors; drugs; integration),
+NO practical topic, 24 sections, ≈ 3,700 Learn words (prose + key points + tables + summaries), 133 five-option single-best-answer MCQs (answer
+positions shuffled with a fixed seed; every question cites its section), 8 physiology cases, 84 glossary terms, 6 sequences, 8 comparisons,
+2 flowcharts, 30 quiz ids; deck 78 slides before imported pictures. Source: lecture "Autonomic N.S. Physiology" (Concise medical physiology,
+pp. 15–31, scanned PDF read page by page). **Pictures (user):** the lecture's own figures may be reused (teaching restricted to the platform):
+22 cropped from 200-dpi page renders, embedded as JPEG-in-SVG figures `fig_*` with credit "Course lecture … p. N"; one original SVG
+`fig_saliv` (VII → chorda tympani → lingual n. → submandibular ganglion; IX → tympanic n. → lesser petrosal n. → otic ganglion →
+auriculotemporal n.; sympathetic T1–T2 → superior cervical ganglion → external carotid plexus). The user's picture file (a .ppt of 27
+ClinicalKey/Elsevier figures: Costanzo, Guyton & Hall, Boron & Boulpaep) → `autonomic-pictures-elsevier1.json` (never committed; 10 chosen
+after checking each against the lecture, keys `an-elsevier1-01…10`, credit "© Elsevier (via ClinicalKey) — teaching use within this course
+only"); left out: brain-stem centres (puts the micturition centre in the brain stem — the lecture assigns simple micturition reflexes to the
+sacral cord), nicotinic-receptor subunit structure and brain-stem cranial-nerve nuclei (beyond the syllabus), plus duplicates and
+non-syllabus figures (sympathectomy supersensitivity, myenteric plexus, varicosity micrographs, co-transmission, NO, ENS levels).
+**Scientific notes (wordingNote, flagged to the user):** sympathetic salivary receptor β1 added to the lecture's α1; Horner's enophthalmos is
+apparent; sympathetic cholinergic vasodilators to muscle doubtful in humans; vagus supplies the ventricles sparsely; parasympathetic coronary
+"VC" (in humans ACh usually dilates via NO); anticholinesterases act at all cholinergic sites ("reversible / irreversible" = the inhibitors);
+methyldopa (central α2), guanethidine (release), reserpine (storage); detrusor relaxation mainly β3; the tongue note is taste; cranial
+parasympathetic ganglia naming; T1–L3 vs T1–L2; spleen contraction minor in humans; "metacholine" = methacholine; added intermediate
+salivary nerves and M2 / M3, NN / NM subtypes. e2e test "Autonomic Nervous System module (autonomic)…"; module smoke includes it.
+
 ### 4.3 Picture sources (user, 2026-10-19): use ALL of them, each under its own rules
 
 A new module searches every source for every section and practical specimen. Pictures are registered in the course's
@@ -871,6 +901,17 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   Session on the sheet (fails on 2.26, passes on 2.27). **Lesson: every module-request hook that reads a directory sheet
   calls `dirReadable_()` first; tests of module hooks simulate a fresh request.**
 
+- **Shared patches `tq-autoclose` and `ann-topics-report` re-insert themselves (found 2026-11-11):** both insert their code before the
+  same anchor (`function openInQuestionBank(qid) {`) and test "already applied" with `CODE in page`, where CODE ends with that anchor. After
+  the second patch the first one's block is no longer followed by the anchor, so every `apply.sh` run adds another copy and `apply.sh --check`
+  always reports ❌. The live Granulomatous page already carries 2 copies of each. The new Autonomic page was built with ONE copy of each
+  (scratch de-duplication after apply.sh). Fix needs the user's approval (shared component): give each patch its own marker test.
+- **A .ppt of pictures (2026-11-11):** `soffice --headless --convert-to pptx` then unzip `ppt/media/*`; `ppt/slides/_rels/slideN.xml.rels`
+  maps each slide to its picture; `soffice --convert-to pdf` + `pdftotext -layout` gives each slide's caption and source. Check each picture
+  against the module's own syllabus before choosing it (labels, numbers, receptor assignments), not only against the topic.
+- **FLOW callouts:** the first step is drawn on a dark pill — **bold** text inside it is dark on dark and unreadable; keep the first step plain.
+  Callout titles are shown in CAPITALS — "β3" displays as "Β3"; write "Beta-3".
+
 ## 9. How to work with the user
 
 - Keep the agreed plan order; finish one step, report, and wait for "continue" before the next.
@@ -878,7 +919,14 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
 - Preserve existing features and data; no redesigns or rewrites unless asked; smallest reliable fix.
 - After each step give: what changed, how it was tested, and the exact deployment steps.
 
-## 10. Current state (updated 2026-11-04)
+## 10. Current state (updated 2026-11-11)
+
+- **Autonomic Nervous System (2026-11-11, `third-year-med/third-year-med-autonomic-nervous-system`, `autonomic`, `an_`, build `1.0`)** —
+  the first physiology module, very condensed, see §4.2.5; pushed (module commit 8fdea05). User still to do: GitHub Pages ON (Settings → Pages →
+  main / root), the four Code.gs additions for `autonomic` (quiz pw `AUTONOMIC-2026`), platformCheck, Deploy, front-page card after Granulomatous
+  and Parasitic Diseases, Platform directory → Modules → Add + Deliveries (dental group), test in incognito, master v1.0 + versioned content ON,
+  then import `autonomic-pictures-elsevier1.json` in ✏️ Edit master draft. Next physiology module (user): "Physiology of the Nerve".
+  Active modules are now intropath, cellcondensed, inflnew, neonew, granuloma and **autonomic**.
 
 - **Granulomatous and Parasitic Diseases (2026-11-04, `third-year-med/Granulomatous-and-parasitic-diseases`, `granuloma`, `gp_`, build `1.0`)**
   — built and pushed (commit baa5f74), see §4.2.4. User still to do: GitHub Pages ON (Settings → Pages → main / root), the four Code.gs
