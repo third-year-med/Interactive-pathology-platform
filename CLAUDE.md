@@ -54,6 +54,7 @@ Essentials:
 - Test before every push: `cd test && node --test backend.test.js && node --test e2e.test.js` (real module pages from the
   sibling repos; set the content keys as env variables to unlock them). Reproduce bugs on the real page first.
 - **After every change to `assets/portal.js` or `assets/portal.css`, raise `?v=` on both in `index.html`** (e.g. `?v=2026-11-10b`), or browsers keep the old file (user 2026-11-10: the Module Report still showed the test student).
+- **🎓 Viva Examination (2026-11-11, pilot Inflammation (New)):** patch `viva` + Portal.gs 2.45 (`vb*` actions, sheet VivaResults). The viva banks (`<module>-viva-bank.json`, format `neo-viva-bank`) are course material: delivered to the user and imported in ✏️ Edit master draft, never committed. To add a module, put its key in `VIVA_MODULES` in `modules/patches/viva.py` (the user asked for: intropath, cellcondensed, inflnew, neonew).
 - Keep the user's plan order, explain in plain language with exact buttons, preserve existing features and data.
 - **Merging (user's standing instruction, 2026-10-16):** once a change is finished and all tests pass, merge it into
   `main` and push directly (platform and module repos) — do not ask for authorization first. Still tell the user what

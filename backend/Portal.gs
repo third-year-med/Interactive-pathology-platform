@@ -199,7 +199,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.44';
+var PORTAL_VERSION = '2.45';
 /** 2.40: the ARCHIVED modules (the platform repository's modules/INACTIVE, user 2026-10-31). Their deliveries are left out of
  *  the overall reports (Overall Pathology Attendance, Pathology Overall Results) even while still switched on. Keep this
  *  list equal to modules/INACTIVE (a test checks it); re-activating a module = remove it from both, then redeploy. */
@@ -239,6 +239,7 @@ function portalHook_(module, p) {
     var gl = examGroupLockHook_(String(module), act, p); if (gl) return gl;   // 2.6: a combined exam of the group closes all its modules for candidates
     var ll = learnLockHook_(String(module), act, p); if (ll) return ll;   // 2.18: Learning module locked during assessments (students)
     var ap = assessPwHook_(String(module), act, p); if (ap) return ap;   // 2.19: one password per assessment (asked only to start it)
+    if (VB_ACTIONS[act]) return vivaHook_(String(module), act, p);   // 2.45: 🎓 Viva Examination (bank + results)
     if (act === 'aeCopyTargets' || act === 'aeCopyTo') return aeCopyHook_(String(module), act, p);   // 2.21: copy an assessment to other groups
     if (ATT_AUTO_ACTIONS[act]) attAutoClose_(String(module));   // 2.40: attendance closes by itself 1 hour after it opened
     if (act === 'aeRemark' || act === 'aeAdjustMark') return aeMarkHook_(String(module), act, p);   // 2.41: re-mark an assessment / adjust one mark
@@ -523,7 +524,8 @@ function portalTeacherClose_(p) {
 var DIR = {
   INST: 'Institutions', GROUP: 'Groups', MOD: 'Modules', DELIV: 'Deliveries',
   ASSIGN: 'TeacherAssignments', ROLES: 'ModuleContentRoles', MEMB: 'StudentMemberships',
-  USERS: 'PortalUsers', PSES: 'PortalSessions', GRANTS: 'PortalGrants', CVER: 'ContentVersions', TSES: 'TeachingSessions', PRES: 'Presentations'
+  USERS: 'PortalUsers', PSES: 'PortalSessions', GRANTS: 'PortalGrants', CVER: 'ContentVersions', TSES: 'TeachingSessions', PRES: 'Presentations',
+  VIVA: 'VivaResults'   // 2.45: 🎓 Viva Examination results (mock = self-assessed, examiner = marked by a teacher)
 };
 var DIR_HEADERS = {
   Institutions: ['institutionId', 'name', 'shortName', 'active', 'sortOrder', 'createdAt', 'updatedAt'],
@@ -544,7 +546,9 @@ var DIR_HEADERS = {
     'prevCode', 'prevCodeUntil'],
   // 2.31 Annual assessment: one row per presentation SLOT (presId = groupId|studentId|slot 1–5 → never a duplicate)
   Presentations: ['presId', 'groupId', 'studentId', 'slot', 'topic', 'moduleId', 'dueAt', 'presentedAt', 'status', 'mark', 'rubricJson', 'comment',
-    'historyJson', 'createdAt', 'updatedAt', 'updatedBy']
+    'historyJson', 'createdAt', 'updatedAt', 'updatedBy'],
+  // 2.45 Viva Examination: one row per recorded viva (mock = self-assessed by the student, examiner = marked by a teacher)
+  VivaResults: ['resultId', 'module', 'storage', 'studentId', 'name', 'email', 'mode', 'topicIds', 'topics', 'at', 'total', 'max', 'percent', 'examiner', 'comment', 'itemsJson']
 };
 var DIR_TEXT = {
   Institutions: ['institutionId', 'name', 'shortName'],
@@ -559,7 +563,8 @@ var DIR_TEXT = {
   PortalGrants: ['userId', 'deliveryId', 'backendModule', 'tokenHash', 'sessionHash'],
   ContentVersions: ['moduleId', 'label', 'build', 'publishedBy', 'notes', 'fingerprint', 'status'],
   TeachingSessions: ['tsId', 'groupId', 'deliveryId', 'moduleId', 'backendModule', 'title', 'chapter', 'academicYear', 'materialsUrl', 'teacher', 'status', 'attSessionId', 'marksJson', 'createdBy', 'prevCode'],
-  Presentations: ['presId', 'groupId', 'studentId', 'topic', 'moduleId', 'status', 'mark', 'rubricJson', 'comment', 'historyJson', 'updatedBy']
+  Presentations: ['presId', 'groupId', 'studentId', 'topic', 'moduleId', 'status', 'mark', 'rubricJson', 'comment', 'historyJson', 'updatedBy'],
+  VivaResults: ['resultId', 'module', 'storage', 'studentId', 'name', 'email', 'mode', 'topicIds', 'topics', 'examiner', 'comment', 'itemsJson']
 };
 var DIR_KINDS = {
   institution: { sheet: 'Institutions', key: 'institutionId', prefix: 'INS' },
@@ -4412,6 +4417,113 @@ function acloseHook_(S, act, p) {
       }
       setSetting_('aclose:' + S, JSON.stringify(m)); llForget_(S);
       return { ok: true, autoClose: m };
+    } finally { lock.releaseLock(); }
+  });
+}
+
+/* ======================================================================
+ * 2.45 — 🎓 Viva Examination (user 2026-11-11). A module's viva bank lives in its MAIN storage as private Content rows
+ * "priv:vivabank" (one per question, never sent by getAllContent), imported by the Admin from a file in ✏️ Edit master draft;
+ * the same bank serves every group of the module. Each question: topic, max mark, expected points with marks, model
+ * answer, examiner notes, follow-up questions (each with its answer), level, type and optionally an existing picture.
+ * Practice is never recorded. Mock Viva = the student's own self-assessment against the rubric (recorded, labelled
+ * self-assessed); Examiner Mode = marks given by a teacher (recorded as examiner-marked). Results: sheet VivaResults.
+ *   vbList                 a signed-in student or a teacher of the module → {items, canEdit}
+ *   vbSave {items} / vbDelete {ids | all}   the Admin from the main storage or the master draft
+ *   vbResult {mode, topicIds, topics, items, total, max, comment[, studentId, name, email]}  student: their own mock;
+ *                          teacher: an examiner result for a student of this storage
+ *   vbResults              teacher → this storage's results (the main storage: the whole module); vbMine: a student's own
+ *   vbResultDelete {resultId}   teacher: removes one recorded result of this storage
+ * ====================================================================== */
+var VB_ACTIONS = { vbList: 1, vbSave: 1, vbDelete: 1, vbResult: 1, vbResults: 1, vbMine: 1, vbResultDelete: 1 };
+var VB_COLL = 'priv:vivabank', VB_MAX = 3000;
+var VB_TYPES = { definition: 1, mechanism: 1, process: 1, compare: 1, morphology: 1, clinical: 1, why: 1, scenario: 1, image: 1 };
+function vbClean_(q) {
+  if (!q || typeof q !== 'object') return { error: 'not a question' };
+  var id = String(q.id || ''); if (!/^[A-Za-z0-9_.:-]{1,80}$/.test(id)) return { error: 'bad id “' + id.slice(0, 40) + '”' };
+  if (!/^[A-Za-z0-9_-]{1,40}$/.test(String(q.topic || ''))) return { error: id + ': no topic' };
+  if (!String(q.q || '').trim()) return { error: id + ': no question text' };
+  var max = Number(q.max), pts = Array.isArray(q.points) ? q.points : [];
+  if (!(max > 0 && max <= 20)) return { error: id + ': max mark 1–20' };
+  if (!pts.length || pts.some(function (x) { return !x || !String(x.p || '').trim() || !(Number(x.m) > 0); })) return { error: id + ': expected points with marks' };
+  var sum = pts.reduce(function (a, x) { return a + Number(x.m); }, 0); if (Math.abs(sum - max) > 1e-9) return { error: id + ': the points add up to ' + sum + ', not ' + max };
+  if (!String(q.model || '').trim()) return { error: id + ': no model answer' };
+  if (q.type && !VB_TYPES[q.type]) return { error: id + ': unknown type ' + String(q.type).slice(0, 20) };
+  var json = JSON.stringify(q); if (json.length > 40000) return { error: id + ': too long' };
+  var c = JSON.parse(json); c.id = id; return { q: c };
+}
+function vbRows_(M) { return readAll_(SHEETS.CONTENT).filter(function (r) { return r.module === M && r.collection === VB_COLL && !isTrue_(r.deleted); }); }
+function vbN_(v) { var n = Math.round(Number(v) * 2) / 2; return isFinite(n) && n >= 0 ? n : 0; }
+function vbPub_(r) {
+  return { resultId: String(r.resultId), module: String(r.module), storage: String(r.storage), studentId: String(r.studentId), name: String(r.name || ''), email: String(r.email || ''),
+    mode: String(r.mode), topicIds: String(r.topicIds || '').split(',').filter(Boolean), topics: String(r.topics || ''), at: Number(r.at) || 0, total: Number(r.total) || 0,
+    max: Number(r.max) || 0, percent: Number(r.percent) || 0, examiner: String(r.examiner || ''), comment: String(r.comment || ''), items: tsJson_(r.itemsJson, null) || [] };
+}
+function vivaHook_(S, act, p) {
+  var M = cvBaseOf_(S), teacher = vlTeacher_(S, p);
+  if (!teacher) {
+    if (act !== 'vbList' && act !== 'vbResult' && act !== 'vbMine') return authed_(S, p, function () { return { ok: true }; });   // → "not signed in"
+    if (!(typeof studentAuthOn_ === 'function' && studentAuthOn_(S))) return { ok: false, code: 'auth', error: 'Please sign in.' };
+    var g = gateRequest_(S, p); if (g) return g;
+    if (p.__role !== 'student' || !p.__student) return { ok: false, code: 'auth', error: 'Please sign in.' };
+  }
+  if (act === 'vbList') {
+    var items = []; vbRows_(M).forEach(function (r) { var q = unpackJson_(r); if (q) items.push(q); });
+    return { ok: true, module: M, items: items, canEdit: teacher && S === M, teacher: teacher, serverTime: Date.now() };
+  }
+  dirInit_();
+  if (act === 'vbMine') {
+    var u = normUser_(p.__student.username);
+    return { ok: true, results: rpRows_(DIR.VIVA).filter(function (r) { return r.storage === S && normUser_(r.studentId) === u; }).map(vbPub_).sort(function (a, b) { return b.at - a.at; }) };
+  }
+  if (act === 'vbResults') {
+    return { ok: true, results: rpRows_(DIR.VIVA).filter(function (r) { return S === M ? cvBaseOf_(String(r.storage)) === M : r.storage === S; }).map(vbPub_).sort(function (a, b) { return b.at - a.at; }) };
+  }
+  if (act === 'vbResultDelete') {
+    var x = rpRows_(DIR.VIVA).filter(function (r) { return r.resultId === String(p.resultId || '') && (S === M ? cvBaseOf_(String(r.storage)) === M : r.storage === S); })[0];
+    if (!x) return { ok: false, error: 'This result is no longer there — reload.' };
+    deleteRow_(DIR.VIVA, x._row); return { ok: true };
+  }
+  if (act === 'vbResult') {
+    var mode = teacher ? 'examiner' : 'mock';
+    var who = teacher ? { studentId: dirStr_(p.studentId, 60), name: dirStr_(p.name, 120), email: dirStr_(p.email, 160) }
+      : { studentId: String(p.__student.username), name: String(p.__student.name || ''), email: String(p.__student.email || '') };
+    if (!who.studentId) return { ok: false, error: 'Choose the student.' };
+    var its = (Array.isArray(p.items) ? p.items : []).slice(0, 60).map(function (it) {
+      var mx = vbN_(it && it.max), mk = Math.min(mx, vbN_(it && it.mark));
+      return { id: dirStr_(it && it.id, 80), topic: dirStr_(it && it.topic, 40), q: dirStr_(it && it.q, 400), max: mx, mark: mk, got: (Array.isArray(it && it.got) ? it.got : []).slice(0, 20).map(function (b) { return !!b; }),
+        followups: Math.min(20, Math.max(0, Math.round(Number(it && it.followups) || 0))), note: dirStr_(it && it.note, 400), answer: dirStr_(it && it.answer, 1500) };
+    }).filter(function (it) { return it.id && it.max > 0; });
+    if (!its.length) return { ok: false, error: 'No marked questions.' };
+    var total = its.reduce(function (a, it) { return a + it.mark; }, 0), max = its.reduce(function (a, it) { return a + it.max; }, 0), now = Date.now();
+    var row = { resultId: 'VIVA-' + now.toString(36) + '-' + randomHex_(4), module: M, storage: S, studentId: who.studentId, name: who.name, email: who.email, mode: mode,
+      topicIds: (Array.isArray(p.topicIds) ? p.topicIds : []).slice(0, 40).map(function (t) { return dirStr_(t, 40); }).join(','), topics: dirStr_(p.topics, 600), at: now,
+      total: total, max: max, percent: max ? Math.round(total / max * 1000) / 10 : 0, examiner: teacher ? dirStr_(p.examiner || 'teacher', 120) : '', comment: dirStr_(p.comment, 1000), itemsJson: JSON.stringify(its) };
+    if (row.itemsJson.length > 45000) return { ok: false, error: 'This viva is too long to record.' };
+    appendRow_(DIR.VIVA, row);
+    console.log('viva · ' + S + ' · ' + mode + ' · ' + who.studentId + ' · ' + total + '/' + max);
+    return { ok: true, result: vbPub_(row) };
+  }
+  // vbSave / vbDelete: the Admin, from the main storage or the master draft (as the assessment bank)
+  return authed_(S, p, function (token) {
+    if (S !== M) return { ok: false, code: 'forbidden', error: 'The viva bank is changed from the module’s main copy: Platform Home → Content → ✏️ Edit master draft.' };
+    if (dirReadable_() && !examCaller_(token).admin) return { ok: false, code: 'forbidden', error: 'Only the Admin changes the viva bank.' };
+    var lock = LockService.getScriptLock(); lock.waitLock(30000);
+    try {
+      var have = {}; vbRows_(M).forEach(function (r) { have[String(r.id)] = 1; });
+      if (act === 'vbDelete') {
+        var ids = p.all === true || p.all === 'true' ? Object.keys(have) : (Array.isArray(p.ids) ? p.ids.map(String) : []);
+        var n = 0; ids.forEach(function (id) { if (have[id]) { actionDelete_(M, { collection: VB_COLL, id: id }); n++; } });
+        return { ok: true, deleted: n };
+      }
+      var list = Array.isArray(p.items) ? p.items : [], saved = 0, added = 0, bad = [];
+      if (Object.keys(have).length + list.length > VB_MAX) return { ok: false, error: 'The viva bank holds at most ' + VB_MAX + ' questions.' };
+      list.forEach(function (q) {
+        var c = vbClean_(q); if (c.error) { bad.push(c.error); return; }
+        if (!have[c.q.id]) added++;
+        actionUpsert_(M, { collection: VB_COLL, id: c.q.id, data: c.q }); have[c.q.id] = 1; saved++;
+      });
+      return { ok: true, saved: saved, added: added, rejected: bad, total: Object.keys(have).length };
     } finally { lock.releaseLock(); }
   });
 }

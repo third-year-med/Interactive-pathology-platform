@@ -2770,6 +2770,45 @@ test('2.34 Pathology Overall Results: the user\'s case — 8 topic quizzes; one 
   assert.deepStrictEqual(om.t1x.assessments.map(function (a) { return a.state + ':' + a.marks + '/' + a.full; }), ['missed:0/10', 'done:30/30']);
 });
 
+test('2.45 viva examination: the Admin imports the bank from the main copy; students and teachers of every group read it; a mock (self-assessed) and an examiner result are recorded in VivaResults; teachers list them', function () {
+  const S = tsSetup(), CI = 'cellinjury-razi-a-26', X = S.b.ctx;
+  const fresh = function () { Object.keys(X.DIR_HEADERS).forEach(function (n) { delete X.HEADERS[n]; if (X.TEXT_COLS) delete X.TEXT_COLS[n]; }); };
+  const tMain = S.call({ module: 'portal', action: 'portalTeacherOpen', token: S.admin, modules: ['cellinjury'] }).modules.cellinjury.token;
+  const tRa = S.t('teacherOpen', S.ahmed.tok, { deliveryId: S.ci.deliveryId }).token;
+  const call = function (m, o) { fresh(); return S.call(Object.assign({ module: m }, o)); };
+  const v1 = { id: 'viva_cc_001', topic: 't02', type: 'morphology', level: 'basic', q: 'Describe coagulative necrosis.', max: 5,
+    points: [{ p: 'Architecture preserved', m: 1 }, { p: 'Eosinophilic cytoplasm', m: 1 }, { p: 'Nuclear changes', m: 2 }, { p: 'Loss of cell detail', m: 1 }],
+    model: 'Coagulative necrosis keeps the outline …', follow: [{ q: 'Which organ is the exception?', a: 'Brain' }] };
+  const v2 = Object.assign({}, v1, { id: 'viva_cc_002', q: 'Explain apoptosis.' });
+  // import: the Admin from the main copy; bad questions refused one by one (points must add up to the max mark)
+  let r = call('cellinjury', { action: 'vbSave', token: tMain, items: [v1, v2, Object.assign({}, v1, { id: 'viva_bad', max: 4 }), { id: 'x y', topic: 't1', q: 'a' }] });
+  assert.ok(r.ok, JSON.stringify(r)); assert.deepStrictEqual([r.saved, r.added, r.rejected.length, r.total], [2, 2, 2, 2]);
+  assert.match(r.rejected.join(' '), /add up to 5, not 4/);
+  assert.strictEqual(call(CI, { action: 'vbSave', token: tRa, items: [v1] }).code, 'forbidden', 'a group teacher cannot change it');
+  // read: a group's teacher and a signed-in student of the group; nobody else
+  r = call(CI, { action: 'vbList', token: tRa }); assert.ok(r.ok, JSON.stringify(r)); assert.deepStrictEqual([r.items.length, r.canEdit, r.teacher], [2, false, true]);
+  const stu = login(S, CI, 'b1', 'basma-pass-1').token;
+  r = call(CI, { action: 'vbList', stoken: stu }); assert.ok(r.ok, JSON.stringify(r)); assert.deepStrictEqual([r.items.length, r.teacher], [2, false]);
+  assert.strictEqual(call(CI, { action: 'vbList' }).ok, false, 'not signed in');
+  assert.strictEqual(call(CI, { action: 'vbResults', stoken: stu }).ok, false, 'students never list everybody\'s results');
+  // the student's own mock (self-assessed): the server takes the student from the session, caps marks at the max
+  r = call(CI, { action: 'vbResult', stoken: stu, studentId: 'someone-else', topicIds: ['t02'], topics: 'Topic 2', items: [{ id: 'viva_cc_001', topic: 't02', q: v1.q, max: 5, mark: 3.5, got: [true, true, false, true] }, { id: 'viva_cc_002', topic: 't02', q: v2.q, max: 5, mark: 9 }] });
+  assert.ok(r.ok, JSON.stringify(r)); assert.deepStrictEqual([r.result.mode, r.result.studentId, r.result.total, r.result.max, r.result.percent], ['mock', 'b1', 8.5, 10, 85]);
+  // an examiner result, by the group's teacher, for a named student
+  r = call(CI, { action: 'vbResult', token: tRa, studentId: 'b2', name: 'Second', examiner: 'Dr Ahmed', topicIds: ['t02', 't03'], topics: 'Topics 2–3', comment: 'Good', items: [{ id: 'viva_cc_001', max: 5, mark: 4, followups: 2 }] });
+  assert.ok(r.ok, JSON.stringify(r)); assert.deepStrictEqual([r.result.mode, r.result.studentId, r.result.total, r.result.examiner], ['examiner', 'b2', 4, 'Dr Ahmed']);
+  assert.strictEqual(call(CI, { action: 'vbResult', token: tRa, items: [{ id: 'x', max: 5, mark: 1 }] }).ok, false, 'an examiner result needs the student');
+  // lists: the student sees their own; the group teacher sees the group; the main copy sees every group of the module
+  assert.deepStrictEqual(call(CI, { action: 'vbMine', stoken: stu }).results.map(function (x) { return x.mode; }), ['mock']);
+  const all = call(CI, { action: 'vbResults', token: tRa }).results; assert.deepStrictEqual(all.map(function (x) { return x.studentId; }).sort(), ['b1', 'b2']);
+  assert.strictEqual(all.filter(function (x) { return x.mode === 'mock'; })[0].items[0].got.length, 4);
+  assert.strictEqual(call('cellinjury', { action: 'vbResults', token: tMain }).results.length, 2);
+  assert.ok(call(CI, { action: 'vbResultDelete', token: tRa, resultId: all[0].resultId }).ok);
+  assert.strictEqual(call(CI, { action: 'vbResults', token: tRa }).results.length, 1);
+  // the bank never travels with getAllContent
+  assert.ok(!call(CI, { action: 'getAllContent', since: 0, stoken: stu }).items.some(function (i) { return /^priv:/.test(i.collection); }));
+});
+
 test('2.33 assessment-only question bank: teachers of every group read it, only the Admin changes it from the main copy, students never receive it nor any published assessment version — attempts still work', function () {
   const S = tsSetup(), CI = 'cellinjury-razi-a-26', X = S.b.ctx;
   const fresh = function () { Object.keys(X.DIR_HEADERS).forEach(function (n) { delete X.HEADERS[n]; if (X.TEXT_COLS) delete X.TEXT_COLS[n]; }); };

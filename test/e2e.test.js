@@ -5243,6 +5243,111 @@ test('Inflammation (New) module (inflnew): every topic, section, view and slide 
   }
 });
 
+/* 🎓 Viva Examination (patch viva; Portal.gs 2.45) on the real Inflammation (New) page — with a small made-up bank (the real
+   bank is course material, imported by the Admin, never in the repository). */
+test('🎓 Viva Examination (inflnew): 🎓 tab; Practice (reveal + own ticks, nothing recorded); Mock Viva 5 × 5 (answers first, then self-marking → result recorded, self-assessed); Examiner Mode (student, topics, rubric, recorded); 📊 results', { skip: SKIP || ((!fs.existsSync(IN[2]) || !IN[3]) && 'module page or IN_CONTENT_KEY not available') }, async function () {
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const reg = main.call({ module: 'portal', action: 'portalInfo' }).modules;
+  assert.ok(main.call({ module: 'portal', action: 'portalAdminSave', token: t, modules: reg.concat([{ id: 'inflnew', title: 'Inflammation (New)', icon: '🔥', status: 'available',
+    url: 'https://third-year-med.github.io/' + IN[1] + '/', moduleKey: 'inflnew', handoff: 'neo', storagePrefix: 'in_' }]) }).ok);
+  main.ctx.STUDENT_AUTH_MODULES.inflnew = true; main.ctx.CONTENT_KEYS.inflnew = IN[3];
+  main.addStudents('inflnew', [{ username: 'vv1', name: 'Viva Student', password: PW, mustChange: false }]);
+  const start = errors.length;
+  try {
+    const mk = function (i, extra) { return Object.assign({ id: 'vv_test_' + i, topic: 't02', level: i < 3 ? 'basic' : 'intermediate', type: 'mechanism', q: 'Test viva question number ' + i + '?', max: 5,
+      points: [{ p: 'First point ' + i, m: 2 }, { p: 'Second point ' + i, m: 2 }, { p: 'Third point ' + i, m: 1 }], model: 'Model answer ' + i + '.', follow: [{ q: 'Follow-up ' + i + '?', a: 'Follow-up answer ' + i }], notes: 'Note ' + i }, extra || {}); };
+    const bank = [1, 2, 3, 4, 5, 6].map(function (i) { return mk(i, i === 6 ? { type: 'image', image: { fig: 'fig_syl1' } } : null); });
+    bank.forEach(function (q) { main.ctx.actionUpsert_('inflnew', { collection: 'priv:vivabank', id: q.id, data: q }); });   // as vbSave stores it (vbSave itself: backend test)
+    // ---- student: the 🎓 tab → Practice (nothing recorded) ----
+    const vcalls = [], p = await realPage(IN, vcalls);
+    await p.goto('https://third-year-med.github.io/' + IN[1] + '/');
+    await p.waitForSelector('#nb-user'); await p.fill('#nb-user', 'vv1'); await p.fill('#nb-pass', PW); await p.click('#neo-boot button[type=submit]');
+    await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'student'; }, null, { timeout: 20000 });
+    assert.ok(await p.evaluate(function () { return [].some.call(document.querySelectorAll('a, button'), function (b) { return /Viva/.test(b.textContent) && /#\/viva/.test(b.getAttribute('href') || b.dataset.view || b.dataset.tab || ''); }) || !!document.querySelector('[data-tab="viva"], [data-view="viva"], a[href="#/viva"]'); }), 'a Viva entry in the main menu');
+    await p.evaluate(function () { location.hash = '#/viva'; });
+    await p.waitForSelector('#view-viva .vv-topic[data-topic="t02"]', { timeout: 20000 });
+    assert.match(await p.textContent('#view-viva'), /Viva Examination[\s\S]*Practice[\s\S]*Mock Viva/);
+    assert.strictEqual(await p.$('#view-viva [data-mode=examiner]'), null, 'no Examiner Mode for students');
+    assert.match(await p.textContent('#view-viva .vv-topic[data-topic="t02"]'), /6 questions/);
+    await p.click('#view-viva .vv-topic[data-topic="t02"] [data-a=vv-start]');
+    await p.waitForSelector('#view-viva .vv-bar');
+    assert.match(await p.textContent('#view-viva .vv-bar'), /Inflammation[\s\S]*Topic 2[\s\S]*Practice — not recorded[\s\S]*Question 1 of 6[\s\S]*Max 5 marks/);
+    assert.ok(!/Model answer 1/.test(await p.textContent('#view-viva')), 'the model answer is hidden first');
+    await p.click('#view-viva [data-a=vv-reveal]');
+    assert.match(await p.textContent('#view-viva'), /Model answer[\s\S]*Marking points[\s\S]*First point[\s\S]*Follow-up questions/);
+    await p.click('#view-viva .vv-rub tr:nth-child(1) button[data-v="2"]');
+    assert.match(await p.textContent('#view-viva'), /Your own estimate: 2 \/ 5/);
+    // ---- Mock Viva: 5 questions, answers first, then self-marking → result recorded ----
+    await p.evaluate(function () { Views.viva.mode = 'mock'; Views.viva.go('home'); });
+    await p.click('#view-viva .vv-topic[data-topic="t02"] [data-a=vv-start]');
+    for (let i = 0; i < 5; i++) {
+      await p.waitForFunction(function (n) { const b = document.querySelector('#view-viva .vv-bar'); return b && new RegExp('Question ' + n + ' of 5').test(b.textContent); }, i + 1);
+      assert.ok(!/Model answer/.test(await p.textContent('#view-viva .vv-q')), 'no model answer before submitting');
+      await p.fill('#view-viva textarea', 'My answer ' + (i + 1));
+      await p.click('#view-viva ' + (i < 4 ? '[data-a=vv-next]' : '[data-a=vv-submit]'));
+    }
+    await p.click('.modal button:has-text("Submit answers")');
+    await p.waitForSelector('#view-viva [data-a=vv-finish]');
+    assert.ok(await p.$eval('#view-viva [data-a=vv-finish]', function (b) { return b.disabled; }), 'every point must be marked first');
+    const qs = await p.$$('#view-viva .vv-q[data-q]'); assert.strictEqual(qs.length, 5);
+    // q1: all full (5); q2: half on the 2-mark points (1 + 1) + 0 = 2; q3–q5: none (0) — each button looked up again (the page redraws)
+    for (let k = 0; k < 5; k++) for (let r = 0; r < 3; r++) {
+      const v = k === 0 ? (r === 2 ? '1' : '2') : k === 1 && r < 2 ? '1' : '0';
+      assert.ok(await p.evaluate(function (a) { const b = document.querySelectorAll('#view-viva .vv-q[data-q]')[a[0]].querySelectorAll('.vv-rub tr')[a[1]].querySelector('button[data-v="' + a[2] + '"]'); if (!b) return false; b.click(); return true; }, [k, r, v]), 'mark button ' + k + '/' + r);
+    }
+    await p.waitForFunction(function () { const b = document.querySelector('#view-viva [data-a=vv-finish]'); return b && !b.disabled; });
+    await p.click('#view-viva [data-a=vv-finish]');
+    await p.waitForFunction(function () { return /Recorded \(self-assessed\)/.test(document.querySelector('#view-viva').textContent); }, null, { timeout: 20000 });
+    assert.match(await p.textContent('#view-viva'), /7 \/ 25[\s\S]*28%[\s\S]*To revise/);
+    const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['inflnew'] }).modules.inflnew;
+    const mine = main.call({ module: 'inflnew', action: 'vbResults', token: tt.token }).results;
+    assert.deepStrictEqual(mine.map(function (x) { return [x.mode, x.studentId, x.total, x.max, x.items.length]; }), [['mock', 'vv1', 7, 25, 5]]);
+    assert.ok(mine[0].items.some(function (x) { return /My answer/.test(x.answer); }), 'the answers are kept');
+    await p.click('#view-viva .vv-nav button:has-text("Topics")');
+    await p.click('#view-viva [data-a=vv-mine]');
+    await p.waitForSelector('#view-viva [data-a=vv-res] tr[data-r]');
+    assert.match(await p.textContent('#view-viva [data-a=vv-res]'), /Mock \(self\)[\s\S]*7 \/ 25/);
+    if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'viva-student.png'), fullPage: true });
+    await p.context().close();
+    // ---- teacher: Examiner Mode — student, topic, draw, mark, record ----
+    const q = await realPage(IN, []);
+    await q.addInitScript(function (v) { localStorage.setItem('in_backend_token_v1', v); }, JSON.stringify({ token: tt.token, expiresAt: tt.expiresAt }));
+    await q.goto('https://third-year-med.github.io/' + IN[1] + '/#/viva');
+    await q.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+    await q.waitForSelector('#view-viva [data-mode=examiner]', { timeout: 20000 });
+    await q.click('#view-viva [data-mode=examiner]');
+    await q.click('#view-viva [data-a=vv-exam-new]');
+    await q.waitForSelector('#view-viva [data-stu="vv1"]', { timeout: 20000 });
+    await q.click('#view-viva [data-stu="vv1"]');
+    await q.check('#view-viva [data-a=vv-all]');
+    await q.click('#view-viva [data-a=vv-exam-start]');
+    await q.click('#view-viva [data-a=vv-draw]');
+    await q.waitForSelector('#view-viva .vv-rub');
+    assert.match(await q.textContent('#view-viva'), /Examiner Mode[\s\S]*Viva Student · vv1[\s\S]*Expected answer[\s\S]*Marking[\s\S]*Follow-up questions/);
+    for (let r = 1; r <= 3; r++) await q.click('#view-viva .vv-rub tr:nth-child(' + r + ') button[data-v="' + (r === 3 ? '0' : '2') + '"]');
+    await q.click('#view-viva [data-a=vv-save-q]');
+    await q.click('#view-viva [data-a=vv-draw]');
+    await q.fill('#view-viva [data-a=vv-over]', '3.5');
+    await q.click('#view-viva [data-a=vv-save-q]');
+    await q.fill('#view-viva [data-a=vv-comment]', 'Clear answers');
+    await q.click('#view-viva [data-a=vv-exam-save]');
+    await q.waitForSelector('#view-viva [data-a=vv-res] tr[data-r]', { timeout: 20000 });
+    const all = main.call({ module: 'inflnew', action: 'vbResults', token: tt.token }).results, ex = all.filter(function (x) { return x.mode === 'examiner'; })[0];
+    assert.deepStrictEqual([ex.studentId, ex.name, ex.total, ex.max, ex.comment, ex.items.length], ['vv1', 'Viva Student', 7.5, 10, 'Clear answers', 2]);
+    assert.match(await q.textContent('#view-viva'), /Viva results[\s\S]*2 results · 1 students[\s\S]*Examiner[\s\S]*7\.5 \/ 10/);
+    if (process.env.SHOTS) await q.screenshot({ path: path.join(process.env.SHOTS, 'viva-teacher.png'), fullPage: true });
+    // phone width: no horizontal page scroll
+    await q.setViewportSize({ width: 390, height: 844 });
+    assert.ok(await q.evaluate(function () { return document.documentElement.scrollWidth <= window.innerWidth + 1; }), 'fits a phone');
+    await q.context().close();
+    assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
+  } finally {
+    main.call({ module: 'inflnew', action: 'vbDelete', token: (main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['inflnew'] }).modules.inflnew || {}).token, all: true });
+    assert.ok(main.call({ module: 'portal', action: 'portalAdminSave', token: t, modules: reg }).ok);
+  }
+});
+
 /* ---------------- Neoplasia (New) (neonew): the user's syllabus "Neoplasia (Ch. 6)", NOT condensed (2026-10-30). Needs NN_CONTENT_KEY (env only). */
 test('Neoplasia (New) module (neonew): every topic, section, view and slide renders with the real course; student and teacher', { skip: SKIP || ((!fs.existsSync(NN[2]) || !NN[3]) && 'Neoplasia (New) module page or NN_CONTENT_KEY not available') }, async function () {
   main.ctx.STUDENT_AUTH_MODULES.neonew = true; main.ctx.CONTENT_KEYS.neonew = NN[3];
