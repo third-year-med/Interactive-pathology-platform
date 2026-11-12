@@ -420,6 +420,6 @@ for path in sys.argv[1:]:
     if not (m and m.group(1) in VIVA_MODULES):
         print(path, 'skipped (viva not enabled for', (m.group(1) if m else '?') + ')'); continue
     for a, b in R:
-        if b in s or (DONE in b and DONE in s): continue
+        if b in s or DONE in s: continue   # applied once = all of it (later patches insert next to this one's text)
         assert s.count(a) == 1, (path, a[:70]); s = s.replace(a, b); n += 1
     open(path, 'w', encoding='utf-8').write(s); print(path, 'changes:', n)

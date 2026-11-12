@@ -214,6 +214,6 @@ DONE = '   🎬 Video Lectures (patch video-library) — one platform-wide libra
 for path in sys.argv[1:]:
     s = open(path, encoding='utf-8').read(); n = 0
     for a, b in R:
-        if b in s or (DONE in b and DONE in s): continue   # the block is edited by video-own-module
+        if b in s or DONE in s: continue   # applied once = all of it (later patches insert next to this one's text)   # the block is edited by video-own-module
         assert s.count(a) == 1, (path, a[:70]); s = s.replace(a, b); n += 1
     open(path, 'w', encoding='utf-8').write(s); print(path, 'changes:', n)

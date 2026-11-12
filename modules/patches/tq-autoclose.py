@@ -62,8 +62,10 @@ function tqCloseHours() { const c = Store.get('tq_count_v1', null) || {}; const 
 })();
 function openInQuestionBank(qid) {"""
 R = [("""function openInQuestionBank(qid) {""", CODE)]
+MARK = '(patch tq-autoclose; Portal.gs 2.43)'
 for path in sys.argv[1:]:
     s = open(path, encoding='utf-8').read(); n = 0
+    if MARK in s: print(path, 'changes: 0 (already applied)'); continue   # a later patch may insert next to this one's text
     for a, b in R:
         if b in s: continue
         assert s.count(a) == 1, (path, a[:70]); s = s.replace(a, b); n += 1

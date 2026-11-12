@@ -44,8 +44,10 @@ const PRINT_MIRROR_CSS = `
 function printHTML(title, subtitle, bodyHtml, opts) {
 """),
 ]
+MARK = 'const PRINT_MIRROR_CSS'
 for path in sys.argv[1:]:
     s = open(path, encoding='utf-8').read(); n = 0
+    if MARK in s: print(path, 'changes: 0 (already applied)'); continue   # a later patch may insert next to this one's text
     for a, b in R:
         if b in s: continue
         assert s.count(a) == 1, (path, a[:70]); s = s.replace(a, b); n += 1
