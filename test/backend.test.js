@@ -2833,6 +2833,19 @@ test('2.45 viva examination: the Admin imports the bank from the main copy; stud
   const vq = an.quizzes.filter(function (q) { return /^🎓 Viva — Week 3 viva$/.test(q.title); })[0]; assert.ok(vq, 'a counted quiz: ' + an.quizzes.map(function (q) { return q.title; }));
   const b1 = an.students.filter(function (x) { return x.studentId === 'b1'; })[0];
   assert.deepStrictEqual(b1.quizzes.filter(function (q) { return q.key === vq.key; })[0].pct, 80);
+  // 2.49 🔑 a paper with a password: no questions in the student's list; start with the password, then submit
+  r = call(CI, { action: 'vbPaperSave', token: tRa, paper: { title: 'Locked viva', qids: ['viva_cc_002'], mins: 5, status: 'open', password: 'Necro-7' } }); assert.ok(r.ok, JSON.stringify(r));
+  const lp = r.paper.id, lst = call(CI, { action: 'vbPapers', stoken: stu }).papers.filter(function (x) { return x.id === lp; })[0];
+  assert.deepStrictEqual([lst.qids, lst.qn, lst.hasPassword, lst.password], [[], 1, true, undefined], 'students never see the password or the questions in advance');
+  assert.strictEqual(call(CI, { action: 'vbPapers', token: tRa }).papers.filter(function (x) { return x.id === lp; })[0].password, 'Necro-7', 'the teacher sees it');
+  assert.strictEqual(call(CI, { action: 'vbResult', stoken: stu, paperId: lp, items: [{ id: 'viva_cc_002', max: 5, mark: 0, answer: 'x' }] }).code, 'nostart', 'no submission without the password start');
+  assert.strictEqual(call(CI, { action: 'vbPaperStart', stoken: stu, id: lp, password: 'wrong' }).code, 'badpassword');
+  r = call(CI, { action: 'vbPaperStart', stoken: stu, id: lp, password: ' necro-7 ' }); assert.ok(r.ok, JSON.stringify(r)); assert.deepStrictEqual([r.qids, r.mins], [['viva_cc_002'], 5]);
+  assert.ok(call(CI, { action: 'vbResult', stoken: stu, paperId: lp, items: [{ id: 'viva_cc_002', max: 5, mark: 0, answer: 'Apoptosis is…' }] }).ok);
+  assert.strictEqual(call(CI, { action: 'vbPaperStart', stoken: stu, id: lp, password: 'Necro-7' }).code, 'done', 'one attempt');
+  r = call(CI, { action: 'vbPaperSave', token: tRa, paper: { title: 'Locked 2', qids: ['viva_cc_001'], status: 'open', password: 'abc' } });
+  for (let i = 0; i < 10; i++) call(CI, { action: 'vbPaperStart', stoken: stu, id: r.paper.id, password: 'no' + i });
+  assert.strictEqual(call(CI, { action: 'vbPaperStart', stoken: stu, id: r.paper.id, password: 'abc' }).code, 'locked', '10 wrong passwords → a 10-minute wait');
   // closed: refused; delete keeps the result
   assert.ok(call(CI, { action: 'vbPaperSave', token: tRa, paper: Object.assign({}, call(CI, { action: 'vbPapers', token: tRa }).papers[0], { status: 'closed' }) }).ok);
   assert.strictEqual(call(CI, { action: 'vbResult', stoken: stu, paperId: pid, items: [{ id: 'viva_cc_001', max: 5, mark: 5 }] }).code, 'closed');

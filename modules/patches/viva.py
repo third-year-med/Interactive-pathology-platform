@@ -86,9 +86,10 @@ Views.viva = {
       el('span', { class: 'small muted' }, teacher ? 'Fixed papers for this group: the same questions for everyone, one attempt, optional count in the 🏅 Annual Assessment.' : 'Set by your teacher — one attempt each.')));
     if (!L.length) box.appendChild(el('p', { class: 'small muted', style: 'margin:.2rem 0' }, 'None yet.'));
     L.forEach(x => {
-      const n = (x.qids || []).filter(id => (this.items || []).some(q => q.id === id)).length, w = W[x.window] || W.closed;
+      const n = x.qn != null ? x.qn : (x.qids || []).filter(id => (this.items || []).some(q => q.id === id)).length, w = W[x.window] || W.closed;
       const row = el('div', { class: 'vv-paper', 'data-paper': x.id },
-        el('div', { class: 't' }, el('b', null, x.title), el('div', { class: 'small muted' }, plural(n, 'question') + ' · ' + (x.mins ? x.mins + ' min' : 'no time limit') + (when(x) ? ' · ' + when(x) : '') + (x.annual ? ' · counts in the Annual Assessment' : '') + (teacher ? ' · taken by ' + (x.taken || 0) : ''))),
+        el('div', { class: 't' }, el('b', null, x.title), el('div', { class: 'small muted' }, plural(n, 'question') + ' · ' + (x.mins ? x.mins + ' min' : 'no time limit') + (when(x) ? ' · ' + when(x) : '') + (x.annual ? ' · counts in the Annual Assessment' : '') + (teacher ? ' · taken by ' + (x.taken || 0) : '') + (!teacher && x.hasPassword ? ' · 🔑 password from your teacher' : '')),
+          teacher && x.password ? el('div', { class: 'small', 'data-a': 'vp-pw-show' }, '🔑 Password: ', el('b', { class: 'vv-pw' }, x.password)) : teacher ? el('div', { class: 'small muted' }, '🔓 No password') : null),
         el('span', { class: 'badge ' + (x.done ? (x.result && x.result.status === 'pending' ? 'warn' : 'ok') : w[1]) }, x.done ? (x.result && x.result.status === 'pending' ? '⏳ Submitted — awaiting marking' : '✓ Marked ' + vivaNum(x.result.total) + '/' + vivaNum(x.result.max) + ' (' + x.result.percent + '%)') : w[0]),
         teacher && x.pending ? el('span', { class: 'badge warn' }, '⏳ ' + x.pending + ' to mark') : null);
       if (!teacher && x.done && x.result && x.result.status !== 'pending') row.appendChild(el('button', { class: 'btn btn-sm', 'data-a': 'vv-paper-view', onclick: () => this.openMine() }, '📋 See marks'));
@@ -112,6 +113,8 @@ Views.viva = {
     const op = el('input', { type: 'datetime-local', value: dt(x && x.opensAt) }), cl = el('input', { type: 'datetime-local', value: dt(x && x.closesAt) });
     const st = el('select', { 'data-a': 'vp-status' }, [['draft', 'Draft (hidden from students)'], ['open', 'Open'], ['closed', 'Closed']].map(o => el('option', { value: o[0], selected: (x ? x.status : 'open') === o[0] }, o[1])));
     const ann = el('input', { type: 'checkbox', checked: x ? !!x.annual : false, 'data-a': 'vp-annual' });
+    const pw = el('input', { value: x ? x.password || '' : '', placeholder: 'empty = no password', maxlength: '40', 'data-a': 'vp-pw', style: 'width:11rem', autocomplete: 'off' });
+    const gen = el('button', { type: 'button', class: 'btn btn-xs', title: 'Make a random password', onclick: () => { const A = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; let t = ''; for (let i = 0; i < 6; i++) t += A[Math.floor(Math.random() * A.length)]; pw.value = t; } }, '🎲');
     const list = el('ol', { class: 'small', style: 'max-height:12rem;overflow:auto;margin:.3rem 0' });
     const paint = () => { clear(list); qids.forEach(id => { const q = (this.items || []).find(y => y.id === id); if (q) list.appendChild(el('li', null, 'T' + topicNum(q.topic) + ' · ' + q.q)); }); };
     const redraw = el('button', { type: 'button', class: 'btn btn-xs', onclick: () => { const n = Math.max(1, Math.min(pool.length, Math.round(Number(nIn.value) || 1))); qids = shuffle(pool.map(q => q.id)).slice(0, n); nIn.value = String(n); paint(); } }, '🎲 Draw from the current selection (' + pool.length + ' available)');
@@ -122,22 +125,31 @@ Views.viva = {
       el('div', { class: 'small muted' }, 'Selection: ' + this.selLabel() + ' — every student gets exactly these questions:'), list,
       el('div', { class: 'row', style: 'gap:.8rem;flex-wrap:wrap' }, el('label', null, '⏱ Minutes (0 = none) ', mins), el('label', null, 'Status ', st)),
       el('div', { class: 'row', style: 'gap:.8rem;flex-wrap:wrap' }, el('label', null, 'Opens ', op), el('label', null, 'Closes ', cl)),
+      el('div', { class: 'row', style: 'gap:.5rem;flex-wrap:wrap;align-items:center' }, el('label', { style: 'margin:0' }, '🔑 Password ', pw), gen, el('span', { class: 'small muted' }, 'Students must type it to start (not case-sensitive). Give it out in class.')),
       el('label', { style: 'display:flex;gap:.4rem;align-items:center' }, ann, 'Counts in the 🏅 Annual Assessment (as one more quiz, by %)'));
     openModal({ title: x ? '✎ Edit official viva' : '📌 New official viva', wide: true, body, actions: [{ label: 'Cancel' }, { label: '💾 Save', primary: true, onClick: async () => {
-      const r = await Backend.authedPost({ action: 'vbPaperSave', paper: { id: x ? x.id : '', title: title.value.trim(), qids, mins: Number(mins.value) || 0, status: st.value, annual: ann.checked,
+      const r = await Backend.authedPost({ action: 'vbPaperSave', paper: { id: x ? x.id : '', title: title.value.trim(), qids, mins: Number(mins.value) || 0, status: st.value, annual: ann.checked, password: pw.value.trim(),
         opensAt: op.value ? new Date(op.value).getTime() : null, closesAt: cl.value ? new Date(cl.value).getTime() : null } }, { timeout: 30000 });
       if (!(r && r.ok)) { toast((r && r.error) || 'Not saved.', 'bad', 7000); return false; }
       toast('Official viva saved.', 'ok'); this.loadPapers(); return true;
     } }] });
   },
-  startPaper(x) {
-    const by = new Map((this.items || []).map(q => [q.id, q])), qs = x.qids.map(id => by.get(id)).filter(Boolean);
+  async startPaper(x) {
+    let password = '';
+    if (x.hasPassword) {
+      password = await promptDialog('🔑 “' + x.title + '”', 'Type the password your teacher gives you in class.', { placeholder: 'Password', okLabel: 'Next' });
+      if (password === null) return;
+    }
+    if (!(await confirmDialog('“' + x.title + '”: ' + plural(x.qn != null ? x.qn : x.qids.length, 'question') + ', ' + (x.mins ? x.mins + ' minutes' : 'no time limit') + '. You have ONE attempt; the timer starts now and keeps running even if you leave the page.', { title: '📌 Start the official viva?', okLabel: '▶ Start Examination' }))) return;
+    const r = await Backend.rawPost({ action: 'vbPaperStart', id: x.id, password }, { timeout: 30000 });
+    let qids = r && r.ok ? r.qids : null;
+    if (!qids && r && /unknown action/i.test(r.error || '') && (x.qids || []).length) qids = x.qids;   // a class server older than Portal.gs 2.49
+    if (!qids) { toast((r && r.error) || 'The official viva could not be started.', 'bad', 7000); if (r && r.code === 'done') this.loadPapers(); return; }
+    const by = new Map((this.items || []).map(q => [q.id, q])), qs = qids.map(id => by.get(id)).filter(Boolean);
     if (!qs.length) { toast('This official viva has no questions in the bank — tell your teacher.', 'bad'); return; }
-    confirmDialog('“' + x.title + '”: ' + plural(qs.length, 'question') + ', ' + (x.mins ? x.mins + ' minutes' : 'no time limit') + '. You have ONE attempt; the timer starts now and keeps running even if you leave the page.', { title: '📌 Start the official viva?', okLabel: '▶ Start Examination' }).then(ok => {
-      if (!ok) return;
-      this.run = { mode: 'mock', label: '📌 ' + x.title, tids: [...new Set(qs.map(q => q.topic))], qs, i: 0, ans: {}, flag: {}, sel: {}, at: Date.now(), mins: x.mins || 0, deadline: x.mins ? Date.now() + x.mins * 60000 : 0, submitted: false, paperId: x.id };
-      if (x.mins) this.startTimer(); this.go('mock');
-    });
+    const mins = r && r.ok ? r.mins : x.mins;
+    this.run = { mode: 'mock', label: '📌 ' + x.title, tids: [...new Set(qs.map(q => q.topic))], qs, i: 0, ans: {}, flag: {}, sel: {}, at: Date.now(), mins: mins || 0, deadline: mins ? Date.now() + mins * 60000 : 0, submitted: false, paperId: x.id };
+    if (mins) this.startTimer(); this.go('mock');
   },
   /* ---------- 🎯 practice what I missed (from my recorded mocks) ---------- */
   async weakPractice() {
@@ -165,7 +177,7 @@ Views.viva = {
       '.vv-tbl tr.vv-unans td{background:#fff8f0}' +
       '.vv-flag{float:right;margin-left:.5rem}.vv-flag.on{background:#fff4e0;border-color:#e0b25c;color:#8a5a00;font-weight:700}.vv-nq{position:relative}.vv-flagdot{color:#c27c00;font-size:.75rem;margin-left:.1rem}' +
       '.vv-papers{border:1px solid #e0cfa0;background:#fffbf2;border-radius:14px;padding:.75rem .9rem;margin:0 0 .9rem}.vv-paper{display:flex;flex-wrap:wrap;gap:.4rem .8rem;align-items:center;border-top:1px solid #f0e3c4;padding:.5rem 0}' +
-      '.vv-paper .t{flex:1 1 260px;min-width:0}.vv-pform label{display:block;margin:.45rem 0}.vv-pform input[type=datetime-local]{max-width:100%}' +
+      '.vv-pw{font-family:ui-monospace,Menlo,Consolas,monospace;letter-spacing:.06em;background:#fff;border:1px dashed #c9a24d;border-radius:6px;padding:0 .35rem}.vv-paper .t{flex:1 1 260px;min-width:0}.vv-pform label{display:block;margin:.45rem 0}.vv-pform input[type=datetime-local]{max-width:100%}' +
       '.vv-bar{position:sticky;top:0;z-index:5;background:#f7fafc;border:1px solid var(--line,#d5dde7);border-radius:12px;padding:.55rem .75rem;margin:.4rem 0 .8rem;display:flex;flex-wrap:wrap;gap:.35rem .9rem;align-items:center}' +
       '.vv-chip{border-radius:999px;padding:.08rem .6rem;font-size:.78rem;font-weight:700;background:#eef3f9;color:var(--navy,#0b2340)}.vv-chip.practice{background:#e6f5f4;color:#0f766e}.vv-chip.mock{background:#fff4e0;color:#8a5a00}.vv-chip.examiner{background:#f0e9ff;color:#5b21b6}' +
       '.vv-prog{flex:1 1 140px;height:.45rem;background:#e3e9f0;border-radius:999px;overflow:hidden;min-width:100px}.vv-prog i{display:block;height:100%;background:var(--teal,#0f766e)}' +

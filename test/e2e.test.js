@@ -5388,11 +5388,19 @@ test('🎓 Viva Examination (inflnew): 🎓 tab; Practice (reveal + own ticks, n
     // 📌 an official viva set by the teacher: listed, one attempt, recorded with its paper
     {
       const tp = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['inflnew'] }).modules.inflnew;
-      const ps = main.call({ module: 'inflnew', action: 'vbPaperSave', token: tp.token, paper: { title: 'Official test viva', qids: ['vv_test_1', 'vv_test_2'], mins: 5, status: 'open' } }); assert.ok(ps.ok, JSON.stringify(ps));
+      const ps = main.call({ module: 'inflnew', action: 'vbPaperSave', token: tp.token, paper: { title: 'Official test viva', qids: ['vv_test_1', 'vv_test_2'], mins: 5, status: 'open', password: 'Paper-1' } }); assert.ok(ps.ok, JSON.stringify(ps));
       await p.evaluate(function () { Views.viva.loadPapers(); });
       await p.waitForSelector('#view-viva [data-a=vv-papers] [data-a=vv-paper-start]', { timeout: 15000 });
-      assert.match(await p.textContent('#view-viva [data-a=vv-papers]'), /Official vivas[\s\S]*Official test viva[\s\S]*2 questions · 5 min[\s\S]*Open/);
+      assert.match(await p.textContent('#view-viva [data-a=vv-papers]'), /Official vivas[\s\S]*Official test viva[\s\S]*2 questions · 5 min[\s\S]*password from your teacher[\s\S]*Open/);
+      assert.ok(!/Paper-1/.test(await p.textContent('#view-viva')), 'students never see the password');
+      // 🔑 a wrong password: refused, no exam; the right one: the exam starts
       await p.click('#view-viva [data-a=vv-paper-start]');
+      await p.waitForSelector('.modal input'); await p.waitForTimeout(150); await p.fill('.modal input', 'guess'); await p.click('.modal button:has-text("Next")');
+      await p.click('.modal button:has-text("Start Examination")');
+      await p.waitForFunction(function () { return /not the password of “Official test viva”/.test(document.body.textContent); }, null, { timeout: 10000 });
+      assert.strictEqual(await p.$('#vv-timer'), null, 'no exam with a wrong password');
+      await p.click('#view-viva [data-a=vv-paper-start]');
+      await p.waitForSelector('.modal input'); await p.waitForTimeout(150); await p.fill('.modal input', 'paper-1'); await p.click('.modal button:has-text("Next")');
       await p.click('.modal button:has-text("Start Examination")');
       await p.waitForSelector('#vv-timer');
       assert.match(await p.textContent('#view-viva .vv-bar'), /Official test viva[\s\S]*Official viva — marked by your teacher[\s\S]*Question 1 of 2[\s\S]*⏱ [45]:\d\d/);
@@ -5430,9 +5438,9 @@ test('🎓 Viva Examination (inflnew): 🎓 tab; Practice (reveal + own ticks, n
     await q.click('#view-viva [data-a=vv-paper-new]');
     await q.waitForSelector('.modal [data-a=vp-title]');
     assert.match(await q.textContent('.modal'), /New official viva[\s\S]*Draw from the current selection \(4 available\)/);
-    await q.waitForTimeout(150); await q.fill('.modal [data-a=vp-title]', 'Teacher paper'); await q.fill('.modal [data-a=vp-mins]', '20'); await q.check('.modal [data-a=vp-annual]');
+    await q.waitForTimeout(150); await q.fill('.modal [data-a=vp-title]', 'Teacher paper'); await q.fill('.modal [data-a=vp-mins]', '20'); await q.check('.modal [data-a=vp-annual]'); await q.fill('.modal [data-a=vp-pw]', 'Room12');
     await q.click('.modal button:has-text("Save")');
-    await q.waitForFunction(function () { const b = document.querySelector('#view-viva [data-a=vv-papers]'); return b && /Teacher paper[\s\S]*20 min[\s\S]*counts in the Annual Assessment/.test(b.textContent); }, null, { timeout: 15000 });
+    await q.waitForFunction(function () { const b = document.querySelector('#view-viva [data-a=vv-papers]'); return b && /Teacher paper[\s\S]*20 min[\s\S]*counts in the Annual Assessment[\s\S]*Password: Room12/.test(b.textContent); }, null, { timeout: 15000 });
     await q.selectOption('#view-viva [data-a=vv-f-level]', '');
     await q.selectOption('#view-viva [data-a=vv-f-mode]', 'examiner');
     await q.click('#view-viva [data-a=vv-exam-new]');
