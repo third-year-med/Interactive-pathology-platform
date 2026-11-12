@@ -199,7 +199,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.46';
+var PORTAL_VERSION = '2.47';
 /** 2.40: the ARCHIVED modules (the platform repository's modules/INACTIVE, user 2026-10-31). Their deliveries are left out of
  *  the overall reports (Overall Pathology Attendance, Pathology Overall Results) even while still switched on. Keep this
  *  list equal to modules/INACTIVE (a test checks it); re-activating a module = remove it from both, then redeploy. */
@@ -548,7 +548,7 @@ var DIR_HEADERS = {
   Presentations: ['presId', 'groupId', 'studentId', 'slot', 'topic', 'moduleId', 'dueAt', 'presentedAt', 'status', 'mark', 'rubricJson', 'comment',
     'historyJson', 'createdAt', 'updatedAt', 'updatedBy'],
   // 2.45 Viva Examination: one row per recorded viva (mock = self-assessed by the student, examiner = marked by a teacher)
-  VivaResults: ['resultId', 'module', 'storage', 'studentId', 'name', 'email', 'mode', 'topicIds', 'topics', 'at', 'total', 'max', 'percent', 'examiner', 'comment', 'itemsJson']
+  VivaResults: ['resultId', 'module', 'storage', 'studentId', 'name', 'email', 'mode', 'topicIds', 'topics', 'at', 'total', 'max', 'percent', 'examiner', 'comment', 'itemsJson', 'paperId']
 };
 var DIR_TEXT = {
   Institutions: ['institutionId', 'name', 'shortName'],
@@ -564,7 +564,7 @@ var DIR_TEXT = {
   ContentVersions: ['moduleId', 'label', 'build', 'publishedBy', 'notes', 'fingerprint', 'status'],
   TeachingSessions: ['tsId', 'groupId', 'deliveryId', 'moduleId', 'backendModule', 'title', 'chapter', 'academicYear', 'materialsUrl', 'teacher', 'status', 'attSessionId', 'marksJson', 'createdBy', 'prevCode'],
   Presentations: ['presId', 'groupId', 'studentId', 'topic', 'moduleId', 'status', 'mark', 'rubricJson', 'comment', 'historyJson', 'updatedBy'],
-  VivaResults: ['resultId', 'module', 'storage', 'studentId', 'name', 'email', 'mode', 'topicIds', 'topics', 'examiner', 'comment', 'itemsJson']
+  VivaResults: ['resultId', 'module', 'storage', 'studentId', 'name', 'email', 'mode', 'topicIds', 'topics', 'examiner', 'comment', 'itemsJson', 'paperId']
 };
 var DIR_KINDS = {
   institution: { sheet: 'Institutions', key: 'institutionId', prefix: 'INS' },
@@ -3435,6 +3435,16 @@ function annCompute_(g, members, set, pres, now) {
     att.push({ storage: r.module, ref: String(x.assessmentId || ''), title: String(x.assessmentTitle || x.assessmentId || ''), email: String(x.email || '').trim().toLowerCase(),
       name: String(x.name || ''), percent: Math.max(0, Math.min(100, pc)), at: Number(x.submittedAt) || 0 });
   });
+  // 2.47: official viva papers marked "counts in the Annual Assessment" are counted like a quiz (percent; matched by Student ID)
+  g.modules.forEach(function (m) {
+    var cnt = {}; vbPapersOf_(m.storage).forEach(function (x) { if (x.annual) cnt[x.id] = x; });
+    if (!Object.keys(cnt).length) return;
+    rpRows_(DIR.VIVA).forEach(function (r) {
+      var x = cnt[String(r.paperId || '')]; if (r.storage !== m.storage || !x || r.mode !== 'mock') return;
+      att.push({ storage: m.storage, ref: 'viva:' + x.id, title: '🎓 Viva — ' + x.title, email: normUser_(r.studentId) + '@student.local', name: String(r.name || ''),
+        percent: Math.max(0, Math.min(100, Number(r.percent) || 0)), at: Number(r.at) || 0 });
+    });
+  });
   var list = members.slice().sort(function (a, b) { return String(a.studentId).localeCompare(String(b.studentId)); });
   var nameCount = {}; list.forEach(function (m) { var k = String(m.name || '').trim().toLowerCase(); if (k) nameCount[k] = (nameCount[k] || 0) + 1; });
   var rows = list.map(function (m) { return { studentId: String(m.studentId), name: String(m.name || ''), active: !!m.active, email: String(m.email || '').trim().toLowerCase(), best: {} }; });
@@ -4435,7 +4445,7 @@ function acloseHook_(S, act, p) {
  *   vbResults              teacher → this storage's results (the main storage: the whole module); vbMine: a student's own
  *   vbResultDelete {resultId}   teacher: removes one recorded result of this storage
  * ====================================================================== */
-var VB_ACTIONS = { vbList: 1, vbSave: 1, vbDelete: 1, vbResult: 1, vbResults: 1, vbMine: 1, vbResultDelete: 1 };
+var VB_ACTIONS = { vbList: 1, vbSave: 1, vbDelete: 1, vbResult: 1, vbResults: 1, vbMine: 1, vbResultDelete: 1, vbPapers: 1, vbPaperSave: 1, vbPaperDelete: 1 };
 var VB_COLL = 'priv:vivabank', VB_MAX = 3000;
 var VB_TYPES = { definition: 1, mechanism: 1, process: 1, compare: 1, morphology: 1, clinical: 1, why: 1, scenario: 1, image: 1 };
 function vbClean_(q) {
@@ -4457,12 +4467,12 @@ function vbN_(v) { var n = Math.round(Number(v) * 2) / 2; return isFinite(n) && 
 function vbPub_(r) {
   return { resultId: String(r.resultId), module: String(r.module), storage: String(r.storage), studentId: String(r.studentId), name: String(r.name || ''), email: String(r.email || ''),
     mode: String(r.mode), topicIds: String(r.topicIds || '').split(',').filter(Boolean), topics: String(r.topics || ''), at: Number(r.at) || 0, total: Number(r.total) || 0,
-    max: Number(r.max) || 0, percent: Number(r.percent) || 0, examiner: String(r.examiner || ''), comment: String(r.comment || ''), items: tsJson_(r.itemsJson, null) || [] };
+    max: Number(r.max) || 0, percent: Number(r.percent) || 0, examiner: String(r.examiner || ''), comment: String(r.comment || ''), items: tsJson_(r.itemsJson, null) || [], paperId: String(r.paperId || '') };
 }
 function vivaHook_(S, act, p) {
   var M = cvBaseOf_(S), teacher = vlTeacher_(S, p);
   if (!teacher) {
-    if (act !== 'vbList' && act !== 'vbResult' && act !== 'vbMine') return authed_(S, p, function () { return { ok: true }; });   // → "not signed in"
+    if (act !== 'vbList' && act !== 'vbResult' && act !== 'vbMine' && act !== 'vbPapers') return authed_(S, p, function () { return { ok: true }; });   // → "not signed in"
     if (!(typeof studentAuthOn_ === 'function' && studentAuthOn_(S))) return { ok: false, code: 'auth', error: 'Please sign in.' };
     var g = gateRequest_(S, p); if (g) return g;
     if (p.__role !== 'student' || !p.__student) return { ok: false, code: 'auth', error: 'Please sign in.' };
@@ -4472,6 +4482,7 @@ function vivaHook_(S, act, p) {
     return { ok: true, module: M, items: items, canEdit: teacher && S === M, teacher: teacher, serverTime: Date.now() };
   }
   dirInit_();
+  if (act === 'vbPapers' || act === 'vbPaperSave' || act === 'vbPaperDelete') return vbPapersHook_(S, M, act, p, teacher);   // 2.47
   if (act === 'vbMine') {
     var u = normUser_(p.__student.username);
     return { ok: true, results: rpRows_(DIR.VIVA).filter(function (r) { return r.storage === S && normUser_(r.studentId) === u; }).map(vbPub_).sort(function (a, b) { return b.at - a.at; }) };
@@ -4495,10 +4506,23 @@ function vivaHook_(S, act, p) {
         followups: Math.min(20, Math.max(0, Math.round(Number(it && it.followups) || 0))), note: dirStr_(it && it.note, 400), answer: dirStr_(it && it.answer, 1500) };
     }).filter(function (it) { return it.id && it.max > 0; });
     if (!its.length) return { ok: false, error: 'No marked questions.' };
+    // 2.47: an official viva paper — open, within its dates, one attempt per student, only the paper's own questions
+    var paperId = dirStr_(p.paperId, 60), paper = null;
+    if (paperId) {
+      paper = vbPapersOf_(S).filter(function (x) { return x.id === paperId; })[0];
+      if (!paper) return { ok: false, error: 'This official viva no longer exists.' };
+      if (!teacher) {
+        var w = vbPaperWindow_(paper, Date.now()); if (w !== 'open') return { ok: false, code: 'closed', error: w === 'upcoming' ? 'This official viva is not open yet.' : 'This official viva is closed.' };
+        var u0 = normUser_(who.studentId);
+        if (rpRows_(DIR.VIVA).some(function (r) { return r.storage === S && String(r.paperId || '') === paperId && normUser_(r.studentId) === u0; })) return { ok: false, code: 'done', error: 'You have already taken this official viva — one attempt only.' };
+        var okq = {}; paper.qids.forEach(function (q) { okq[q] = 1; });
+        if (its.some(function (it) { return !okq[it.id]; })) return { ok: false, error: 'These answers do not belong to this official viva.' };
+      }
+    }
     var total = its.reduce(function (a, it) { return a + it.mark; }, 0), max = its.reduce(function (a, it) { return a + it.max; }, 0), now = Date.now();
     var row = { resultId: 'VIVA-' + now.toString(36) + '-' + randomHex_(4), module: M, storage: S, studentId: who.studentId, name: who.name, email: who.email, mode: mode,
       topicIds: (Array.isArray(p.topicIds) ? p.topicIds : []).slice(0, 40).map(function (t) { return dirStr_(t, 40); }).join(','), topics: dirStr_(p.topics, 600), at: now,
-      total: total, max: max, percent: max ? Math.round(total / max * 1000) / 10 : 0, examiner: teacher ? dirStr_(p.examiner || 'teacher', 120) : '', comment: dirStr_(p.comment, 1000), itemsJson: JSON.stringify(its) };
+      total: total, max: max, percent: max ? Math.round(total / max * 1000) / 10 : 0, examiner: teacher ? dirStr_(p.examiner || 'teacher', 120) : '', comment: dirStr_(p.comment, 1000), itemsJson: JSON.stringify(its), paperId: paperId };
     if (row.itemsJson.length > 45000) return { ok: false, error: 'This viva is too long to record.' };
     appendRow_(DIR.VIVA, row);
     console.log('viva · ' + S + ' · ' + mode + ' · ' + who.studentId + ' · ' + total + '/' + max);
@@ -4531,4 +4555,62 @@ function vivaHook_(S, act, p) {
       return { ok: true, saved: saved, added: added, rejected: bad, total: Object.keys(have).length };
     } finally { lock.releaseLock(); }
   });
+}
+
+/* ======================================================================
+ * 2.47 — 📌 Official viva papers (user 2026-11-12): a teacher fixes a paper for one group page (storage): title, the questions
+ * (drawn once — the same paper for every student), time limit, opening / closing dates, status (draft · open · closed) and
+ * whether it counts in the 🏅 Annual Assessment (as one more counted quiz). Students take it once (vbResult refuses a second
+ * attempt, a closed paper and foreign questions). Settings vivapapers:<storage> = [paper, …] (at most 50).
+ *   vbPapers                teacher: every paper of this storage (with how many took it); student: those that are not drafts,
+ *                           each with its window and {done, result} for this student
+ *   vbPaperSave {paper}     teacher; vbPaperDelete {id} teacher (recorded results are kept)
+ * ====================================================================== */
+var VB_PAPER_MAX = 50;
+function vbPapersOf_(S) { var L = tsJson_(getSetting_('vivapapers:' + S), null); return Array.isArray(L) ? L : []; }
+function vbPaperWindow_(x, now) {
+  if (x.status !== 'open') return x.status === 'draft' ? 'draft' : 'closed';
+  if (x.opensAt && now < Number(x.opensAt)) return 'upcoming';
+  if (x.closesAt && now > Number(x.closesAt)) return 'closed';
+  return 'open';
+}
+function vbPapersHook_(S, M, act, p, teacher) {
+  var now = Date.now();
+  if (act === 'vbPapers') {
+    var L = vbPapersOf_(S);
+    if (teacher) {
+      var cnt = {}; rpRows_(DIR.VIVA).forEach(function (r) { if (r.storage === S && r.paperId) cnt[r.paperId] = (cnt[r.paperId] || 0) + 1; });
+      return { ok: true, papers: L.map(function (x) { return Object.assign({}, x, { window: vbPaperWindow_(x, now), taken: cnt[x.id] || 0 }); }), serverTime: now };
+    }
+    var u = normUser_(p.__student.username), mine = {};
+    rpRows_(DIR.VIVA).forEach(function (r) { if (r.storage === S && r.paperId && normUser_(r.studentId) === u) mine[r.paperId] = vbPub_(r); });
+    return { ok: true, serverTime: now, papers: L.filter(function (x) { return x.status !== 'draft'; }).map(function (x) {
+      return { id: x.id, title: x.title, qids: x.qids, mins: x.mins, opensAt: x.opensAt || null, closesAt: x.closesAt || null, annual: !!x.annual, window: vbPaperWindow_(x, now), done: !!mine[x.id],
+        result: mine[x.id] ? { total: mine[x.id].total, max: mine[x.id].max, percent: mine[x.id].percent, at: mine[x.id].at } : null };
+    }) };
+  }
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    var L2 = vbPapersOf_(S);
+    if (act === 'vbPaperDelete') {
+      var id = String(p.id || ''), n0 = L2.length; L2 = L2.filter(function (x) { return x.id !== id; });
+      if (L2.length === n0) return { ok: false, error: 'This official viva no longer exists — reload.' };
+      setSetting_('vivapapers:' + S, JSON.stringify(L2)); return { ok: true };
+    }
+    var x = p.paper || {}, have = {}; vbRows_(M).forEach(function (r) { have[String(r.id)] = 1; });
+    var qids = (Array.isArray(x.qids) ? x.qids : []).map(String).filter(function (q, i, a) { return have[q] && a.indexOf(q) === i; }).slice(0, 60);
+    if (!dirStr_(x.title, 120)) return { ok: false, error: 'Give the official viva a title.' };
+    if (!qids.length) return { ok: false, error: 'Choose the questions (none of them is in the viva bank).' };
+    var mins = Math.round(Number(x.mins) || 0); if (mins < 0 || mins > 240) return { ok: false, error: 'Time limit: 0 (none) to 240 minutes.' };
+    var opensAt = Number(x.opensAt) || null, closesAt = Number(x.closesAt) || null;
+    if (opensAt && closesAt && closesAt <= opensAt) return { ok: false, error: 'The closing time must be after the opening time.' };
+    var old = x.id ? L2.filter(function (y) { return y.id === String(x.id); })[0] : null;
+    if (x.id && !old) return { ok: false, error: 'This official viva no longer exists — reload.' };
+    if (!old && L2.length >= VB_PAPER_MAX) return { ok: false, error: 'At most ' + VB_PAPER_MAX + ' official vivas per group page.' };
+    var c = { id: old ? old.id : 'VP' + now.toString(36) + randomHex_(2), title: dirStr_(x.title, 120), qids: qids, mins: mins, opensAt: opensAt, closesAt: closesAt,
+      annual: x.annual === true || x.annual === 'true', status: { draft: 1, open: 1, closed: 1 }[x.status] ? x.status : 'draft', createdAt: old ? old.createdAt : now, updatedAt: now };
+    if (old) L2 = L2.map(function (y) { return y.id === c.id ? c : y; }); else L2.push(c);
+    setSetting_('vivapapers:' + S, JSON.stringify(L2));
+    return { ok: true, paper: Object.assign({}, c, { window: vbPaperWindow_(c, now) }) };
+  } finally { lock.releaseLock(); }
 }

@@ -39,12 +39,107 @@ Views.viva = {
     this.loading = true; this.err = ''; this.render();
     const r = Backend.isConfigured() ? await Backend.rawPost({ action: 'vbList' }, { timeout: 60000 }) : { ok: false, code: 'config' };
     this.loading = false;
-    if (r && r.ok) { this.items = r.items || []; this.teacher = !!r.teacher; this.canEdit = !!r.canEdit; }
+    if (r && r.ok) { this.items = r.items || []; this.teacher = !!r.teacher; this.canEdit = !!r.canEdit; this.loadPapers(); this.restoreRun(); }
     else this.err = !r || r.code === 'config' ? 'The viva examination is on the class server — it is not available in this offline copy.'
       : /unknown action/i.test(r.error || '') || r.code === 'outdated' ? 'The class server needs updating (Portal.gs 2.45) before the viva can open — tell your teacher.' : (r.error || 'The viva bank could not be loaded.');
     this.render();
   },
   isTeacher() { return this.teacher && Auth.isTeacher(); },
+  /* ---------- 💾 a running mock survives a reload or a sleeping tablet (same end time; answers, flags, marks) ---------- */
+  runKey() { return 'viva_run_v1'; },
+  owner() { try { return (window.NEO_BOOT && NEO_BOOT.studentToken && NEO_BOOT.studentToken()) || (Backend.token && Backend.token()) || ''; } catch (e) { return ''; } },
+  saveRun() {
+    const R = this.run; if (!R || R.mode !== 'mock' || R.recorded) return;
+    try { Store.set(this.runKey(), { v: 1, who: String(this.owner()).slice(-24), label: R.label, tids: R.tids, qids: R.qs.map(q => q.id), i: R.i, ans: R.ans, flag: R.flag || {}, sel: R.sel, at: R.at, mins: R.mins,
+      deadline: R.deadline, submitted: !!R.submitted, timeUp: !!R.timeUp, usedMs: R.usedMs || 0, paperId: R.paperId || '', screen: this.screen }); } catch (e) { }
+  },
+  clearRun() { try { Store.del(this.runKey()); } catch (e) { } },
+  restoreRun() {
+    let d = null; try { d = Store.get(this.runKey(), null); } catch (e) { }
+    if (!d || d.v !== 1 || this.run) return;
+    if (d.who && d.who !== String(this.owner()).slice(-24)) { this.clearRun(); return; }   // another person on this device
+    const by = new Map((this.items || []).map(q => [q.id, q])), qs = (d.qids || []).map(id => by.get(id)).filter(Boolean);
+    if (!qs.length || qs.length !== (d.qids || []).length) { this.clearRun(); return; }
+    this.run = { mode: 'mock', label: d.label, tids: d.tids, qs, i: Math.min(d.i || 0, qs.length - 1), ans: d.ans || {}, flag: d.flag || {}, sel: d.sel || {}, at: d.at, mins: d.mins, deadline: d.deadline,
+      submitted: !!d.submitted, timeUp: !!d.timeUp, usedMs: d.usedMs || 0, paperId: d.paperId || '' };
+    this.screen = d.submitted ? 'mockmark' : (d.screen === 'mockreview' ? 'mockreview' : 'mock');
+    toast('Your unfinished mock viva was restored' + (this.run.deadline && !this.run.submitted ? ' — the timer kept running.' : '.'), 'info', 6000);
+    if (!this.run.submitted && this.run.deadline) { if (this.run.deadline <= Date.now()) setTimeout(() => this.submitMock(true), 50); else this.startTimer(); }
+  },
+  /* ---------- 📌 official vivas (Portal.gs 2.47) ---------- */
+  async loadPapers() {
+    const r = await Backend.rawPost({ action: 'vbPapers' }, { timeout: 30000 });
+    this.papers = r && r.ok ? r.papers || [] : null; if (this.screen === 'home') this.render();
+  },
+  papersBox() {
+    const L = this.papers, teacher = this.isTeacher(); if (!L || (!L.length && !teacher)) return null;
+    const when = x => [x.opensAt ? 'opens ' + new Date(x.opensAt).toLocaleString() : '', x.closesAt ? 'closes ' + new Date(x.closesAt).toLocaleString() : ''].filter(Boolean).join(' · ');
+    const W = { open: ['Open', 'ok'], upcoming: ['Not open yet', 'plain'], closed: ['Closed', 'plain'], draft: ['Draft — students do not see it', 'plain'] };
+    const box = el('div', { class: 'vv-papers', 'data-a': 'vv-papers' }, el('div', { class: 'vv-setup-h' }, el('b', null, '📌 Official vivas'),
+      el('span', { class: 'small muted' }, teacher ? 'Fixed papers for this group: the same questions for everyone, one attempt, optional count in the 🏅 Annual Assessment.' : 'Set by your teacher — one attempt each.')));
+    if (!L.length) box.appendChild(el('p', { class: 'small muted', style: 'margin:.2rem 0' }, 'None yet.'));
+    L.forEach(x => {
+      const n = (x.qids || []).filter(id => (this.items || []).some(q => q.id === id)).length, w = W[x.window] || W.closed;
+      const row = el('div', { class: 'vv-paper', 'data-paper': x.id },
+        el('div', { class: 't' }, el('b', null, x.title), el('div', { class: 'small muted' }, plural(n, 'question') + ' · ' + (x.mins ? x.mins + ' min' : 'no time limit') + (when(x) ? ' · ' + when(x) : '') + (x.annual ? ' · counts in the Annual Assessment' : '') + (teacher ? ' · taken by ' + (x.taken || 0) : ''))),
+        el('span', { class: 'badge ' + (x.done ? 'ok' : w[1]) }, x.done ? '✓ Done ' + vivaNum(x.result.total) + '/' + vivaNum(x.result.max) + ' (' + x.result.percent + '%)' : w[0]));
+      if (!teacher && x.window === 'open' && !x.done) row.appendChild(el('button', { class: 'btn btn-sm btn-primary', 'data-a': 'vv-paper-start', onclick: () => this.startPaper(x) }, '▶ Start'));
+      if (teacher) row.appendChild(el('div', { class: 'row', style: 'gap:.3rem;flex-wrap:wrap' },
+        el('button', { class: 'btn btn-xs', onclick: () => this.paperDialog(x) }, '✎ Edit'),
+        el('button', { class: 'btn btn-xs', onclick: () => { this.f.paper = x.id; this.openResults(); } }, '📊 Results'),
+        el('button', { class: 'btn btn-xs', title: 'Delete (results are kept)', onclick: async () => { if (!(await confirmDialog('Delete the official viva “' + x.title + '”? Results already recorded are kept.', { title: 'Delete?', danger: true, okLabel: 'Delete' }))) return; const r = await Backend.authedPost({ action: 'vbPaperDelete', id: x.id }); if (r && r.ok) this.loadPapers(); else toast((r && r.error) || 'Not deleted.', 'bad'); } }, '🗑')));
+      box.appendChild(row);
+    });
+    if (teacher) box.appendChild(el('div', { style: 'margin-top:.5rem' }, el('button', { class: 'btn btn-sm', 'data-a': 'vv-paper-new', onclick: () => this.paperDialog(null) }, '＋ New official viva from the current selection')));
+    return box;
+  },
+  /** create / edit a paper: questions drawn ONCE from the toolbar selection (redraw possible while editing) */
+  paperDialog(x) {
+    const pool = this.pool(), dt = v => { if (!v) return ''; const d = new Date(v); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
+    let qids = x ? x.qids.slice() : shuffle(pool.map(q => q.id)).slice(0, Math.min(5, pool.length));
+    const title = el('input', { value: x ? x.title : '', placeholder: 'e.g. Week 3 viva — Acute inflammation', 'data-a': 'vp-title', style: 'width:100%' });
+    const nIn = el('input', { type: 'number', min: '1', max: String(Math.max(1, pool.length)), value: String(qids.length), style: 'width:5rem', 'data-a': 'vp-n' });
+    const mins = el('input', { type: 'number', min: '0', max: '240', value: String(x ? x.mins : 15), style: 'width:5rem', 'data-a': 'vp-mins' });
+    const op = el('input', { type: 'datetime-local', value: dt(x && x.opensAt) }), cl = el('input', { type: 'datetime-local', value: dt(x && x.closesAt) });
+    const st = el('select', { 'data-a': 'vp-status' }, [['draft', 'Draft (hidden from students)'], ['open', 'Open'], ['closed', 'Closed']].map(o => el('option', { value: o[0], selected: (x ? x.status : 'open') === o[0] }, o[1])));
+    const ann = el('input', { type: 'checkbox', checked: x ? !!x.annual : false, 'data-a': 'vp-annual' });
+    const list = el('ol', { class: 'small', style: 'max-height:12rem;overflow:auto;margin:.3rem 0' });
+    const paint = () => { clear(list); qids.forEach(id => { const q = (this.items || []).find(y => y.id === id); if (q) list.appendChild(el('li', null, 'T' + topicNum(q.topic) + ' · ' + q.q)); }); };
+    const redraw = el('button', { type: 'button', class: 'btn btn-xs', onclick: () => { const n = Math.max(1, Math.min(pool.length, Math.round(Number(nIn.value) || 1))); qids = shuffle(pool.map(q => q.id)).slice(0, n); nIn.value = String(n); paint(); } }, '🎲 Draw from the current selection (' + pool.length + ' available)');
+    paint();
+    const body = el('div', { class: 'vv-pform' },
+      el('label', null, 'Title', title),
+      el('div', { class: 'row', style: 'gap:.8rem;flex-wrap:wrap;align-items:center' }, el('label', null, 'Questions ', nIn), redraw),
+      el('div', { class: 'small muted' }, 'Selection: ' + this.selLabel() + ' — every student gets exactly these questions:'), list,
+      el('div', { class: 'row', style: 'gap:.8rem;flex-wrap:wrap' }, el('label', null, '⏱ Minutes (0 = none) ', mins), el('label', null, 'Status ', st)),
+      el('div', { class: 'row', style: 'gap:.8rem;flex-wrap:wrap' }, el('label', null, 'Opens ', op), el('label', null, 'Closes ', cl)),
+      el('label', { style: 'display:flex;gap:.4rem;align-items:center' }, ann, 'Counts in the 🏅 Annual Assessment (as one more quiz, by %)'));
+    openModal({ title: x ? '✎ Edit official viva' : '📌 New official viva', wide: true, body, actions: [{ label: 'Cancel' }, { label: '💾 Save', primary: true, onClick: async () => {
+      const r = await Backend.authedPost({ action: 'vbPaperSave', paper: { id: x ? x.id : '', title: title.value.trim(), qids, mins: Number(mins.value) || 0, status: st.value, annual: ann.checked,
+        opensAt: op.value ? new Date(op.value).getTime() : null, closesAt: cl.value ? new Date(cl.value).getTime() : null } }, { timeout: 30000 });
+      if (!(r && r.ok)) { toast((r && r.error) || 'Not saved.', 'bad', 7000); return false; }
+      toast('Official viva saved.', 'ok'); this.loadPapers(); return true;
+    } }] });
+  },
+  startPaper(x) {
+    const by = new Map((this.items || []).map(q => [q.id, q])), qs = x.qids.map(id => by.get(id)).filter(Boolean);
+    if (!qs.length) { toast('This official viva has no questions in the bank — tell your teacher.', 'bad'); return; }
+    confirmDialog('“' + x.title + '”: ' + plural(qs.length, 'question') + ', ' + (x.mins ? x.mins + ' minutes' : 'no time limit') + '. You have ONE attempt; the timer starts now and keeps running even if you leave the page.', { title: '📌 Start the official viva?', okLabel: '▶ Start Examination' }).then(ok => {
+      if (!ok) return;
+      this.run = { mode: 'mock', label: '📌 ' + x.title, tids: [...new Set(qs.map(q => q.topic))], qs, i: 0, ans: {}, flag: {}, sel: {}, at: Date.now(), mins: x.mins || 0, deadline: x.mins ? Date.now() + x.mins * 60000 : 0, submitted: false, paperId: x.id };
+      if (x.mins) this.startTimer(); this.go('mock');
+    });
+  },
+  /* ---------- 🎯 practice what I missed (from my recorded mocks) ---------- */
+  async weakPractice() {
+    if (!this.mine || this.mine.error) { const r = await Backend.rawPost({ action: 'vbMine' }, { timeout: 60000 }); this.mine = r && r.ok ? r.results : { error: (r && r.error) || 'network' }; }
+    if (this.mine.error) { toast(this.mine.error, 'bad'); return; }
+    const by = new Map(this.pool().map(q => [q.id, q])), ids = [];
+    this.mine.forEach(x => (x.items || []).forEach(it => { if ((it.got || []).some(g => !g) && by.has(it.id) && !ids.includes(it.id)) ids.push(it.id); }));
+    if (!ids.length) { toast('No missed points in your recorded mock vivas for this selection — well done (or take a 📝 Mock Viva first).', 'info', 7000); return; }
+    this.run = { mode: 'practice', label: '🎯 My weak points · ' + this.selLabel(), tids: [...new Set(ids.map(id => by.get(id).topic))], qs: ids.map(id => by.get(id)), i: 0, ans: {}, shown: {}, got: {}, deadline: 0 };
+    this.go('practice');
+  },
   bank(tids) { const set = new Set(tids); return (this.items || []).filter(q => set.has(q.topic)).sort((a, b) => ((VIVA_LEVEL[a.level] || [0, 2])[1] - (VIVA_LEVEL[b.level] || [0, 2])[1]) || String(a.id).localeCompare(String(b.id))); },
   css() {
     if (document.getElementById('vv-css')) return;
@@ -59,6 +154,9 @@ Views.viva = {
       '@keyframes vvpulse{50%{opacity:.55}}' +
       '.vv-navgrid{display:flex;flex-wrap:wrap;gap:.35rem;margin:-.2rem 0 .7rem}.vv-nq{min-width:2.2rem;height:2.2rem;border-radius:8px;border:1px solid #c9d2dc;background:#fff;font:inherit;font-weight:700;cursor:pointer}.vv-nq.done{background:#dcf3e6;border-color:#9fd3b4;color:#1b7f3b}.vv-nq.cur{outline:3px solid var(--teal,#0f766e);outline-offset:1px}' +
       '.vv-tbl tr.vv-unans td{background:#fff8f0}' +
+      '.vv-flag{float:right;margin-left:.5rem}.vv-flag.on{background:#fff4e0;border-color:#e0b25c;color:#8a5a00;font-weight:700}.vv-nq{position:relative}.vv-flagdot{color:#c27c00;font-size:.75rem;margin-left:.1rem}' +
+      '.vv-papers{border:1px solid #e0cfa0;background:#fffbf2;border-radius:14px;padding:.75rem .9rem;margin:0 0 .9rem}.vv-paper{display:flex;flex-wrap:wrap;gap:.4rem .8rem;align-items:center;border-top:1px solid #f0e3c4;padding:.5rem 0}' +
+      '.vv-paper .t{flex:1 1 260px;min-width:0}.vv-pform label{display:block;margin:.45rem 0}.vv-pform input[type=datetime-local]{max-width:100%}' +
       '.vv-bar{position:sticky;top:0;z-index:5;background:#f7fafc;border:1px solid var(--line,#d5dde7);border-radius:12px;padding:.55rem .75rem;margin:.4rem 0 .8rem;display:flex;flex-wrap:wrap;gap:.35rem .9rem;align-items:center}' +
       '.vv-chip{border-radius:999px;padding:.08rem .6rem;font-size:.78rem;font-weight:700;background:#eef3f9;color:var(--navy,#0b2340)}.vv-chip.practice{background:#e6f5f4;color:#0f766e}.vv-chip.mock{background:#fff4e0;color:#8a5a00}.vv-chip.examiner{background:#f0e9ff;color:#5b21b6}' +
       '.vv-prog{flex:1 1 140px;height:.45rem;background:#e3e9f0;border-radius:999px;overflow:hidden;min-width:100px}.vv-prog i{display:block;height:100%;background:var(--teal,#0f766e)}' +
@@ -84,6 +182,7 @@ Views.viva = {
     page.appendChild(uxPageHead('viva', 'Viva Examination', 'Oral examination by topic: practise, sit a mock viva, or be examined by your teacher.'));
     if (this.loading && !this.items) { page.appendChild(el('p', { class: 'muted' }, 'Loading the viva bank…')); return; }
     if (this.err) { page.appendChild(el('div', { class: 'msg warn' }, this.err, ' ', el('button', { class: 'btn btn-sm', onclick: () => this.load() }, '↻ Try again'))); return; }
+    if (this.run && this.run.mode === 'mock' && !this.run.recorded) this.saveRun();
     const S = { home: this.home, practice: this.practice, mock: this.mockRun, mockreview: this.mockReview, mockmark: this.mockMark, mockres: this.mockResult, exsetup: this.exSetup, exam: this.examRun, results: this.resultsPage, mine: this.minePage }[this.screen] || this.home;
     S.call(this, page);
   },
@@ -115,6 +214,8 @@ Views.viva = {
     }
     if (tools.childNodes.length) page.appendChild(tools);
     if (!total) { page.appendChild(el('div', { class: 'msg info' }, this.canEdit ? 'No viva questions yet — ⬆ Import viva bank (the file you were given), from ✏️ Edit master draft.' : 'No viva questions for this module yet.')); return; }
+    if (this.run && this.run.mode === 'mock' && !this.run.submitted && !this.run.recorded) page.appendChild(el('div', { class: 'msg warn', 'data-a': 'vv-resume' }, '⏱ You have an examination in progress. ', el('button', { class: 'btn btn-sm btn-primary', onclick: () => this.go('mock') }, '▶ Back to it')));
+    const pb = this.papersBox(); if (pb) page.appendChild(pb);
     const cnt = {}, types = {}; (this.items || []).forEach(q => { cnt[q.topic] = (cnt[q.topic] || 0) + 1; if (q.type) types[q.type] = 1; });
     const re = () => { this.render(); };
     const tsel = el('select', { 'aria-label': 'Topic', 'data-a': 'vv-f-topic', onchange: e => { f.topic = e.target.value; re(); } }, el('option', { value: '' }, 'All topics (' + total + ')'),
@@ -172,6 +273,7 @@ Views.viva = {
       ctl.appendChild(timeSel('pmins', 0));
       const pm = S.pmins || 0; grid.appendChild(row('Time limit', pm ? pm + ' minutes (optional)' : 'No timer'));
       start = el('button', { class: 'btn btn-primary btn-lg', 'data-a': 'vv-start', onclick: () => this.startPractice(pm) }, '▶ Start practice (' + plural(n, 'question') + ')');
+      if (!this.isTeacher() && Backend.isConfigured()) ctl.appendChild(el('button', { class: 'btn btn-sm', 'data-a': 'vv-weak', title: 'Questions in which you missed marking points in your recorded mock vivas', onclick: () => this.weakPractice() }, '🎯 Practise my weak points'));
     } else {
       start = el('button', { class: 'btn btn-primary btn-lg', 'data-a': 'vv-exam-new', onclick: () => this.go('exsetup') }, '🧑‍⚕️ Choose the student and start…');
     }
@@ -192,7 +294,7 @@ Views.viva = {
       if (left <= 30000 && !R.w30) { R.w30 = true; toast('⏱ 30 seconds left!', 'bad', 5000); }
       if (left <= 0) {
         if (R.mode === 'mock') this.submitMock(true);
-        else { R.deadline = 0; R.timeUp = true; this.stopTimer(); toast('⏱ Time is up for this practice — you can carry on without the timer.', 'warn', 7000); this.render(); }
+        else { R.deadline = 0; R.timeUp = true; this.stopTimer(); toast(R.mode === 'examiner' ? '⏱ Time is up for this student.' : '⏱ Time is up for this practice — you can carry on without the timer.', 'warn', 7000); this.render(); }
       }
     }, 1000);
   },
@@ -255,19 +357,22 @@ Views.viva = {
   },
   navGrid(R, cur) {
     return el('div', { class: 'vv-navgrid', role: 'navigation', 'aria-label': 'Questions' }, R.qs.map((q, k) => el('button', { type: 'button', class: 'vv-nq' + (String(R.ans[q.id] || '').trim() ? ' done' : '') + (k === cur ? ' cur' : ''),
-      'aria-label': 'Question ' + (k + 1) + (String(R.ans[q.id] || '').trim() ? ' (answered)' : ' (not answered)'), onclick: () => { R.i = k; this.go('mock'); } }, String(k + 1))));
+      'aria-label': 'Question ' + (k + 1) + (String(R.ans[q.id] || '').trim() ? ' (answered)' : ' (not answered)') + ((R.flag || {})[q.id] ? ', flagged' : ''), onclick: () => { R.i = k; this.go('mock'); } }, String(k + 1), (R.flag || {})[q.id] ? el('span', { class: 'vv-flagdot' }, '⚑') : null)));
   },
   mockRun(page) {
     const R = this.run, q = R.qs[R.i]; if (!q || R.submitted) return this.go(R && R.submitted ? 'mockmark' : 'home');
     const max = R.qs.reduce((a, x) => a + Number(x.max), 0), answered = R.qs.filter(x => String(R.ans[x.id] || '').trim()).length;
     page.appendChild(this.bar('mock', R.label, R.i, R.qs.length, q.max, el('span', { class: 'small muted' }, 'Total ' + vivaNum(max) + ' marks · ' + answered + '/' + R.qs.length + ' answered'), this.timerEl()));
     page.appendChild(this.navGrid(R, R.i));
-    const box = el('div', { class: 'vv-q' }); box.appendChild(this.qHead(q, R.i + 1));
+    const box = el('div', { class: 'vv-q' }); R.flag = R.flag || {};
+    box.appendChild(el('button', { type: 'button', class: 'btn btn-xs vv-flag' + (R.flag[q.id] ? ' on' : ''), 'data-a': 'vv-flag', 'aria-pressed': String(!!R.flag[q.id]), onclick: () => { R.flag[q.id] = !R.flag[q.id]; this.render(); } }, R.flag[q.id] ? '⚑ Flagged for review' : '⚐ Flag for review'));
+    box.appendChild(this.qHead(q, R.i + 1));
     const ta = el('textarea', { placeholder: 'Write your answer as you would say it to the examiner. The model answer appears only after you submit the examination.', 'aria-label': 'Your answer' }); ta.value = R.ans[q.id] || '';
-    ta.addEventListener('input', () => { const had = !!String(R.ans[q.id] || '').trim(); R.ans[q.id] = ta.value; if (had !== !!ta.value.trim()) { const b = page.querySelectorAll('.vv-nq')[R.i]; if (b) b.classList.toggle('done', !!ta.value.trim()); } });
+    const keep = debounce(() => this.saveRun(), 400);
+    ta.addEventListener('input', () => { const had = !!String(R.ans[q.id] || '').trim(); R.ans[q.id] = ta.value; keep(); if (had !== !!ta.value.trim()) { const b = page.querySelectorAll('.vv-nq')[R.i]; if (b) b.classList.toggle('done', !!ta.value.trim()); } });
     box.appendChild(ta); page.appendChild(box);
     const last = R.i === R.qs.length - 1;
-    page.appendChild(el('div', { class: 'vv-nav' }, el('button', { class: 'btn', onclick: async () => { if (await confirmDialog('Leave this mock viva? Your answers are lost and nothing is recorded.', { title: 'Leave?', okLabel: 'Leave' })) { this.stopTimer(); this.run = null; this.go('home'); } } }, '✕ Leave'),
+    page.appendChild(el('div', { class: 'vv-nav' }, el('button', { class: 'btn', onclick: async () => { if (await confirmDialog(R.paperId ? 'Leave the official viva? It is NOT submitted; the timer keeps running and you can come back to it.' : 'Leave this mock viva? Your answers are lost and nothing is recorded.', { title: 'Leave?', okLabel: 'Leave' })) { if (R.paperId) { this.go('home'); return; } this.stopTimer(); this.clearRun(); this.run = null; this.go('home'); } } }, '✕ Leave'),
       el('div', { class: 'row', style: 'gap:.5rem;flex-wrap:wrap' }, el('button', { class: 'btn', disabled: !R.i, onclick: () => { R.i--; this.render(); } }, '◀ Previous'),
         last ? null : el('button', { class: 'btn btn-primary', 'data-a': 'vv-next', onclick: () => { R.i++; this.render(); } }, 'Next ▶'),
         el('button', { class: 'btn' + (last ? ' btn-primary' : ''), 'data-a': 'vv-review', onclick: () => this.go('mockreview') }, '📋 Review answers'))));
@@ -275,12 +380,13 @@ Views.viva = {
   /** review before submitting: every question, answered or not, with a jump back; then submit (confirmation) */
   mockReview(page) {
     const R = this.run; if (!R || R.submitted) return this.go(R ? 'mockmark' : 'home');
-    const blank = R.qs.filter(x => !String(R.ans[x.id] || '').trim()).length;
+    const blank = R.qs.filter(x => !String(R.ans[x.id] || '').trim()).length, flagged = R.qs.filter(x => (R.flag || {})[x.id]).length;
     page.appendChild(this.bar('mock', R.label, 0, 0, 0, el('span', { class: 'small' }, el('b', null, 'Review your answers'), ' · ' + (R.qs.length - blank) + '/' + R.qs.length + ' answered'), this.timerEl()));
     if (blank) page.appendChild(el('div', { class: 'msg warn' }, plural(blank, 'question') + ' not answered yet — open it to answer, or submit as it is.'));
+    if (flagged) page.appendChild(el('div', { class: 'msg info' }, '⚑ ' + plural(flagged, 'question') + ' flagged for review.'));
     const tb = el('table', { class: 'vv-tbl', 'data-a': 'vv-review-tbl' }, el('thead', null, el('tr', null, ['#', 'Question', 'Your answer', ''].map(h => el('th', null, h)))),
       el('tbody', null, R.qs.map((q, k) => { const a = String(R.ans[q.id] || '').trim();
-        return el('tr', { class: a ? '' : 'vv-unans' }, el('td', null, String(k + 1)), el('td', null, q.q), el('td', { class: 'small' }, a ? (a.length > 140 ? a.slice(0, 140) + '…' : a) : el('b', { class: 'vv-miss' }, 'Not answered')),
+        return el('tr', { class: a ? '' : 'vv-unans' }, el('td', null, String(k + 1), (R.flag || {})[q.id] ? el('span', { class: 'vv-flagdot', title: 'Flagged' }, ' ⚑') : null), el('td', null, q.q), el('td', { class: 'small' }, a ? (a.length > 140 ? a.slice(0, 140) + '…' : a) : el('b', { class: 'vv-miss' }, 'Not answered')),
           el('td', null, el('button', { class: 'btn btn-xs', onclick: () => { R.i = k; this.go('mock'); } }, a ? 'Edit' : 'Answer'))); })));
     page.appendChild(el('div', { class: 'table-scroll' }, tb));
     page.appendChild(el('div', { class: 'vv-nav' }, el('button', { class: 'btn', onclick: () => this.go('mock') }, '◀ Back to the questions'),
@@ -317,15 +423,16 @@ Views.viva = {
       el('button', { class: 'btn btn-primary', 'data-a': 'vv-finish', disabled: !!left || !!R.finishing, onclick: () => this.finishMock() }, '🏁 See my result')));
   },
   async finishMock() {
-    const R = this.run; if (R.finishing) return; R.finishing = true;
+    const R = this.run; if (R.finishing && !R.saveFailed) return; R.finishing = true;
     R.items = R.qs.map(q => { const sel = R.sel[q.id] || {}; return { id: q.id, topic: q.topic, q: q.q, max: Number(q.max), mark: Object.values(sel).reduce((a, b) => a + b, 0), got: (q.points || []).map((p, k) => (sel[k] || 0) >= Number(p.m)), answer: String(R.ans[q.id] || '').slice(0, 1500) }; });
     R.total = R.items.reduce((a, x) => a + x.mark, 0); R.max = R.items.reduce((a, x) => a + x.max, 0); R.saved = '';
     const used = this.timerText(R.usedMs || 0), note = (R.timeUp ? 'Submitted automatically — time expired. ' : '') + 'Time used ' + used + (R.mins ? ' of ' + R.mins + ':00' : '') + '.';
     this.go('mockres');
     if (!this.isTeacher() && Backend.isConfigured()) {
-      const r = await Backend.rawPost({ action: 'vbResult', topicIds: R.tids, topics: R.label, comment: note, items: R.items }, { timeout: 60000 });
-      R.saved = r && r.ok ? 'ok' : ((r && r.error) || 'network'); this.render();
-    } else { R.saved = 'preview'; this.render(); }
+      const r = await Backend.rawPost({ action: 'vbResult', topicIds: R.tids, topics: R.label, comment: note, items: R.items, paperId: R.paperId || '' }, { timeout: 60000 });
+      R.saved = r && r.ok ? 'ok' : ((r && r.error) || 'network'); if (r && (r.ok || r.code === 'done' || r.code === 'closed')) { R.recorded = true; this.clearRun(); }
+      if (R.paperId) this.loadPapers(); this.mine = null; this.render();
+    } else { R.saved = 'preview'; R.recorded = true; this.clearRun(); this.render(); }
   },
   mockResult(page) {
     const R = this.run, pct = R.max ? Math.round(R.total / R.max * 1000) / 10 : 0;
@@ -349,7 +456,7 @@ Views.viva = {
     const W = Object.keys(weak);
     page.appendChild(el('div', { class: 'msg ' + (W.length ? 'warn' : 'ok') }, W.length ? 'Revise in Learn: ' : 'Well done — every point covered.',
       W.map((t, k) => el('span', null, k ? ' · ' : '', el('a', { href: '#/explain/' + t }, '📖 ' + vivaTopicLabel(t))))));
-    page.appendChild(el('div', { class: 'vv-nav' }, el('button', { class: 'btn', onclick: () => this.go('home') }, '← Viva'), el('button', { class: 'btn btn-primary', onclick: () => this.startMock() }, '↻ Another mock viva with the same settings')));
+    page.appendChild(el('div', { class: 'vv-nav' }, el('button', { class: 'btn', onclick: () => this.go('home') }, '← Viva'), R.paperId ? null : el('button', { class: 'btn btn-primary', onclick: () => this.startMock() }, '↻ Another mock viva with the same settings')));
   },
   /* ---------- 🧑‍⚕️ Examiner Mode ---------- */
   async exSetup(page) {
@@ -370,7 +477,10 @@ Views.viva = {
     const P = this.pool();   // the questions selected in the toolbar (topic · type · difficulty · search)
     page.appendChild(el('div', { class: 'vv-setup' }, el('div', { class: 'vv-kvs' }, el('div', { class: 'vv-kv' }, el('span', null, 'Questions'), el('b', null, this.selLabel())), el('div', { class: 'vv-kv' }, el('span', null, 'Available'), el('b', null, String(P.length)))),
       el('div', { class: 'small muted', style: 'margin-top:.3rem' }, 'Change the selection with the toolbar on the Viva page (← Back).')));
-    const start = el('button', { class: 'btn btn-primary', 'data-a': 'vv-exam-start', onclick: () => { this.run = { mode: 'examiner', label: this.selLabel(), pool: P, tids: [...new Set(P.map(q => q.topic))], student: X.student, done: [], cur: null, sel: {}, fu: {}, over: '', note: '', comment: '', at: Date.now() }; this.go('exam'); } }, '▶ Start the viva');
+    const start = el('button', { class: 'btn btn-primary', 'data-a': 'vv-exam-start' }, '▶ Start the viva');   // its action is set below (with the timer)
+    const exMin = el('select', { 'aria-label': 'Examiner timer', 'data-a': 'vv-ex-time', onchange: e => { X.mins = Number(e.target.value); } }, [[0, 'No timer'], [5, '5 minutes'], [10, '10 minutes'], [15, '15 minutes'], [20, '20 minutes'], [30, '30 minutes']].map(o => el('option', { value: String(o[0]), selected: Number(X.mins || 0) === o[0] }, o[1])));
+    page.appendChild(el('label', { class: 'vv-ctl', style: 'margin:.6rem 0' }, el('span', null, '⏱ Time per student'), exMin));
+    start.onclick = () => { this.run = { mode: 'examiner', label: this.selLabel(), pool: P, tids: [...new Set(P.map(q => q.topic))], student: X.student, done: [], cur: null, sel: {}, fu: {}, over: '', note: '', comment: '', at: Date.now(), deadline: X.mins ? Date.now() + X.mins * 60000 : 0 }; if (X.mins) this.startTimer(); this.go('exam'); };
     const upd = () => { start.disabled = !(X.student && P.length); }; upd();
     page.appendChild(el('div', { class: 'vv-nav' }, el('button', { class: 'btn', onclick: () => this.go('home') }, '← Back'), start));
     paint();
@@ -379,7 +489,8 @@ Views.viva = {
   examRun(page) {
     const R = this.run, pool = R.pool || this.bank(R.tids), used = new Set(R.done.map(d => d.id)), total = R.done.reduce((a, d) => a + d.mark, 0), max = R.done.reduce((a, d) => a + d.max, 0);
     page.appendChild(this.bar('examiner', R.label || 'Viva', R.done.length + (R.cur ? 0 : -1), 0, 0,
-      el('span', { class: 'small' }, el('b', null, R.student.name + ' · ' + R.student.username), ' · asked ' + R.done.length + ' · ', el('b', null, vivaNum(total) + ' / ' + vivaNum(max)))));
+      el('span', { class: 'small' }, el('b', null, R.student.name + ' · ' + R.student.username), ' · asked ' + R.done.length + ' · ', el('b', null, vivaNum(total) + ' / ' + vivaNum(max))), this.timerEl()));
+    if (R.timeUp) page.appendChild(el('div', { class: 'msg warn', 'data-a': 'vv-ex-timeup' }, '⏱ The time for this student is up — finish the current question and record the viva.'));
     if (!R.cur) {
       const box = el('div', { class: 'vv-q' }); box.appendChild(el('h3', null, 'Choose the next question'));
       box.appendChild(el('button', { class: 'btn btn-primary', 'data-a': 'vv-draw', disabled: pool.every(q => used.has(q.id)), onclick: () => { const c = shuffle(pool.filter(q => !used.has(q.id)))[0]; if (c) { R.cur = c; R.sel = {}; R.fu = {}; R.over = ''; R.note = ''; this.render(); } } }, '🎲 Draw a random question'));
@@ -417,7 +528,7 @@ Views.viva = {
       page.appendChild(com);
     }
     page.appendChild(el('div', { class: 'vv-nav' }, el('button', { class: 'btn', onclick: async () => { if (!R.done.length || await confirmDialog('Leave without saving this viva?', { title: 'Leave?', okLabel: 'Leave' })) this.go('home'); } }, '✕ Leave'),
-      el('button', { class: 'btn btn-primary', 'data-a': 'vv-exam-save', disabled: !R.done.length || !!R.cur, onclick: () => this.saveExam() }, '💾 Finish and record (' + vivaNum(total) + ' / ' + vivaNum(max) + ')')));
+      el('button', { class: 'btn btn-primary', 'data-a': 'vv-exam-save', disabled: !R.done.length || !!R.cur, onclick: () => { this.stopTimer(); this.saveExam(); } }, '💾 Finish and record (' + vivaNum(total) + ' / ' + vivaNum(max) + ')')));
   },
   async saveExam() {
     const R = this.run, me = (Auth.teacherName && Auth.teacherName()) || 'Teacher';
@@ -453,7 +564,8 @@ Views.viva = {
     page.appendChild(el('h3', null, '📊 Viva results'));
     const L0 = this.results; if (!L0) { page.appendChild(el('p', { class: 'muted' }, 'Loading…')); return; }
     if (L0.error) { page.appendChild(el('div', { class: 'msg warn' }, L0.error)); return; }
-    const f = this.f, s = normText(f.q || ''), L = L0.filter(x => (!f.mode || x.mode === f.mode) && (!f.topic || x.topicIds.includes(f.topic)) && (!s || normText(x.name + ' ' + x.studentId).includes(s)));
+    const f = this.f, s = normText(f.q || ''), L = L0.filter(x => (!f.mode || x.mode === f.mode) && (!f.topic || x.topicIds.includes(f.topic)) && (!f.paper || x.paperId === f.paper) && (!s || normText(x.name + ' ' + x.studentId).includes(s)));
+    if (f.paper) page.appendChild(el('div', { class: 'msg info' }, '📌 Only this official viva. ', el('button', { class: 'btn btn-xs', onclick: () => { f.paper = ''; this.render(); } }, 'Show all results')));
     page.appendChild(el('div', { class: 'row', style: 'gap:.5rem;flex-wrap:wrap;margin-bottom:.6rem' },
       el('input', { type: 'search', placeholder: 'Student or ID', value: f.q, style: 'flex:1 1 180px;min-width:0', oninput: e => { f.q = e.target.value; clearTimeout(this._t); this._t = setTimeout(() => this.render(), 250); } }),
       el('select', { 'aria-label': 'Mode', onchange: e => { f.mode = e.target.value; this.render(); } }, [['', 'All modes'], ['examiner', '🧑‍⚕️ Examiner-marked'], ['mock', '📝 Mock (self-assessed)']].map(o => el('option', { value: o[0], selected: f.mode === o[0] }, o[1]))),

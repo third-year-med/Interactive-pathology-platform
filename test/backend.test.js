@@ -2807,6 +2807,30 @@ test('2.45 viva examination: the Admin imports the bank from the main copy; stud
   assert.strictEqual(call(CI, { action: 'vbResults', token: tRa }).results.length, 1);
   // the bank never travels with getAllContent
   assert.ok(!call(CI, { action: 'getAllContent', since: 0, stoken: stu }).items.some(function (i) { return /^priv:/.test(i.collection); }));
+  // 2.47 📌 official viva papers: teacher sets the paper; the student takes it once; it counts in the Annual Assessment
+  assert.strictEqual(call(CI, { action: 'vbPaperSave', stoken: stu, paper: { title: 'x', qids: ['viva_cc_001'] } }).ok, false, 'students cannot set papers');
+  r = call(CI, { action: 'vbPaperSave', token: tRa, paper: { title: 'Week 3 viva', qids: ['viva_cc_001', 'nope', 'viva_cc_001'], mins: 10, status: 'draft', annual: true } });
+  assert.ok(r.ok, JSON.stringify(r)); assert.deepStrictEqual([r.paper.qids, r.paper.window, r.paper.annual], [['viva_cc_001'], 'draft', true]);
+  const pid = r.paper.id;
+  assert.deepStrictEqual(call(CI, { action: 'vbPapers', stoken: stu }).papers, [], 'a draft is not shown to students');
+  assert.ok(call(CI, { action: 'vbPaperSave', token: tRa, paper: Object.assign({}, r.paper, { status: 'open' }) }).ok);
+  const sp = call(CI, { action: 'vbPapers', stoken: stu }).papers; assert.deepStrictEqual(sp.map(function (x) { return [x.title, x.window, x.done, x.mins]; }), [['Week 3 viva', 'open', false, 10]]);
+  assert.strictEqual(call(CI, { action: 'vbResult', stoken: stu, paperId: pid, items: [{ id: 'viva_cc_002', max: 5, mark: 5 }] }).ok, false, 'only the paper\'s own questions');
+  r = call(CI, { action: 'vbResult', stoken: stu, paperId: pid, topicIds: ['t02'], topics: '📌 Week 3 viva', items: [{ id: 'viva_cc_001', topic: 't02', q: v1.q, max: 5, mark: 4 }] });
+  assert.ok(r.ok, JSON.stringify(r)); assert.deepStrictEqual([r.result.paperId, r.result.percent], [pid, 80]);
+  assert.strictEqual(call(CI, { action: 'vbResult', stoken: stu, paperId: pid, items: [{ id: 'viva_cc_001', max: 5, mark: 5 }] }).code, 'done', 'one attempt only');
+  assert.deepStrictEqual(call(CI, { action: 'vbPapers', stoken: stu }).papers.map(function (x) { return [x.done, x.result.percent]; }), [[true, 80]]);
+  assert.strictEqual(call(CI, { action: 'vbPapers', token: tRa }).papers[0].taken, 1);
+  // the Annual Assessment counts it as one more quiz (Student ID match)
+  const an = S.tt('annOverall', S.ahmed.tok, { groupId: S.ra.groupId }); assert.ok(an.ok, JSON.stringify(an).slice(0, 300));
+  const vq = an.quizzes.filter(function (q) { return /^🎓 Viva — Week 3 viva$/.test(q.title); })[0]; assert.ok(vq, 'a counted quiz: ' + an.quizzes.map(function (q) { return q.title; }));
+  const b1 = an.students.filter(function (x) { return x.studentId === 'b1'; })[0];
+  assert.deepStrictEqual(b1.quizzes.filter(function (q) { return q.key === vq.key; })[0].pct, 80);
+  // closed: refused; delete keeps the result
+  assert.ok(call(CI, { action: 'vbPaperSave', token: tRa, paper: Object.assign({}, call(CI, { action: 'vbPapers', token: tRa }).papers[0], { status: 'closed' }) }).ok);
+  assert.strictEqual(call(CI, { action: 'vbResult', stoken: stu, paperId: pid, items: [{ id: 'viva_cc_001', max: 5, mark: 5 }] }).code, 'closed');
+  assert.ok(call(CI, { action: 'vbPaperDelete', token: tRa, id: pid }).ok);
+  assert.ok(call(CI, { action: 'vbResults', token: tRa }).results.some(function (x) { return x.paperId === pid; }), 'results are kept');
 });
 
 test('2.33 assessment-only question bank: teachers of every group read it, only the Admin changes it from the main copy, students never receive it nor any published assessment version — attempts still work', function () {
