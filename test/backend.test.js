@@ -2816,10 +2816,17 @@ test('2.45 viva examination: the Admin imports the bank from the main copy; stud
   assert.ok(call(CI, { action: 'vbPaperSave', token: tRa, paper: Object.assign({}, r.paper, { status: 'open' }) }).ok);
   const sp = call(CI, { action: 'vbPapers', stoken: stu }).papers; assert.deepStrictEqual(sp.map(function (x) { return [x.title, x.window, x.done, x.mins]; }), [['Week 3 viva', 'open', false, 10]]);
   assert.strictEqual(call(CI, { action: 'vbResult', stoken: stu, paperId: pid, items: [{ id: 'viva_cc_002', max: 5, mark: 5 }] }).ok, false, 'only the paper\'s own questions');
-  r = call(CI, { action: 'vbResult', stoken: stu, paperId: pid, topicIds: ['t02'], topics: '📌 Week 3 viva', items: [{ id: 'viva_cc_001', topic: 't02', q: v1.q, max: 5, mark: 4 }] });
-  assert.ok(r.ok, JSON.stringify(r)); assert.deepStrictEqual([r.result.paperId, r.result.percent], [pid, 80]);
+  // 2.48: the student's submission is recorded at once, awaiting the teacher's marking (the student's own marks are ignored)
+  r = call(CI, { action: 'vbResult', stoken: stu, paperId: pid, topicIds: ['t02'], topics: '📌 Week 3 viva', items: [{ id: 'viva_cc_001', topic: 't02', q: v1.q, max: 5, mark: 5, answer: 'Architecture kept, eosinophilic' }] });
+  assert.ok(r.ok, JSON.stringify(r)); assert.deepStrictEqual([r.result.paperId, r.result.mode, r.result.status, r.result.total, r.result.items[0].answer], [pid, 'official', 'pending', 0, 'Architecture kept, eosinophilic']);
+  const rid = r.result.resultId;
+  let an0 = S.tt('annOverall', S.ahmed.tok, { groupId: S.ra.groupId }); assert.ok(!an0.quizzes.some(function (q) { return /Week 3 viva/.test(q.title); }), 'not counted before it is marked');
+  assert.strictEqual(call(CI, { action: 'vbMark', stoken: stu, resultId: rid, items: [{ id: 'viva_cc_001', mark: 5 }] }).ok, false, 'students cannot mark');
+  assert.match(call(CI, { action: 'vbMark', token: tRa, resultId: rid, items: [] }).error, /Mark every question \(1 left\)/);
+  r = call(CI, { action: 'vbMark', token: tRa, resultId: rid, examiner: 'Dr Ahmed', comment: 'Good start', items: [{ id: 'viva_cc_001', mark: 4, got: [true, true, true, false], note: 'Missed nuclear detail' }] });
+  assert.ok(r.ok, JSON.stringify(r)); assert.deepStrictEqual([r.result.status, r.result.total, r.result.percent, r.result.examiner, r.result.comment, r.result.items[0].note], ['marked', 4, 80, 'Dr Ahmed', 'Good start', 'Missed nuclear detail']);
   assert.strictEqual(call(CI, { action: 'vbResult', stoken: stu, paperId: pid, items: [{ id: 'viva_cc_001', max: 5, mark: 5 }] }).code, 'done', 'one attempt only');
-  assert.deepStrictEqual(call(CI, { action: 'vbPapers', stoken: stu }).papers.map(function (x) { return [x.done, x.result.percent]; }), [[true, 80]]);
+  assert.deepStrictEqual(call(CI, { action: 'vbPapers', stoken: stu }).papers.map(function (x) { return [x.done, x.result.percent, x.result.status]; }), [[true, 80, 'marked']]);
   assert.strictEqual(call(CI, { action: 'vbPapers', token: tRa }).papers[0].taken, 1);
   // the Annual Assessment counts it as one more quiz (Student ID match)
   const an = S.tt('annOverall', S.ahmed.tok, { groupId: S.ra.groupId }); assert.ok(an.ok, JSON.stringify(an).slice(0, 300));

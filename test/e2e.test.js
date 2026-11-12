@@ -5395,22 +5395,22 @@ test('🎓 Viva Examination (inflnew): 🎓 tab; Practice (reveal + own ticks, n
       await p.click('#view-viva [data-a=vv-paper-start]');
       await p.click('.modal button:has-text("Start Examination")');
       await p.waitForSelector('#vv-timer');
-      assert.match(await p.textContent('#view-viva .vv-bar'), /Official test viva[\s\S]*Question 1 of 2[\s\S]*⏱ [45]:\d\d/);
+      assert.match(await p.textContent('#view-viva .vv-bar'), /Official test viva[\s\S]*Official viva — marked by your teacher[\s\S]*Question 1 of 2[\s\S]*⏱ [45]:\d\d/);
+      assert.ok((await p.$eval('#view-viva .vv-q textarea', function (t) { return t.getBoundingClientRect().height; })) >= 200, 'a comfortable writing space');
       await p.fill('#view-viva textarea', 'Paper answer 1'); await p.click('#view-viva [data-a=vv-next]'); await p.fill('#view-viva textarea', 'Paper answer 2');
       await p.click('#view-viva [data-a=vv-review]'); await p.click('#view-viva [data-a=vv-submit]'); await p.click('.modal button:has-text("Submit examination")');
-      await p.waitForSelector('#view-viva [data-a=vv-finish]');
-      await p.evaluate(function () { const R = Views.viva.run; R.qs.forEach(function (q) { R.sel[q.id] = {}; q.points.forEach(function (pt, k) { R.sel[q.id][k] = pt.m; }); }); Views.viva.render(); });
-      await p.click('#view-viva [data-a=vv-finish]');
-      await p.waitForFunction(function () { return /Recorded \(self-assessed\)/.test(document.querySelector('#view-viva').textContent); }, null, { timeout: 20000 });
-      assert.ok(!/Another mock viva/.test(await p.textContent('#view-viva')), 'no repeat of an official viva');
+      // 2.48: sent at once for the teacher's marking — no self-marking
+      await p.waitForSelector('#view-viva [data-a=vv-sent]', { timeout: 20000 });
+      assert.match(await p.textContent('#view-viva [data-a=vv-sent]'), /Submitted\. Your teacher will mark your answers/);
+      assert.strictEqual(await p.$('#view-viva [data-a=vv-finish]'), null, 'no self-marking for an official viva');
       await p.click('#view-viva .vv-nav button:has-text("Viva")');
-      await p.waitForFunction(function () { const b = document.querySelector('#view-viva [data-a=vv-papers]'); return b && /Done 10\/10 \(100%\)/.test(b.textContent) && !b.querySelector('[data-a=vv-paper-start]'); }, null, { timeout: 15000 });
+      await p.waitForFunction(function () { const b = document.querySelector('#view-viva [data-a=vv-papers]'); return b && /awaiting marking/.test(b.textContent) && !b.querySelector('[data-a=vv-paper-start]'); }, null, { timeout: 15000 });
       const pr = main.call({ module: 'inflnew', action: 'vbResults', token: tp.token }).results.filter(function (x) { return x.paperId === ps.paper.id; });
-      assert.deepStrictEqual(pr.map(function (x) { return [x.studentId, x.total, x.max]; }), [['vv1', 10, 10]]);
+      assert.deepStrictEqual(pr.map(function (x) { return [x.studentId, x.mode, x.status, x.total, x.max, x.items[0].answer]; }), [['vv1', 'official', 'pending', 0, 10, 'Paper answer 1']]);
     }
     const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['inflnew'] }).modules.inflnew;
     const mine = main.call({ module: 'inflnew', action: 'vbResults', token: tt.token }).results;
-    assert.deepStrictEqual(mine.map(function (x) { return [x.mode, x.studentId, x.total, x.max, x.items.length]; }), [['mock', 'vv1', 10, 10, 2], ['mock', 'vv1', 0, 25, 5], ['mock', 'vv1', 7, 25, 5]]);
+    assert.deepStrictEqual(mine.map(function (x) { return [x.mode, x.studentId, x.total, x.max, x.items.length]; }), [['official', 'vv1', 0, 10, 2], ['mock', 'vv1', 0, 25, 5], ['mock', 'vv1', 7, 25, 5]]);
     assert.ok(mine[2].items.some(function (x) { return /My answer/.test(x.answer); }), 'the answers are kept');
     assert.match(mine[1].comment, /Submitted automatically — time expired/); assert.match(mine[2].comment, /^Time used \d+:\d\d of 15:00/);
     await p.click('#view-viva [data-a=vv-mine]');
@@ -5455,6 +5455,19 @@ test('🎓 Viva Examination (inflnew): 🎓 tab; Practice (reveal + own ticks, n
     const all = main.call({ module: 'inflnew', action: 'vbResults', token: tt.token }).results, ex = all.filter(function (x) { return x.mode === 'examiner'; })[0];
     assert.deepStrictEqual([ex.studentId, ex.name, ex.total, ex.max, ex.comment, ex.items.length], ['vv1', 'Viva Student', 7.5, 10, 'Clear answers', 2]);
     assert.match(await q.textContent('#view-viva'), /Viva results[\s\S]*4 results · 1 students[\s\S]*Examiner[\s\S]*7\.5 \/ 10/);
+    // ✎ the teacher marks the official viva: pending → marked; the student sees the marks
+    assert.match(await q.textContent('#view-viva [data-a=vv-pending]'), /1 official viva awaiting your marking/);
+    await q.click('#view-viva [data-a=vv-pending] button');
+    await q.waitForSelector('#view-viva [data-mq]');
+    assert.match(await q.textContent('#view-viva'), /Marking[\s\S]*Viva Student · vv1[\s\S]*Student’s answer[\s\S]*Paper answer 1[\s\S]*Model answer 1[\s\S]*Marking — each expected point/);
+    for (let k = 0; k < 2; k++) for (let r = 0; r < 3; r++) assert.ok(await q.evaluate(function (a) { const b = document.querySelectorAll('#view-viva [data-mq]')[a[0]].querySelectorAll('.vv-rub tr')[a[1]].querySelector('button[data-v="' + a[2] + '"]'); if (!b) return false; b.click(); return true; }, [k, r, k === 0 ? (r === 2 ? '1' : '2') : r === 0 ? '2' : '0']));
+    await q.fill('#view-viva [data-mq]:nth-of-type(1) [data-a=vv-mk-note]', 'Clear').catch(function () {});
+    await q.fill('#view-viva [data-a=vv-mk-comment]', 'Well structured');
+    await q.click('#view-viva [data-a=vv-mk-save]');
+    await q.waitForSelector('#view-viva [data-a=vv-res] tr[data-r]', { timeout: 20000 });
+    const om = main.call({ module: 'inflnew', action: 'vbResults', token: tt.token }).results.filter(function (x) { return x.mode === 'official'; })[0];
+    assert.deepStrictEqual([om.status, om.total, om.max, om.percent], ['marked', 7, 10, 70]); assert.match(om.comment, /^Well structured Time used/);
+    assert.ok(!(await q.$('#view-viva [data-a=vv-pending]')), 'nothing left to mark');
     if (process.env.SHOTS) await q.screenshot({ path: path.join(process.env.SHOTS, 'viva-teacher.png'), fullPage: true });
     // phone width: no horizontal page scroll
     await q.setViewportSize({ width: 390, height: 844 });
