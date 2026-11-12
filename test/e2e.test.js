@@ -5258,7 +5258,22 @@ test('🎓 Viva Examination (inflnew): 🎓 tab; Practice (reveal + own ticks, n
     const mk = function (i, extra) { return Object.assign({ id: 'vv_test_' + i, topic: 't02', level: i < 3 ? 'basic' : 'intermediate', type: 'mechanism', q: 'Test viva question number ' + i + '?', max: 5,
       points: [{ p: 'First point ' + i, m: 2 }, { p: 'Second point ' + i, m: 2 }, { p: 'Third point ' + i, m: 1 }], model: 'Model answer ' + i + '.', follow: [{ q: 'Follow-up ' + i + '?', a: 'Follow-up answer ' + i }], notes: 'Note ' + i }, extra || {}); };
     const bank = [1, 2, 3, 4, 5, 6].map(function (i) { return mk(i, i === 6 ? { type: 'image', image: { fig: 'fig_syl1' } } : null); });
-    bank.forEach(function (q) { main.ctx.actionUpsert_('inflnew', { collection: 'priv:vivabank', id: q.id, data: q }); });   // as vbSave stores it (vbSave itself: backend test)
+    // ⬆ Import viva bank — as the Admin does it (the main copy; the page sends small batches)
+    {
+      const tt0 = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['inflnew'] }).modules.inflnew;
+      const f = path.join(require('os').tmpdir(), 'viva-test-bank.json'); fs.writeFileSync(f, JSON.stringify({ format: 'neo-viva-bank', version: 1, module: 'inflnew', items: bank }));
+      const a = await realPage(IN, []);
+      await a.addInitScript(function (v) { localStorage.setItem('in_backend_token_v1', v); }, JSON.stringify({ token: tt0.token, expiresAt: tt0.expiresAt }));
+      await a.goto('https://third-year-med.github.io/' + IN[1] + '/#/viva');
+      await a.waitForSelector('#view-viva [data-a=vv-import]', { timeout: 20000 });
+      const [fc] = await Promise.all([a.waitForEvent('filechooser'), a.click('#view-viva [data-a=vv-import]')]);
+      await fc.setFiles(f);
+      await a.click('.modal button:has-text("Import")');
+      await a.waitForSelector('#view-viva .vv-topic[data-topic="t02"]', { timeout: 30000 });
+      assert.match(await a.textContent('#view-viva .vv-topic[data-topic="t02"]'), /6 questions/, 'imported through the button');
+      assert.strictEqual(await a.$('.modal'), null, 'no error window');
+      await a.context().close();
+    }
     // ---- student: the 🎓 tab → Practice (nothing recorded) ----
     const vcalls = [], p = await realPage(IN, vcalls);
     await p.goto('https://third-year-med.github.io/' + IN[1] + '/');

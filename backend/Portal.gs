@@ -199,7 +199,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.45';
+var PORTAL_VERSION = '2.46';
 /** 2.40: the ARCHIVED modules (the platform repository's modules/INACTIVE, user 2026-10-31). Their deliveries are left out of
  *  the overall reports (Overall Pathology Attendance, Pathology Overall Results) even while still switched on. Keep this
  *  list equal to modules/INACTIVE (a test checks it); re-activating a module = remove it from both, then redeploy. */
@@ -4429,7 +4429,7 @@ function acloseHook_(S, act, p) {
  * Practice is never recorded. Mock Viva = the student's own self-assessment against the rubric (recorded, labelled
  * self-assessed); Examiner Mode = marks given by a teacher (recorded as examiner-marked). Results: sheet VivaResults.
  *   vbList                 a signed-in student or a teacher of the module → {items, canEdit}
- *   vbSave {items} / vbDelete {ids | all}   the Admin from the main storage or the master draft
+ *   vbSave {items} / vbDelete {ids | all}   the Admin from the main storage or the master draft (2.46: one sheet read per request)
  *   vbResult {mode, topicIds, topics, items, total, max, comment[, studentId, name, email]}  student: their own mock;
  *                          teacher: an examiner result for a student of this storage
  *   vbResults              teacher → this storage's results (the main storage: the whole module); vbMine: a student's own
@@ -4518,10 +4518,15 @@ function vivaHook_(S, act, p) {
       }
       var list = Array.isArray(p.items) ? p.items : [], saved = 0, added = 0, bad = [];
       if (Object.keys(have).length + list.length > VB_MAX) return { ok: false, error: 'The viva bank holds at most ' + VB_MAX + ' questions.' };
+      // 2.46: the Content sheet is read ONCE per request (was once per question — too slow on a large sheet: the import timed out)
+      var rowOf = {}; readAll_(SHEETS.CONTENT).forEach(function (r) { if (r.module === M && r.collection === VB_COLL) rowOf[String(r.id)] = r._row; });
+      var now = Date.now();
       list.forEach(function (q) {
         var c = vbClean_(q); if (c.error) { bad.push(c.error); return; }
-        if (!have[c.q.id]) added++;
-        actionUpsert_(M, { collection: VB_COLL, id: c.q.id, data: c.q }); have[c.q.id] = 1; saved++;
+        var row = { module: M, collection: VB_COLL, id: c.q.id, updatedAt: now, updatedBy: 'teacher', deleted: false };
+        Object.assign(row, packJson_(c.q));
+        if (rowOf[c.q.id]) updateRow_(SHEETS.CONTENT, rowOf[c.q.id], row); else { appendRow_(SHEETS.CONTENT, row); added++; }
+        have[c.q.id] = 1; saved++;
       });
       return { ok: true, saved: saved, added: added, rejected: bad, total: Object.keys(have).length };
     } finally { lock.releaseLock(); }

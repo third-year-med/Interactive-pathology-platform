@@ -377,15 +377,22 @@ Views.viva = {
     const mine = String(MODULE_KEY || '').split('-')[0]; if (d.module && d.module !== mine) { toast('This viva bank is for module “' + d.module + '”, not this one.', 'bad', 7000); return; }
     const known = new Set(getTopics().map(t => t.id)), off = d.items.filter(q => !known.has(q.topic)).length;
     if (!(await confirmDialog('Import ' + plural(d.items.length, 'viva question') + (off ? ' (' + off + ' for topics not in this course — they will not show)' : '') + '? Questions with the same id are replaced.', { title: '⬆ Import viva bank', okLabel: 'Import' }))) return;
-    let saved = 0; const bad = [];
-    for (let i = 0; i < d.items.length; i += 40) {
-      toast('Importing ' + Math.min(i + 40, d.items.length) + ' of ' + d.items.length + '…', 'info', 2500);
-      const r = await Backend.authedPost({ action: 'vbSave', items: d.items.slice(i, i + 40) }, { timeout: 120000 });
-      if (!(r && r.ok)) { toast('Import stopped: ' + ((r && r.error) || 'network'), 'bad', 8000); break; }
+    // small batches with a long wait and one retry: on a large Content sheet each batch takes the class server a while (2026-11-12)
+    const N = 8; let saved = 0, stop = ''; const bad = [];
+    const line = el('div', { class: 'msg info', role: 'status' }, 'Importing 0 of ' + d.items.length + '…');
+    const m = openModal({ title: '⬆ Importing the viva bank', body: line, dismissable: false });
+    for (let i = 0; i < d.items.length && !stop; i += N) {
+      line.textContent = 'Importing ' + Math.min(i + N, d.items.length) + ' of ' + d.items.length + '… (please keep this page open)';
+      let r = await Backend.authedPost({ action: 'vbSave', items: d.items.slice(i, i + N) }, { timeout: 300000 });
+      if (!(r && r.ok) && !(r && (r.code === 'forbidden' || r.code === 'auth'))) { line.textContent = 'Retrying ' + (i + 1) + '–' + Math.min(i + N, d.items.length) + '…'; r = await Backend.authedPost({ action: 'vbSave', items: d.items.slice(i, i + N) }, { timeout: 300000 }); }
+      if (!(r && r.ok)) { stop = (r && r.error) || 'no answer from the class server'; break; }
       saved += r.saved; bad.push(...(r.rejected || []));
     }
-    if (bad.length) openModal({ title: 'Not imported (' + bad.length + ')', body: el('div', { class: 'small' }, bad.map(x => el('div', null, x))), actions: [{ label: 'Close', primary: true }] });
-    toast(plural(saved, 'question') + ' imported.', bad.length ? 'warn' : 'ok', 6000); this.items = null; this.load();
+    m.close();
+    if (stop || bad.length) openModal({ title: stop ? '⚠ Import stopped after ' + plural(saved, 'question') : 'Not imported (' + bad.length + ')', body: el('div', { class: 'small' },
+      stop ? el('p', null, 'The class server answered: ', el('b', null, stop), '. Run ⬆ Import viva bank again with the same file — questions already imported are simply replaced.') : null,
+      bad.map(x => el('div', null, x))), actions: [{ label: 'Close', primary: true }] });
+    toast(plural(saved, 'question') + ' imported.', stop || bad.length ? 'warn' : 'ok', 6000); this.items = null; this.load();
   },
   async removeBank() {
     const w = await promptDialog('Remove the whole viva bank?', 'Recorded results are kept. Type DELETE to confirm.', { placeholder: 'DELETE', okLabel: 'Remove' });
@@ -414,6 +421,9 @@ R = [
 ("""/* ---------- Review and Practical hub pages (patch nav-review-practical) ---------- */""", CODE),
 ]
 DONE = '   🎓 Viva Examination (patch viva; Portal.gs 2.45)'
+# upgrades of pages that already have the viva (each: old text → new text taken from CODE)
+OLD_IMPORT = "  async importBank(file) {\n    let d; try { d = JSON.parse(await file.text()); } catch (e) { toast('This file could not be read.', 'bad'); return; }\n    if (!d || d.format !== VIVA_FORMAT || !Array.isArray(d.items)) { toast('This is not a viva bank file.', 'bad'); return; }\n    const mine = String(MODULE_KEY || '').split('-')[0]; if (d.module && d.module !== mine) { toast('This viva bank is for module “' + d.module + '”, not this one.', 'bad', 7000); return; }\n    const known = new Set(getTopics().map(t => t.id)), off = d.items.filter(q => !known.has(q.topic)).length;\n    if (!(await confirmDialog('Import ' + plural(d.items.length, 'viva question') + (off ? ' (' + off + ' for topics not in this course — they will not show)' : '') + '? Questions with the same id are replaced.', { title: '⬆ Import viva bank', okLabel: 'Import' }))) return;\n    let saved = 0; const bad = [];\n    for (let i = 0; i < d.items.length; i += 40) {\n      toast('Importing ' + Math.min(i + 40, d.items.length) + ' of ' + d.items.length + '…', 'info', 2500);\n      const r = await Backend.authedPost({ action: 'vbSave', items: d.items.slice(i, i + 40) }, { timeout: 120000 });\n      if (!(r && r.ok)) { toast('Import stopped: ' + ((r && r.error) || 'network'), 'bad', 8000); break; }\n      saved += r.saved; bad.push(...(r.rejected || []));\n    }\n    if (bad.length) openModal({ title: 'Not imported (' + bad.length + ')', body: el('div', { class: 'small' }, bad.map(x => el('div', null, x))), actions: [{ label: 'Close', primary: true }] });\n    toast(plural(saved, 'question') + ' imported.', bad.length ? 'warn' : 'ok', 6000); this.items = null; this.load();\n  },\n"
+UPGRADES = [(OLD_IMPORT, CODE[CODE.index('  async importBank(file) {'):CODE.index('  async removeBank() {')])]   # 2026-11-12: import in small batches + retry
 for path in sys.argv[1:]:
     s = open(path, encoding='utf-8').read(); n = 0
     m = re.search(r'"moduleKey"\s*:\s*"([a-z0-9]+)"', s)
@@ -422,4 +432,6 @@ for path in sys.argv[1:]:
     for a, b in R:
         if b in s or DONE in s: continue   # applied once = all of it (later patches insert next to this one's text)
         assert s.count(a) == 1, (path, a[:70]); s = s.replace(a, b); n += 1
+    for a, b in UPGRADES:
+        if DONE in s and a in s and b not in s: s = s.replace(a, b); n += 1
     open(path, 'w', encoding='utf-8').write(s); print(path, 'changes:', n)
