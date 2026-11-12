@@ -5385,6 +5385,14 @@ test('🎓 Viva Examination (inflnew): 🎓 tab; Practice (reveal + own ticks, n
     await p.click('#view-viva [data-a=vv-weak]');
     await p.waitForFunction(function () { const b = document.querySelector('#view-viva .vv-bar'); return b && /My weak points[\s\S]*Question 1 of [1-6]Max/.test(b.textContent); }, null, { timeout: 15000 });
     await p.click('#view-viva .vv-nav button:has-text("Viva")');
+    // 🔀 shuffled order (Practice): every question once, in a shuffled order
+    await p.selectOption('#view-viva [data-a=vv-order]', 'shuffle');
+    assert.match(await p.textContent('#view-viva [data-a=vv-setup]'), /Order\s*🔀 Shuffled/);
+    await p.click('#view-viva [data-a=vv-start]');
+    await p.waitForSelector('#view-viva .vv-bar');
+    const sh = await p.evaluate(function () { return { label: Views.viva.run.label, ids: Views.viva.run.qs.map(function (q) { return q.id; }) }; });
+    assert.match(sh.label, /shuffled/); assert.deepStrictEqual(sh.ids.slice().sort(), ['vv_test_1', 'vv_test_2', 'vv_test_3', 'vv_test_4', 'vv_test_5', 'vv_test_6'], 'all questions, no duplicates');
+    await p.click('#view-viva .vv-nav button:has-text("Viva")');
     // 📌 an official viva set by the teacher: listed, one attempt, recorded with its paper
     {
       const tp = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['inflnew'] }).modules.inflnew;

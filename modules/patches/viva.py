@@ -279,6 +279,11 @@ Views.viva = {
       return el('label', { class: 'vv-ctl' }, el('span', null, '⏱ Time limit'), sel, inp, custom ? el('span', { class: 'small' }, 'min') : null);
     };
     const ctl = el('div', { class: 'vv-ctls' }); card.appendChild(ctl);
+    const ordKey = mode === 'mock' ? 'morder' : 'order', ord = S[ordKey] || 'ordered';
+    const orderSel = () => el('label', { class: 'vv-ctl' }, el('span', null, '🔀 Question order'),
+      el('select', { 'aria-label': 'Question order', 'data-a': 'vv-order', onchange: e => { S[ordKey] = e.target.value; this.setupPanel(box); } },
+        el('option', { value: 'ordered', selected: ord === 'ordered' }, mode === 'mock' ? 'Easier first' : 'In order (topic by topic, basic → advanced)'),
+        el('option', { value: 'shuffle', selected: ord === 'shuffle' }, '🔀 Shuffled')));
     let start;
     if (mode === 'mock') {
       const want = S.n === 'all' ? n : Math.min(n, Number(S.n) || 5), custom = S.n !== 'all' && ![5, 10, 15, 20].includes(Number(S.n));
@@ -287,15 +292,15 @@ Views.viva = {
         el('option', { value: 'all', selected: S.n === 'all' }, 'All ' + n + ' questions'), el('option', { value: 'c', selected: custom }, 'Custom number…'));
       const ninp = custom ? el('input', { type: 'number', min: '1', max: String(n), step: '1', value: String(want), 'data-a': 'vv-n-c', style: 'width:4.6rem', 'aria-label': 'How many questions', onchange: e => { S.n = Math.min(n, Math.max(1, Math.round(Number(e.target.value) || 1))); this.setupPanel(box); } }) : null;
       ctl.appendChild(el('label', { class: 'vv-ctl' }, el('span', null, '🔢 Questions'), nsel, ninp));
-      ctl.appendChild(timeSel('mins', 15));
+      ctl.appendChild(timeSel('mins', 15)); ctl.appendChild(orderSel());
       const mx = pool.map(q => Number(q.max) || 0), same = mx.every(x => x === mx[0]), mins = S.mins == null ? 15 : S.mins;
-      grid.appendChild(row('Number of questions', String(want))); grid.appendChild(row('Time limit', mins ? mins + ' minutes' : 'No timer'));
+      grid.appendChild(row('Number of questions', String(want))); grid.appendChild(row('Time limit', mins ? mins + ' minutes' : 'No timer')); grid.appendChild(row('Order', ord === 'shuffle' ? '🔀 Shuffled' : 'Easier first'));
       grid.appendChild(row('Total marks', same ? vivaNum(want * mx[0]) + ' (' + want + ' × ' + vivaNum(mx[0]) + ')' : 'about ' + vivaNum(want * mx.reduce((a, b) => a + b, 0) / mx.length)));
-      start = el('button', { class: 'btn btn-primary btn-lg', 'data-a': 'vv-start', onclick: () => this.startMock(want, mins) }, '▶ Start Examination');
+      start = el('button', { class: 'btn btn-primary btn-lg', 'data-a': 'vv-start', onclick: () => this.startMock(want, mins, ord === 'shuffle') }, '▶ Start Examination');
     } else if (mode === 'practice') {
-      ctl.appendChild(timeSel('pmins', 0));
-      const pm = S.pmins || 0; grid.appendChild(row('Time limit', pm ? pm + ' minutes (optional)' : 'No timer'));
-      start = el('button', { class: 'btn btn-primary btn-lg', 'data-a': 'vv-start', onclick: () => this.startPractice(pm) }, '▶ Start practice (' + plural(n, 'question') + ')');
+      ctl.appendChild(timeSel('pmins', 0)); ctl.appendChild(orderSel());
+      const pm = S.pmins || 0; grid.appendChild(row('Time limit', pm ? pm + ' minutes (optional)' : 'No timer')); grid.appendChild(row('Order', ord === 'shuffle' ? '🔀 Shuffled' : 'In order'));
+      start = el('button', { class: 'btn btn-primary btn-lg', 'data-a': 'vv-start', onclick: () => this.startPractice(pm, ord === 'shuffle') }, '▶ Start practice (' + plural(n, 'question') + ')');
       if (!this.isTeacher() && Backend.isConfigured()) ctl.appendChild(el('button', { class: 'btn btn-sm', 'data-a': 'vv-weak', title: 'Questions in which you missed marking points in your recorded mock vivas', onclick: () => this.weakPractice() }, '🎯 Practise my weak points'));
     } else {
       start = el('button', { class: 'btn btn-primary btn-lg', 'data-a': 'vv-exam-new', onclick: () => this.go('exsetup') }, '🧑‍⚕️ Choose the student and start…');
@@ -323,8 +328,9 @@ Views.viva = {
   },
   stopTimer() { if (this._tick) { clearInterval(this._tick); this._tick = null; } },
   /* ---------- 🗣 Practice ---------- */
-  startPractice(mins) {
-    this.run = { mode: 'practice', label: this.selLabel(), tids: [...new Set(this.pool().map(q => q.topic))], qs: this.pool(), i: 0, ans: {}, shown: {}, got: {}, deadline: mins ? Date.now() + mins * 60000 : 0 };
+  startPractice(mins, mix) {
+    const qs = mix ? shuffle(this.pool().slice()) : this.pool();   // 🔀 shuffled order on request
+    this.run = { mode: 'practice', label: this.selLabel() + (mix ? ' · 🔀 shuffled' : ''), tids: [...new Set(qs.map(q => q.topic))], qs, i: 0, ans: {}, shown: {}, got: {}, deadline: mins ? Date.now() + mins * 60000 : 0 };
     if (mins) this.startTimer(); this.go('practice');
   },
   /** the rubric table: each expected point with its marks; ro = read-only, else full / half / none per point */
@@ -371,11 +377,11 @@ Views.viva = {
         R.i < R.qs.length - 1 ? el('button', { class: 'btn btn-primary', 'data-a': 'vv-next', onclick: () => { R.i++; this.render(); } }, 'Next ▶') : el('a', { class: 'btn', href: '#/explain/' + q.topic }, '📖 Learn this topic'))));
   },
   /* ---------- 📝 Mock Viva: setup → answer all (timer, navigator, review) → submit → mark against the rubric → result ---------- */
-  startMock(n, mins) {
-    if (n == null) { const L = this.run && this.run.mode === 'mock' ? this.run : null; n = L ? L.qs.length : 5; mins = L ? L.mins : 15; }
+  startMock(n, mins, mix) {
+    if (n == null) { const L = this.run && this.run.mode === 'mock' ? this.run : null; n = L ? L.qs.length : 5; mins = L ? L.mins : 15; mix = L ? !!L.mix : false; }
     const pick = shuffle(this.pool().slice()).slice(0, Math.max(1, n));   // random, no duplicates
-    pick.sort((a, b) => ((VIVA_LEVEL[a.level] || [0, 2])[1] - (VIVA_LEVEL[b.level] || [0, 2])[1]));
-    this.run = { mode: 'mock', label: this.selLabel(), tids: [...new Set(pick.map(q => q.topic))], qs: pick, i: 0, ans: {}, sel: {}, at: Date.now(), mins: mins || 0, deadline: mins ? Date.now() + mins * 60000 : 0, submitted: false };
+    if (!mix) pick.sort((a, b) => ((VIVA_LEVEL[a.level] || [0, 2])[1] - (VIVA_LEVEL[b.level] || [0, 2])[1]));   // easier first, unless 🔀 shuffled
+    this.run = { mode: 'mock', label: this.selLabel(), mix: !!mix, tids: [...new Set(pick.map(q => q.topic))], qs: pick, i: 0, ans: {}, sel: {}, at: Date.now(), mins: mins || 0, deadline: mins ? Date.now() + mins * 60000 : 0, submitted: false };
     if (mins) this.startTimer(); this.go('mock');
   },
   navGrid(R, cur) {
