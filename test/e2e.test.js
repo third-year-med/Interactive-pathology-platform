@@ -6593,6 +6593,66 @@ test('🔬 Pathology Spotter: renamed; teacher imports questions; only Learn Pra
   } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
 });
 
+/* 🧪 Spotter practice set (patch spotter-practice, 2026-11-14; user: "too much for students to practice … keep a small set for
+   practice, use the rest for exams"): marked questions only in Practice, Exam mode draws from all; Use column toggles; an edit
+   keeps the mark; an unmarked set keeps every question in Practice. */
+test('🧪 Spotter practice set: only questions marked practice in 🧪 Practice, 📝 Exam from all; Use toggle; edit keeps the mark; unmarked set = all in Practice', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const sec = function (id) { return { id: id, heading: 'Section ' + id, body: 'Text', tables: [], figures: [], keyPoints: [] }; };
+  const mod = syntheticModule(CI_PAGE, { topics: [{ id: 't01', title: 'Cell injury', summary: 's', sections: [sec('s0101')] }, { id: 't17', title: 'Practical Pathology — Specimens & Slides', summary: 's', sections: [sec('s1701')] }] });
+  const keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['cellinjury'] }).modules.cellinjury;
+  const pic = function (k) { return { id: 'm_' + k, type: 'image', url: 'https://drive.google.com/thumbnail?id=SPP' + k + 'XXXXXXXXX&sz=w2000', caption: 'Picture ' + k, importKey: 'tst-spp-' + k }; };
+  main.call({ module: 'cellinjury', action: 'upsert', token: tt.token, collection: 'custommedia', id: 's1701', data: { items: [1, 2, 3, 4, 5, 6].map(pic) } });
+  const qn = function (k, pr) { const q = { id: 'spp-' + k, key: 'tst-spp-' + k, section: 's1701', type: 'diagnosis', level: 'core', stem: 'Practice-set question ' + k + ' — which process explains this picture?',
+    options: ['Option A' + k, 'Option B' + k, 'Option C' + k, 'Option D' + k, 'Option E' + k], answer: 0, explanation: { finding: 'F', why: 'W', distractor: 'D', fact: 'X' } }; if (pr !== undefined) q.practice = pr; return q; };
+  const file = function (items) { return { name: 'spotter.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ format: 'neo-spotter-import', version: 1, module: 'cellinjury', items: items })) }; };
+  const start = errors.length;
+  try {
+    const p = await page();
+    await p.route('https://drive.google.com/**', function (route) { return route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from(PNG1, 'base64') }); });
+    await p.route('https://third-year-med.github.io/cell-injury-teaching-platform/**', function (route) { return route.fulfill({ status: 200, contentType: 'text/html', body: mod.html }); });
+    await p.addInitScript(function (v) { localStorage.setItem('ci_backend_token_v1', v); }, JSON.stringify({ token: tt.token, expiresAt: tt.expiresAt }));
+    await p.goto('https://third-year-med.github.io/cell-injury-teaching-platform/#/study/challenge');
+    await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+    await p.waitForSelector('.spot-teacher', { timeout: 15000 });
+    const load = async function (items) {
+      await p.setInputFiles('.spot-teacher input[type=file]', file(items)); await p.waitForSelector('.modal');
+      await p.click('.modal-foot .btn-primary'); await p.waitForFunction(function (n) { return Spotter.all().length === n && !!document.querySelector('.spot-home'); }, items.length, { timeout: 15000 });
+    };
+    const runs = function () { return p.evaluate(function () { Spotter.start('practice'); const a = Spotter.run.ids.slice().sort(); Spotter.start('exam'); const b = Spotter.run.ids.length; Spotter.run = null; Spotter.paint(); return { practice: a, exam: b }; }); };
+    // 2 of 6 marked → Practice has 2, Exam all 6
+    await load([qn(1, true), qn(2, false), qn(3, true), qn(4, false), qn(5), qn(6, false)]);
+    assert.deepStrictEqual(await runs(), { practice: ['spp-1', 'spp-3'], exam: 6 });
+    assert.match(await p.textContent('.spot-teacher summary'), /🧪 2 in Practice · 📝 4 exam-only/);
+    assert.match(await p.textContent('[data-a=spot-practice]'), /2 practice questions/);
+    // Use column: row 2 → Practice
+    await p.evaluate(function () { document.querySelector('.spot-teacher').open = true; });
+    const btns = await p.$$eval('[data-a=spe-practice]', function (b) { return b.map(function (x) { return x.textContent; }); });
+    assert.deepStrictEqual(btns, ['🧪 Practice', '📝 Exam only', '🧪 Practice', '📝 Exam only', '📝 Exam only', '📝 Exam only']);
+    await (await p.$$('[data-a=spe-practice]'))[1].click();
+    await p.waitForFunction(function () { return /🧪 3 in Practice/.test(document.querySelector('.spot-teacher summary').textContent); }, null, { timeout: 15000 });
+    assert.deepStrictEqual((await runs()).practice, ['spp-1', 'spp-2', 'spp-3']);
+    // editing a question keeps its mark (the editor rebuilds the question)
+    await p.evaluate(function () { SpotterEdit.form(Spotter.byId('spp-1')); });
+    await p.waitForSelector('.modal .spe-form'); await p.fill('.modal textarea[aria-label="Question stem"]', 'Edited stem of question 1 — what is shown?');
+    await p.click('.modal-foot .btn-primary');
+    await p.waitForFunction(function () { const q = Spotter.byId('spp-1'); return !!q && /Edited stem/.test(q.stem); }, null, { timeout: 15000 });
+    assert.strictEqual(await p.evaluate(function () { return Spotter.byId('spp-1').practice; }), true, 'still in Practice after the edit');
+    // an unmarked set: every question in Practice, as before
+    await load([qn(1), qn(2), qn(3), qn(4), qn(5), qn(6)]);
+    assert.deepStrictEqual(await runs(), { practice: ['spp-1', 'spp-2', 'spp-3', 'spp-4', 'spp-5', 'spp-6'], exam: 6 });
+    assert.doesNotMatch(await p.textContent('.spot-teacher summary'), /exam-only/);
+    // in an unmarked set, Exam only on one question puts the others in Practice
+    await p.evaluate(function () { document.querySelector('.spot-teacher').open = true; });
+    await (await p.$$('[data-a=spe-practice]'))[0].click();
+    await p.waitForFunction(function () { return /🧪 5 in Practice · 📝 1 exam-only/.test(document.querySelector('.spot-teacher summary').textContent); }, null, { timeout: 15000 });
+    await p.context().close();
+    assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
+  } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
+});
+
 /* 🖼 Image Bank hidden while empty (patch bank-hide-empty, user 2026-10-29): a student sees no Image Bank tab and is sent from
    #/practical/bank to the Practicals while it is empty; a teacher always sees it; with one item students see it again. */
 test('🖼 Image Bank: hidden from students while empty (tab, link), always visible to the teacher, back for students once it has an item', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {

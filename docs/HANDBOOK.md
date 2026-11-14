@@ -500,6 +500,13 @@ revealed):** Practical → Practical cases → ▶ Present all cases (teachers a
 "What is your diagnosis?"; captions and the diagnosis appear on R / 👁 Reveal. ← → Space / swipe, case menu, F full screen (desktop
 only), Esc. A case page has ▶ Present from this case and ‹ Previous / Next case ›. e2e test "▶ Present all cases (inflnew)".
 
+**🧪 Spotter practice set (patch `spotter-practice`, user 2026-11-14 — "too much for students to practice"):** a Spotter question
+with `practice: true` is in 🧪 Practice; once any is marked, the rest are exam-only (📝 Exam mode draws 20 from ALL, one per picture).
+Inflammation (New): `inflnew-spotter-questions-3.json` = the same 138 questions, 38 marked (27 case pictures, 2–4 per case, + 11
+Healing pictures, one question per picture). Re-importing a Spotter file replaces the set (edits made in the editor are lost).
+The Use column in the teacher's question list switches one question. Exam-only questions still reach the student's browser —
+for graded secrecy use the 🔒 Assessment bank.
+
 ### 4.2.3 Neoplasia (New) — the user's syllabus, NOT condensed (user, 2026-10-30)
 Repository `third-year-med/neoplasia-new` (the user created "Neoplasia-new"), title **"Neoplasia (New)"**, module key **`neonew`**,
 prefix **`nn_`**, build `new-1.0`, own content key (env `NN_CONTENT_KEY`). Written from the user's PDF "Neoplasia (Ch. 6)", pp. 42–64,
