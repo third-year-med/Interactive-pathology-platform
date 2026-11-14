@@ -641,6 +641,40 @@ the existing modules — and appear in Learn, Presentation (Images slides), Prac
 Every entry: the right section, a short "what to look for", source + credit, checked URL, no duplicate views; about
 3 embedded pictures per section (condensed standard, §4.2). The final report lists pictures and links per source.
 
+### 4.4 Practical standard for EVERY new module (from the Inflammation (New) practical rebuild, user 2026-11-14)
+
+What the user approved on 2026-11-14 is the standard for every module from now on (pathology modules with a practical; for
+a module without one, the parts that apply):
+- **Departmental pictures** the user uploads: use and keep ALL of them (ExpertPath / Elsevier, WebPath, Pathology Outlines
+  pictures the user supplies are used as course material; Robbins figures already in the module may be added). Best ones in
+  the case sections, the rest in gallery sections of the Learn practical topic. Keep good original pictures when a folder
+  is empty. Pictures arrive as a picture-import file (never committed).
+- **Practical cases** (practical-import file, `diagnosisConfidence: 'stated'`; removed cases via `replaces`; numbering
+  continuous 1…N, no gaps): **clinical photographs in the GROSS slot** (`slot: 'gross', kind: 'clinical'`) so they come
+  BEFORE the microscopy; each case keeps two question groups — ❓ Practical questions (typed, written) and 🗣 Viva questions
+  (short oral) — the user wants both kept as they are.
+- **Pathology Spotter**: 🧪 Practice = about **38 of the HARDEST questions** (`practice: true`, `level: 'hard'`; reasoning
+  from the picture — mechanisms, differentials, organisms, complications — not "the stem names it"), **one per picture**,
+  every case covered; 📝 Exam mode keeps ALL questions (patch `spotter-practice`). Rate difficulty yourself (the files
+  carry no levels) and say how you chose.
+- **🔒 Assessment bank for graded practical exams**: deliver the exam-only Spotter questions as a `neo-assessment-bank`
+  file (ids `aqb_<prefix>p_<spotter id>`, topic = the practical topic, type mcq, `images: [{url: 'pic:<importKey>'}]` or
+  `atlas:<id>` — patch `assess-pic-ref`; leave out questions whose picture is missing). The user keeps earlier bank
+  files (bank imports only add / update).
+- **OSPE stations**: all pictures of a station show ONE specimen / case (never a gross of one lesion with the micro of
+  another — Station 9 lesson), gross before micro, and the scenario and questions match the pictures.
+- **Presentation mode** (patch `prac-present`): light design, pictures fill the screen, question slides OFF by default
+  (Questions switch). **Clean Practical pages** (patch `prac-clean`): add the new module's key to `PRAC_CLEAN_MODULES` —
+  no "How to use the practical" box, no "How to answer a practical" rows, the Learn practical topic hidden from STUDENTS
+  (never the built-in 🙈 Hide this topic: the Spotter would lose its pictures).
+- **Every import in ✏️ Edit master draft** (check for the yellow bar; the Teaching Modules page now has an ✏️ Edit master
+  draft card). An import from a normal / group link becomes that link's LOCAL change and the groups keep the old master:
+  fix with Content → Group local changes → Copy to master draft → ⬆ Publish draft.
+- **Module address**: GitHub may rename a repository (Inflammation-New, Neoplasia-new, Granulomatous-and-parasitic-diseases
+  on 2026-11-14); the old lowercase Pages address then gives 404 — use the exact repository name in Platform Home → Admin.
+- Deliverables are files sent to the user (picture, practical, Spotter, OSPE, bank files) — never committed; keep a backup
+  of the user's live export before destructive changes.
+
 ## 5. Adding the next module — checklist (follow in this order; learned the hard way on 2026-10-10)
 
 **Golden rule: never give the user a complete new Code.gs.** Code.gs is the user's file and carries lines added
@@ -677,7 +711,9 @@ Give **only the lines to add, and where**.
 7. Content tab → Migration report → decisions → migrate → **Switch versioned content ON** (when the module has edits).
 8. **Test** (section 7) and ask the user to check in an incognito window: front page → test student → module →
    "← Back to Platform Home".
-9. Update `SETUP.md`, this handbook, and give the user the exact deployment steps (section 6).
+9. **Practical part (§4.4):** pictures → practical cases → Spotter (38 hardest in Practice) → OSPE → 🔒 practical bank file;
+   add the module key to `PRAC_CLEAN_MODULES` (patch `prac-clean`) and `VIVA_MODULES` if the user wants the Viva.
+10. Update `SETUP.md`, this handbook, and give the user the exact deployment steps (section 6).
 
 **Keys**: the user keeps them in a password manager. If the user pastes Code.gs in a chat, ask them to replace keys
 with `XXX` first; never write a key into a repository, file or commit (scan diffs before every commit).
@@ -1001,7 +1037,15 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
 - Preserve existing features and data; no redesigns or rewrites unless asked; smallest reliable fix.
 - After each step give: what changed, how it was tested, and the exact deployment steps.
 
-## 10. Current state (updated 2026-11-11)
+## 10. Current state (updated 2026-11-14)
+
+- **2026-11-14 — Inflammation (New) practical rebuilt + new standards (§4.4):** builds new-1.4 / new-1.5 (12 practical cases,
+  Cases 12–18 removed, the keloid case renumbered to Case 12, 97 departmental pictures, 31 practical questions p001–p031);
+  new patches `prac-file-replace`, `prac-file-status`, `prac-present` (▶ Present all cases), `spotter-practice`, `prac-clean`
+  (inflnew only), `assess-pic-ref`; Teaching Modules ✏️ Edit master draft card (portal.js `?v=2026-11-14a`). Delivered:
+  inflnew-spotter-questions-4.json (38 hardest in Practice), inflnew-assessment-bank-practical(-2).json (imported, 129 in the
+  bank), OSPE and practical files. User still to do: module URLs after the repository renames, OSPE Station 9 picture + text,
+  Case 11 new picture (Gross), Fig. 4.6B (in-hprac-02) missing, 5 keloid captions "Case 19" → "Case 12".
 
 - **📄 Print Condensed Handout (2026-11-11, user):** patch `condensed-handout` (README #80, in apply.sh ORDER) — a button beside
   🖨️ Print Entire Chapter builds a compact bullet-point revision handout of the whole module from getTopics() (practical topics left out,

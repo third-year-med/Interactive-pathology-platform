@@ -77,6 +77,14 @@ PICTURE SOURCES — use ALL of them (docs/HANDBOOK.md §4.3), each under its own
   no broken links (check every URL), no duplicates of the same view.
 - In the final report, list the pictures and links per source.
 
+PRACTICAL (docs/HANDBOOK.md §4.4 — the standard since 2026-11-14)
+- Use ALL the practical pictures I upload; clinical photographs before the microscopy (gross slot).
+- Practical cases numbered 1…N; Practical questions and Viva questions kept as two groups.
+- Pathology Spotter: about 38 of the HARDEST questions in Practice (one per picture), all questions in Exam mode;
+  the exam-only questions also as a 🔒 assessment-bank file for graded practical exams.
+- OSPE: every station's pictures from one case, gross before micro, text matching the pictures.
+- Clean Practical pages (prac-clean) and the light presentation mode; every import in ✏️ Edit master draft.
+
 STRICT RULES
 - NEVER give me a complete new Code.gs. Give me ONLY the lines to add and exactly where
   (Ctrl+F text). For a new module that is exactly four additions: STUDENT_AUTH_MODULES,
