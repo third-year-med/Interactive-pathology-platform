@@ -67,6 +67,10 @@ body.pcp-open{overflow:hidden}
 .pcp-clin{max-width:900px;font-size:clamp(1rem,2.2vw,1.35rem);line-height:1.55;background:#fff;border:1px solid #dbe5ed;border-left:5px solid #0e9f9a;border-radius:14px;padding:1rem 1.3rem;text-align:left;box-shadow:0 6px 20px rgba(20,41,61,.07)}
 .pcp-clin b{color:#0f2a43}
 .pcp-img{max-width:100%;max-height:calc(100vh - 15rem);object-fit:contain;border-radius:12px;background:#fff;border:1px solid #dbe5ed;box-shadow:0 10px 28px rgba(20,41,61,.14)}
+.pcp-stage.pcp-stage-pic{padding:.6rem 1rem;align-items:stretch}
+.pcp-slide.pcp-picslide{width:100%;max-width:none;height:100%;max-height:none;gap:.55rem}
+.pcp-picslide .pcp-img{flex:1 1 0;min-height:0;width:100%;height:auto;max-height:none;object-fit:contain;border:0;border-radius:0;background:transparent;box-shadow:none;filter:drop-shadow(0 8px 22px rgba(20,41,61,.2))}
+.pcp-picslide .pcp-cap,.pcp-picslide .pcp-hidden{flex:0 0 auto;max-height:30vh;overflow:auto}
 .pcp-root .pcp-label{font-weight:700;color:#0f2a43;background:#fff;border:1px solid #dbe5ed;border-radius:999px;padding:.3rem .9rem;font-size:.92rem}
 .pcp-hidden{color:#5b7083;font-style:italic;background:#f8fbfd;border:1.5px dashed #b9cad7;border-radius:12px;padding:.7rem 1.1rem}
 .pcp-cap{max-width:1000px;font-size:clamp(.95rem,2vw,1.15rem);line-height:1.5;background:#fff;border:1px solid #dbe5ed;border-left:5px solid #0e9f9a;border-radius:12px;padding:.75rem 1.1rem;text-align:left;box-shadow:0 6px 20px rgba(20,41,61,.07)}
@@ -80,7 +84,7 @@ body.pcp-open{overflow:hidden}
 .pcp-nav button[disabled]{opacity:.4;cursor:default}
 .pcp-nav .pcp-count{color:#5b7083;font-size:.88rem}
 .pcp-root .pcp-hint{color:#6c8395;font-size:.82rem}
-@media (max-width:720px){.pcp-top{flex-wrap:wrap}.pcp-root .pcp-where{width:100%}.pcp-img{max-height:calc(100vh - 17rem)}}
+@media (max-width:720px){.pcp-top{flex-wrap:wrap}.pcp-root .pcp-where{width:100%}.pcp-img{max-height:calc(100vh - 17rem)}.pcp-picslide .pcp-img{max-height:none}}
 `));
   },
   mount() {
@@ -117,7 +121,7 @@ body.pcp-open{overflow:hidden}
       s.t !== 'title' ? el('button', { class: 'pcp-rev', 'data-a': 'pcp-reveal', onclick: () => this.reveal() }, open ? '🙈 Hide' : '👁 Reveal (R)') : null,
       this.touch() ? null : el('button', { onclick: () => this.fullscreen(), title: 'Full screen (F)' }, '⛶'),
       el('button', { 'data-a': 'pcp-close', onclick: () => this.close(), title: 'Close (Esc)' }, '✕ Close'));
-    const slide = el('div', { class: 'pcp-slide' });
+    const slide = el('div', { class: 'pcp-slide' + (s.t === 'pic' ? ' pcp-picslide' : '') });
     const hidden = t => el('div', { class: 'pcp-hidden' }, t);
     if (s.t === 'title') {
       pcpPut(slide, el('div', { class: 'pcp-kicker' }, 'Practical case'), el('h1', { class: 'pcp-case' }, 'Case ' + s.ci),
@@ -140,6 +144,7 @@ body.pcp-open{overflow:hidden}
         pcpPut(slide, el('div', { class: 'pcp-dx' }, p.diagnosis || p.title), el('div', { class: 'pcp-meta' }, p.title), box);
       }
     }
+    this.stage.classList.toggle('pcp-stage-pic', s.t === 'pic');
     clear(this.stage).appendChild(slide); this.stage.scrollTop = 0;
     pcpPut(clear(this.nav), el('button', { 'data-a': 'pcp-prev', disabled: this.i === 0, onclick: () => this.go(this.i - 1) }, '‹ Back'),
       el('span', { class: 'pcp-count' }, 'Slide ' + (this.i + 1) + ' of ' + this.slides.length + (this.touch() ? ' · swipe ← →' : ' · ← → · R · Esc')),

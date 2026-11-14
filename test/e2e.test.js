@@ -5373,7 +5373,7 @@ test('▶ Present all cases (inflnew): title → pictures in slot order → diag
     };
     State.practicalPub.length = 0;
     return [await mk(1, 'Keloid of the ear', 'Keloid'), await mk(2, 'Acute appendicitis', 'Acute suppurative appendicitis')];
-  }, 'data:image/png;base64,' + PNG1);
+  }, process.env.PCP_IMG ? 'data:image/jpeg;base64,' + fs.readFileSync(process.env.PCP_IMG).toString('base64') : 'data:image/png;base64,' + PNG1);   // PCP_IMG: a real picture for screenshots
   await p.evaluate(function () { Views.practical.render(); });
   await p.waitForSelector('[data-a=pcp-start]', { timeout: 10000 });
   // patch prac-clean (inflnew): no "How to use the practical" box, no "How to answer a practical" row on the Practical hub
@@ -5389,7 +5389,11 @@ test('▶ Present all cases (inflnew): title → pictures in slot order → diag
   assert.match(s, /Case 1/); assert.match(s, /History 1\./); assert.ok(!/Keloid/.test(s), 'the title slide does not name the diagnosis');
   await p.keyboard.press('ArrowRight'); s = await txt();
   assert.match(s, /Picture 1 of 2 · Clinical photograph/, 'clinical / gross first'); assert.ok(!/Clinical caption 1/.test(s), 'caption hidden');
+  const big = await p.evaluate(function () { const r = document.querySelector('.pcp-img').getBoundingClientRect(); return r.height / innerHeight; });
+  assert.ok(big > 0.6, 'the picture uses most of the screen height (' + big.toFixed(2) + ')');
+  if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'prac-present-pic.png') });
   await p.keyboard.press('r'); assert.match(await txt(), /Clinical caption 1/, 'R reveals the caption');
+  if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'prac-present-pic-revealed.png') });
   await p.keyboard.press('ArrowRight'); s = await txt(); assert.match(s, /Picture 2 of 2 · Histopathology/); assert.ok(!/Micro caption 1/.test(s));
   await p.keyboard.press('ArrowRight'); s = await txt(); assert.match(s, /What is your diagnosis\?/); assert.ok(!/Keloid/.test(s), 'diagnosis hidden');
   await p.click('[data-a=pcp-reveal]'); s = await txt(); assert.match(s, /Keloid/); assert.match(s, /Feature 1/);
