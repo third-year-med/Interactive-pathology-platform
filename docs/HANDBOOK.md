@@ -507,6 +507,14 @@ Healing pictures, one question per picture). Re-importing a Spotter file replace
 The Use column in the teacher's question list switches one question. Exam-only questions still reach the student's browser —
 for graded secrecy use the 🔒 Assessment bank.
 
+**Lessons 2026-11-14 (Spotter practice set roll-out):** (1) GitHub renamed three module repositories — the pages now live at
+`/Inflammation-New/`, `/Neoplasia-new/`, `/Granulomatous-and-parasitic-diseases/`; the old lowercase addresses give 404 (a
+browser may still show its cached old copy). The module URLs in Platform Home → Admin must use the new names. (2) An import
+done from the normal link (not ✏️ Edit master draft) becomes a LOCAL change of that link (`practicalcfg · spotter`): that link
+shows the new set, every group keeps the master's old one. Fix: Content → Group local changes → **Copy to master draft** →
+Changes in draft shows only that item → ⬆ Publish draft (the local copy is then removed). Always check for the yellow
+"Editing the MASTER DRAFT" bar before importing.
+
 ### 4.2.3 Neoplasia (New) — the user's syllabus, NOT condensed (user, 2026-10-30)
 Repository `third-year-med/neoplasia-new` (the user created "Neoplasia-new"), title **"Neoplasia (New)"**, module key **`neonew`**,
 prefix **`nn_`**, build `new-1.0`, own content key (env `NN_CONTENT_KEY`). Written from the user's PDF "Neoplasia (Ch. 6)", pp. 42–64,
