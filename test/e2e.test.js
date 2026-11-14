@@ -5428,7 +5428,8 @@ test('▶ Present all cases (inflnew): title → pictures in slot order → diag
   await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
   const ids = await p.evaluate(async function (img) {
     const mk = async function (n, title, dx) {
-      const d = PE_buildDraft({ title: title, number: n, diagnosis: dx, diagnosisConfidence: 'stated', specimen: { organ: 'Skin', type: 'Clinical photograph and slide', text: 'History ' + n + '.' }, keyFeatures: ['Feature ' + n] });
+      const d = PE_buildDraft({ title: title, number: n, diagnosis: dx, diagnosisConfidence: 'stated', specimen: { organ: 'Skin', type: 'Clinical photograph and slide', text: 'History ' + n + '.' }, keyFeatures: ['Feature ' + n],
+        questions: n === 1 ? [{ type: 'identification', q: 'What do the pictures show?', a: 'QANSWER keloid' }] : [], viva: n === 1 ? [{ q: 'Viva: why does it recur?', a: 'VANSWER collagen' }] : [] });
       d.images = [{ id: 'm' + n, url: img, slot: 'micro', kind: 'micro', caption: 'Micro caption ' + n, active: true },
         { id: 'g' + n, url: img, slot: 'gross', kind: 'clinical', caption: 'Clinical caption ' + n, active: true },
         { id: 'x' + n, url: img, slot: 'micro', kind: 'micro', caption: 'Hidden picture', active: false }];
@@ -5458,11 +5459,20 @@ test('▶ Present all cases (inflnew): title → pictures in slot order → diag
   await p.keyboard.press('r'); assert.match(await txt(), /Clinical caption 1/, 'R reveals the caption');
   if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'prac-present-pic-revealed.png') });
   await p.keyboard.press('ArrowRight'); s = await txt(); assert.match(s, /Picture 2 of 2 · Histopathology/); assert.ok(!/Micro caption 1/.test(s));
+  // the case's practical question, then its viva question — answers hidden until R (user, 2026-11-14)
+  await p.keyboard.press('ArrowRight'); s = await txt(); assert.match(s, /Practical question 1 of 1 · Identification[\s\S]*What do the pictures show\?/); assert.ok(!/QANSWER/.test(s), 'answer hidden');
+  await p.keyboard.press('r'); assert.match(await txt(), /Answer: QANSWER keloid/);
+  if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'prac-present-question.png') });
+  await p.keyboard.press('ArrowRight'); s = await txt(); assert.match(s, /Viva question 1 of 1[\s\S]*why does it recur/); assert.ok(!/VANSWER/.test(s));
   await p.keyboard.press('ArrowRight'); s = await txt(); assert.match(s, /What is your diagnosis\?/); assert.ok(!/Keloid/.test(s), 'diagnosis hidden');
   await p.click('[data-a=pcp-reveal]'); s = await txt(); assert.match(s, /Keloid/); assert.match(s, /Feature 1/);
   if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'prac-present-dx.png') });
   await p.click('[data-a=pcp-next]'); s = await txt(); assert.match(s, /Case 2/); assert.match(await p.textContent('.pcp-top'), /2 of 2/);
-  assert.match(await p.textContent('.pcp-nav'), /Slide 5 of 8/, '2 cases × (title + 2 active pictures + diagnosis)');
+  assert.match(await p.textContent('.pcp-nav'), /Slide 7 of 10/, 'case 1: title + 2 pictures + 2 questions + diagnosis; case 2: title + 2 pictures + diagnosis');
+  await p.click('[data-a=pcp-withq]');   // Questions off → pictures only
+  await p.waitForFunction(function () { return /Slide 5 of 8/.test(document.querySelector('.pcp-nav').textContent); });
+  await p.click('[data-a=pcp-withq]');
+  await p.waitForFunction(function () { return /Slide 7 of 10/.test(document.querySelector('.pcp-nav').textContent); });
   await p.keyboard.press('Escape'); assert.strictEqual(await p.$('.pcp-root'), null, 'Esc closes');
   // a case page: Present from this case, Previous / Next case
   await p.evaluate(function (id) { Router.go('practical', ['p', id]); }, ids[1]);

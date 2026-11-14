@@ -27,11 +27,21 @@ const PracPresent = {
     list.forEach((p, ci) => {
       const pics = this.pics(p);
       ci = p.number || ci + 1;
-      out.push({ t: 'title', p, ci, n: pics.length });
+      const qs = this.withQ() ? (p.questions || []).filter(q => q && q.q) : [], vs = this.withQ() ? (p.viva || []).filter(q => q && q.q) : [];
+      out.push({ t: 'title', p, ci, n: pics.length, nq: qs.length, nv: vs.length });
       pics.forEach((im, j) => out.push({ t: 'pic', p, ci, im, j, n: pics.length }));
+      qs.forEach((q, j) => out.push({ t: 'q', p, ci, q, j, n: qs.length, viva: false }));   // practical questions, then viva questions (user, 2026-11-14)
+      vs.forEach((q, j) => out.push({ t: 'q', p, ci, q, j, n: vs.length, viva: true }));
       out.push({ t: 'dx', p, ci });
     });
     this.total = list.length; return out;
+  },
+  /** Question slides on/off (remembered in this browser; on by default). */
+  withQ() { try { return localStorage.getItem('pcp_with_q') !== '0'; } catch (e) { return true; } },
+  setWithQ(on) {
+    try { localStorage.setItem('pcp_with_q', on ? '1' : '0'); } catch (e) { }
+    const id = (this.slides[this.i] || {}).p ? this.slides[this.i].p.id : null;
+    this.slides = this.build(); this.shown = new Set(); const k = id ? this.slides.findIndex(x => x.p.id === id) : 0; this.i = k < 0 ? 0 : k; this.paint();
   },
   start(caseId) {
     this.slides = this.build(); if (!this.slides.length) { toast('No published practicals to present yet.', 'info'); return; }
@@ -84,6 +94,12 @@ body.pcp-open{overflow:hidden}
 .pcp-nav button[disabled]{opacity:.4;cursor:default}
 .pcp-nav .pcp-count{color:#5b7083;font-size:.88rem}
 .pcp-root .pcp-hint{color:#6c8395;font-size:.82rem}
+.pcp-qtog{display:inline-flex;align-items:center;gap:.3rem;font-size:.9rem;color:#14293d;cursor:pointer;white-space:nowrap}
+.pcp-thumbs{display:flex;gap:.6rem;justify-content:center;flex-wrap:wrap}
+.pcp-thumbs img{height:min(24vh,190px);max-width:30vw;object-fit:contain;border-radius:10px;background:#fff;border:1px solid #dbe5ed;box-shadow:0 6px 16px rgba(20,41,61,.1)}
+.pcp-root .pcp-qtext{max-width:1000px;font-size:clamp(1.25rem,3vw,2rem);font-weight:700;color:#0f2a43;line-height:1.35}
+.pcp-ans{font-size:clamp(1rem,2.2vw,1.3rem)}
+.pcp-expl{margin-top:.4rem;color:#4a6377;font-size:.9em}
 @media (max-width:720px){.pcp-top{flex-wrap:wrap}.pcp-root .pcp-where{width:100%}.pcp-img{max-height:calc(100vh - 17rem)}.pcp-picslide .pcp-img{max-height:none}}
 `));
   },
@@ -118,6 +134,7 @@ body.pcp-open{overflow:hidden}
       cases.map((c, k) => el('option', { value: c.id, selected: c.id === p.id }, 'Case ' + (c.number || k + 1) + (c.specimen && c.specimen.organ ? ' — ' + c.specimen.organ : ''))));
     sel.addEventListener('change', () => { const k = this.slides.findIndex(x => x.p.id === sel.value); if (k >= 0) this.go(k); sel.blur(); });
     pcpPut(this.top, el('span', { class: 'pcp-where' }, 'Practical cases · ' + (cases.findIndex(c => c.id === p.id) + 1) + ' of ' + this.total), sel,
+      (() => { const cb = el('input', { type: 'checkbox', 'data-a': 'pcp-withq', checked: this.withQ() }); cb.addEventListener('change', () => this.setWithQ(cb.checked)); return el('label', { class: 'pcp-qtog', title: 'Show the practical and viva questions of each case' }, cb, ' Questions'); })(),
       s.t !== 'title' ? el('button', { class: 'pcp-rev', 'data-a': 'pcp-reveal', onclick: () => this.reveal() }, open ? '🙈 Hide' : '👁 Reveal (R)') : null,
       this.touch() ? null : el('button', { onclick: () => this.fullscreen(), title: 'Full screen (F)' }, '⛶'),
       el('button', { 'data-a': 'pcp-close', onclick: () => this.close(), title: 'Close (Esc)' }, '✕ Close'));
@@ -127,7 +144,15 @@ body.pcp-open{overflow:hidden}
       pcpPut(slide, el('div', { class: 'pcp-kicker' }, 'Practical case'), el('h1', { class: 'pcp-case' }, 'Case ' + s.ci),
         el('div', { class: 'pcp-meta' }, [organ, sp.type].filter(Boolean).join(' · ')),
         sp.text ? el('div', { class: 'pcp-clin' }, el('b', null, 'Clinical information: '), sp.text) : null,
-        el('div', { class: 'pcp-hint' }, plural(s.n, 'picture') + ' · → next · R reveals the description and the diagnosis'));
+        el('div', { class: 'pcp-hint' }, [plural(s.n, 'picture'), s.nq ? plural(s.nq, 'practical question') : '', s.nv ? plural(s.nv, 'viva question') : ''].filter(Boolean).join(' · ') + ' · → next · R reveals the answers and the diagnosis'));
+    } else if (s.t === 'q') {
+      const q = s.q, perm = pracPerms(p), canAns = perm.answersOnline && !!String(q.a || '').trim();
+      const strip = el('div', { class: 'pcp-thumbs' }, this.pics(p).slice(0, 4).map((im, k) => { const t = el('img', { alt: 'Picture ' + (k + 1), title: 'Picture ' + (k + 1) }); PracImages.setSrc(t, im.url); return t; }));
+      pcpPut(slide, el('div', { class: 'pcp-kicker' }, 'Case ' + s.ci + ' · ' + (s.viva ? '🗣 Viva question ' : '❓ Practical question ') + (s.j + 1) + ' of ' + s.n + (!s.viva && PE_QTYPES[q.type] ? ' · ' + PE_QTYPES[q.type] : '')),
+        strip.childNodes.length ? strip : null, el('div', { class: 'pcp-qtext' }, q.q),
+        !open ? hidden('Answer — then press R (👁 Reveal).')
+          : canAns ? el('div', { class: 'pcp-cap pcp-ans' }, el('b', null, 'Answer: '), q.a, q.explanation ? el('div', { class: 'pcp-expl' }, q.explanation) : null)
+          : hidden('The answers of this case are not shown to students.'));
     } else if (s.t === 'pic') {
       const im = el('img', { class: 'pcp-img', alt: 'Case ' + s.ci + ', picture ' + (s.j + 1) });
       PracImages.setSrc(im, s.im.url);
