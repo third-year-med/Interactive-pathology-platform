@@ -36,8 +36,8 @@ const PracPresent = {
     });
     this.total = list.length; return out;
   },
-  /** Question slides on/off (remembered in this browser; on by default). */
-  withQ() { try { return localStorage.getItem('pcp_with_q') !== '0'; } catch (e) { return true; } },
+  /** Question slides on/off (remembered in this browser; OFF by default — user, 2026-11-14: "the version without questions is better"). */
+  withQ() { try { return localStorage.getItem('pcp_with_q') === '1'; } catch (e) { return false; } },
   setWithQ(on) {
     try { localStorage.setItem('pcp_with_q', on ? '1' : '0'); } catch (e) { }
     const id = (this.slides[this.i] || {}).p ? this.slides[this.i].p.id : null;

@@ -5445,6 +5445,8 @@ test('▶ Present all cases (inflnew): title → pictures in slot order → diag
   await p.evaluate(function () { location.hash = '#/apply'; }); await p.waitForSelector('#view-apply .ux-list', { timeout: 10000 });
   assert.doesNotMatch(await p.textContent('#view-apply'), /How to answer a practical/);
   await p.evaluate(function () { location.hash = '#/practical'; }); await p.waitForSelector('[data-a=pcp-start]', { timeout: 10000 });
+  assert.strictEqual(await p.evaluate(function () { try { localStorage.removeItem('pcp_with_q'); } catch (e) { } return PracPresent.withQ(); }), false, 'question slides start OFF');
+  await p.evaluate(function () { localStorage.setItem('pcp_with_q', '1'); });   // this test walks through them: switch on
   await p.click('[data-a=pcp-start]');
   const txt = function () { return p.textContent('.pcp-stage'); };
   if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'prac-present-title.png') });
