@@ -486,7 +486,12 @@ progress line, the result and the publish button went into the old, detached car
 **`prac-file-status`** keeps the status in `PRAC_FILE_UI` (as picture-import does with `PIC_IMPORT` since 2026-10-17); a redrawn
 card shows the live progress, then the result and its own ✅ Approve & publish all. **Lesson (again):** any import that runs
 across saves must keep its status outside the card. e2e "📦 Practical import (inflnew): the page is redrawn…" (fails without).
-Case numbering (user, same day): the keloid case is **Case 12** (cases 1–12, no gap) — build `new-1.5`. Rehearsal on the new build from the live data:
+Case numbering (user, same day): the keloid case is **Case 12** (cases 1–12, no gap) — build `new-1.5`.
+**Picture order in a practical case (user, 2026-11-14): clinical photographs come BEFORE the microscopy.** A practical shows
+its pictures by slot — gross (after the gross description) → micro → additional (last). Clinical photographs therefore go in
+the **gross** slot (`slot: 'gross', kind: 'clinical'` — `slotKinds('gross')` allows it), never in `additional`; keep `additional`
+for diagrams, endoscopy and radiology. Fixing published cases: ✏️ Edit each → slot menu Additional → Gross (no publish per case)
+→ Practical list → 🚀 Approve & publish all → ⬆ Publish draft. Rehearsal on the new build from the live data:
 97/97 pictures, 12 practicals published as 1–12, Spotter 136/138, OSPE 22/23, desktop + iPad without overflow.
 
 ### 4.2.3 Neoplasia (New) — the user's syllabus, NOT condensed (user, 2026-10-30)
