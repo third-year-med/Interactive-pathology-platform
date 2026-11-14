@@ -5222,7 +5222,9 @@ test('Inflammation (New) module (inflnew): every topic, section, view and slide 
     await q.evaluate(function () { location.hash = '#/teacher'; });
     await q.waitForSelector('#view-teacher', { state: 'visible', timeout: 10000 });
     const plan = await q.evaluate(function () { return AssessUI.topicQuizPlan().topics.filter(function (x) { return x.ok; }).length; });
-    assert.ok(plan === 18, '⚡ Topic quizzes: every topic but the practical has ≥ 5 practice questions (' + plan + ')');
+    // build new-1.4 (2026-11-14) gave the practical topic t13 its own practice questions (p001…) → a 19th topic quiz
+    const pracQs = await q.evaluate(function () { return QUESTIONS.filter(function (x) { return x.topic === 't13'; }).length; });
+    assert.ok(plan === (pracQs ? 19 : 18), '⚡ Topic quizzes: every topic but a question-less practical has ≥ 5 practice questions (' + plan + ', practical questions ' + pracQs + ')');
     // ann-topics-report patch: the teacher's page sent the full topic list (19, in the module's order) for the Annual Assessment
     await q.waitForFunction(function () { return Object.keys(sessionStorage).some(function (k) { return /^ann_topics_sent_v1/.test(k); }); }, null, { timeout: 20000 });
     const tl = JSON.parse(main.ctx.getSetting_('anntopics:inflnew') || '[]');

@@ -465,6 +465,21 @@ lp-proud-flesh, lp-keloid-clinical, lp-keloid-micro). Deliverables (never commit
 (7 imports `in-hprac-01…07` → s1311: Fig. 4.6A/B + 5 Robbins panels), and — because a Spotter/OSPE import REPLACES the saved set —
 complete files `inflnew-spotter-questions-all.json` (38 + 28 healing `in-sph-NNa/b`, answers spread A–E) and
 `inflnew-ospe-stations-all.json` (19 + 8 healing stations `in-osh-01…08`). Rehearsal: 66/66 Spotter and 27/27 OSPE ready.
+**Practical update (2026-11-14, build `new-1.4`, user's brief "Major Update and Reconstruction"):** the user's 7z of departmental
+pictures (folders PR1–PR11, PR19; ExpertPath, WebPath, Pathology Outlines, PEIR, Robbins — the user explicitly told us to use
+ALL of them, whatever the source) → cases **12–18 removed** (s1308, s1309; Case 18 out of s1310). New numbering (user-confirmed):
+Case 7 = **acute appendicitis** (s1312), Case 8 = **chronic cholecystitis** (s1313), Case 9 = bronchopneumonia **and** lung abscess
+(s1306, absorbs old cases 7–9). Best 3–4 pictures per case in its section; every other picture in **More Practical Pictures**
+s1314 (cases 1–6), s1315 (7–8), s1316 (9–19) — 97 pictures `in-prac2-01…97` (37 best incl. the original pictures of cases
+4, 10, 11, 19; 5 left out: logo, animation, Robbins duplicates of s1311). 31 course questions `p001…p031` (t13 now has a ⚡ topic
+quiz). Live master before the update (backup 2026-11-14): the `in-prac-01…19` pictures were NEVER in Learn (so the old Spotter/OSPE
+case items had no picture); `in-hprac-02` is missing from s1311 (Spotter in-sph-02a/b and Healing Station 1 stay "waiting").
+Deliverables (never committed): `inflnew-practical-pictures-2.json`, `inflnew-practical-cases-2.json` (12 practicals `in-pr2-NN`,
+`diagnosisConfidence: 'stated'` — without it every imported practical waits for "confirm diagnosis" and Publish all publishes
+none; `replaces` = the 19 old practical ids), `inflnew-spotter-questions-2.json` (138: 28 healing kept, 24 re-pointed, 86 new,
+A–E 29/28/26/29/26), `inflnew-ospe-stations-2.json` (23: 15 case + 8 healing, 92 marks). The old practicals must be deleted
+BEFORE the practical import (imports are numbered after the existing drafts). Rehearsal on the new build from the live data:
+97/97 pictures, 12 practicals published as 1–12, Spotter 136/138, OSPE 22/23, desktop + iPad without overflow.
 
 ### 4.2.3 Neoplasia (New) — the user's syllabus, NOT condensed (user, 2026-10-30)
 Repository `third-year-med/neoplasia-new` (the user created "Neoplasia-new"), title **"Neoplasia (New)"**, module key **`neonew`**,
