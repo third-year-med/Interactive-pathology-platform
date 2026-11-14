@@ -1069,6 +1069,37 @@ test('Draft → Preview → Publish: Edit master draft opens the real module on 
   }
 });
 
+/* ✏️ Edit master draft from Teaching Modules (user, 2026-11-14: "rapid access … rather than through the long journey"): the
+   Admin's Teaching Modules page has an ✏️ Edit master draft card beside the Learning Module lock; it lists the modules with
+   versioned content on and opens one on its master draft, like Content → ✏️ Edit master draft. */
+test('✏️ Edit master draft card on Teaching Modules (Admin): beside the lock card; lists versioned modules; one click opens the module on its master draft', { skip: SKIP || (!fs.existsSync(REAL[0][2]) && 'module page not available') }, async function () {
+  const M = REAL[0];
+  groupFixture();
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: [M[0]] });
+  main.call({ module: 'portal', action: 'contentMigrate', token: t, moduleId: M[0], decisions: {} });
+  assert.ok(main.call({ module: 'portal', action: 'contentSetMode', token: t, moduleId: M[0], mode: 'on' }).ok);
+  try {
+    const p = await realPage(M, []);
+    await p.goto(HOME + '#/teacher');
+    await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+    await dash(p, 'modules');
+    await p.waitForSelector('.qa-row #t-lock'); await p.waitForSelector('.qa-row #t-draft .qd-card');
+    const side = await p.evaluate(function () { const a = document.querySelector('#t-lock .ll-card').getBoundingClientRect(), b = document.querySelector('#t-draft .qd-card').getBoundingClientRect(); return Math.abs(a.top - b.top) < 4 && b.left > a.right; });
+    assert.ok(side, 'the ✏️ card sits beside the lock card');
+    await p.click('#t-draft .qd-card');
+    await p.waitForSelector('#t-draft [data-a=qd-edit]', { timeout: 15000 });
+    assert.match(await p.textContent('#t-draft .qd-list'), /unpublished change/);
+    if (process.env.SHOTS) await (await p.$('.qa-row')).screenshot({ path: path.join(process.env.SHOTS, 'teaching-modules-draft-card.png') });
+    await p.click('#t-draft [data-a=qd-edit]');
+    await p.waitForURL(new RegExp(M[1] + '/$'), { timeout: 15000 });
+    assert.strictEqual(await p.evaluate(function (k) { return sessionStorage.getItem(k); }, 'pf_draft:' + M[0]), '1', 'opened as the master draft');
+    assert.ok(JSON.parse(await p.evaluate(function (k) { return localStorage.getItem(k); }, 'ci_backend_token_v1')).token, 'with the draft session');
+    await p.context().close();
+  } finally { main.call({ module: 'portal', action: 'contentSetMode', token: t, moduleId: M[0], mode: 'off' }); }
+});
+
 test('Step 9: Group local changes — hidden / local addition listed; "Show it again" and "Copy to master draft"', { skip: SKIP || (!fs.existsSync(REAL[0][2]) && 'module page not available') }, async function () {
   const M = REAL[0];
   const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
@@ -6681,7 +6712,9 @@ test('🧪 Spotter practice set: only questions marked practice in 🧪 Practice
     await p.waitForSelector('.spot-teacher', { timeout: 15000 });
     const load = async function (items) {
       await p.setInputFiles('.spot-teacher input[type=file]', file(items)); await p.waitForSelector('.modal');
-      await p.click('.modal-foot .btn-primary'); await p.waitForFunction(function (n) { return Spotter.all().length === n && !!document.querySelector('.spot-home'); }, items.length, { timeout: 15000 });
+      const sig = JSON.stringify(items.map(function (q) { return [q.id, q.practice === true]; }));   // the saved set is THIS file (the previous one may have as many questions)
+      await p.click('.modal-foot .btn-primary'); await p.waitForFunction(function (sig) { return JSON.stringify(Spotter.all().map(function (q) { return [q.id, q.practice === true]; })) === sig && !!document.querySelector('.spot-home .spot-modes'); }, sig, { timeout: 15000 });
+      await p.waitForFunction(function (n) { const s = document.querySelector('.spot-teacher summary'); return s && /exam-only/.test(s.textContent) === n; }, items.some(function (q) { return q.practice === true; }), { timeout: 15000 });
     };
     const runs = function () { return p.evaluate(function () { Spotter.start('practice'); const a = Spotter.run.ids.slice().sort(); Spotter.start('exam'); const b = Spotter.run.ids.length; Spotter.run = null; Spotter.paint(); return { practice: a, exam: b }; }); };
     // 2 of 6 marked → Practice has 2, Exam all 6

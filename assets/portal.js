@@ -745,7 +745,8 @@
     var grid = $('.t-grid', tm);
     MODULES.forEach(function (m) { grid.appendChild(teacherCard(m)); });
     if (!MODULES.length) grid.appendChild(h('<p class="muted">No modules yet — add one under Teacher Management.</p>'));
-    var tmW = h('<div class="dv-wrap"></div>'); tmW.appendChild(learnLockSection(call)); tmW.appendChild(tm);   // 2.18: the lock first
+    var tmW = h('<div class="dv-wrap"></div>'), qa = h('<div class="qa-row"></div>');   // 2.18: the lock first; ✏️ Edit master draft beside it (2026-11-14)
+    qa.appendChild(learnLockSection(call)); qa.appendChild(quickDraftSection()); tmW.appendChild(qa); tmW.appendChild(tm);
     var ss = sessionsSection(call, true, { byStudent: false, onSummary: sessSummary });
     var ex = examsSection(call, true, examSummary);
     var ov = overallSection(call, overallSummary);
@@ -1004,6 +1005,49 @@
     fallback();
   }
   function dirCall(action, o) { return post(CFG.backendUrl, Object.assign({ module: 'portal', action: action, token: tsess() }, o || {})); }
+  /** A module page's folder address (…/index.html, ?query and #hash removed). */
+  function pfModuleBase(u) { u = String(u || '').replace(/[?#].*$/, ''); return /\/$/.test(u) ? u : u.replace(/\/[^\/]*\.html?$/, '/').replace(/([^\/])$/, '$1/'); }
+  /** ✏️ Edit master draft (Admin sign-in): opens the module on its master copy — Content tab and the Teaching Modules card. */
+  function openMasterDraft(m, sub, btn) {
+    if (btn) btn.disabled = true;
+    dirCall('contentEditDraft', { moduleId: m.moduleId }).then(function (x) {
+      if (btn) btn.disabled = false; if (!x.ok) return toast(x.error);
+      if (!x.url || !x.storagePrefix) return toast('This module has no link or storage prefix (Modules tab).');
+      lsSet(x.storagePrefix + 'backend_token_v1', { token: x.token, expiresAt: x.expiresAt });
+      sdel(x.storagePrefix + 'stu_session_v1');
+      try { sessionStorage.setItem('pf_draft:' + m.moduleId, '1'); } catch (e) { }   // the module shows the "master draft" banner
+      var t = tget(); if (t) { t.mods = t.mods || {}; t.mods[m.moduleId] = { token: x.token, expiresAt: x.expiresAt, prefix: x.storagePrefix, draft: true }; sset(TKEY, t, false); }
+      location.href = pfModuleBase(x.url) + (sub || '');
+    });
+  }
+  /** Teaching Modules (Admin): a ✏️ Edit master draft card next to the Learning Module lock — one click per module instead of
+      Platform Home → Content (user, 2026-11-14). Lists the modules whose versioned content is on. */
+  function quickDraftSection() {
+    var sec = h('<section class="t-sec ll-sec qd-sec" id="t-draft"><button type="button" class="ll-card qd-card" aria-expanded="false" aria-controls="qd-panel">' +
+      '<span class="ll-ico" aria-hidden="true">✏️</span><span class="ll-ct"><span class="ll-t">Edit master draft</span><span class="ll-sum qd-sum">Open a module’s master copy</span></span>' +
+      '<span class="ll-chev" aria-hidden="true">›</span></button><div class="ts-block ll-box qd-box" id="qd-panel" hidden>' +
+      '<p class="small muted">Opens the module to change its master copy — every group gets the changes after <b>⬆ Publish draft</b>. The same as Platform Home → Content → ✏️ Edit master draft.</p>' +
+      '<div class="qd-list"><p class="muted small">Loading…</p></div></div></section>');
+    var card = $('.qd-card', sec), panel = $('.qd-box', sec), list = $('.qd-list', sec), loaded = false;
+    card.onclick = function () { var on = panel.hidden; panel.hidden = !on; card.setAttribute('aria-expanded', on ? 'true' : 'false'); sec.classList.toggle('open', on); if (on && !loaded) load(); };
+    function load() {
+      loaded = true;
+      dirCall('contentStatus').then(function (r) {
+        if (!r.ok) { loaded = false; list.innerHTML = '<p class="err">' + esc(r.code === 'badaction' ? 'Update Portal.gs on the backend.' : (r.error || 'Not available.')) + '</p>'; return; }
+        var mods = (r.modules || []).filter(function (m) { return m.mode === 'on' && m.migrated; });
+        list.innerHTML = '';
+        if (!mods.length) { list.innerHTML = '<p class="small muted">No module has versioned content switched on (Platform Home → Content).</p>'; return; }
+        mods.forEach(function (m) {
+          var row = h('<div class="qd-row"><div class="qd-name"><b>' + esc(m.title) + '</b> <span class="small muted">' + (m.publishedVersion ? 'v' + esc(m.publishedVersion) : 'no version yet') +
+            ' · ' + (m.draftChanges || 0) + ' unpublished change(s)</span></div><button class="btn primary small" type="button" data-a="qd-edit">✏️ Edit master draft</button></div>');
+          var b = $('[data-a=qd-edit]', row); b.onclick = function () { openMasterDraft(m, '', b); };
+          list.appendChild(row);
+        });
+        $('.qd-sum', card).textContent = mods.length + (mods.length === 1 ? ' module' : ' modules') + ' — one click to the master copy';
+      });
+    }
+    return sec;
+  }
   function fmtDay(t) { if (!t) return ''; var d = new Date(Number(t)); return isNaN(d) ? '' : d.toISOString().slice(0, 10); }
   /* ---------------- Official Exams (exam app): places, examiner hand-off ---------------- */
   var EXAM_APP = 'https://third-year-med.github.io/pathology-exams/';
@@ -2488,19 +2532,8 @@
     }
     function paneResults(pane) { reportView(pane, dirCall); }
     /** Opens the module (or its preview of a new build: sub = 'preview/') in a master-draft session. */
-    function openDraft(m, sub, btn) {
-      if (btn) btn.disabled = true;
-      dirCall('contentEditDraft', { moduleId: m.moduleId }).then(function (x) {
-        if (btn) btn.disabled = false; if (!x.ok) return toast(x.error);
-        if (!x.url || !x.storagePrefix) return toast('This module has no link or storage prefix (Modules tab).');
-        lsSet(x.storagePrefix + 'backend_token_v1', { token: x.token, expiresAt: x.expiresAt });
-        sdel(x.storagePrefix + 'stu_session_v1');
-        try { sessionStorage.setItem('pf_draft:' + m.moduleId, '1'); } catch (e) { }   // the module shows the "master draft" banner
-        var t = tget(); if (t) { t.mods = t.mods || {}; t.mods[m.moduleId] = { token: x.token, expiresAt: x.expiresAt, prefix: x.storagePrefix, draft: true }; sset(TKEY, t, false); }
-        location.href = moduleBase(x.url) + (sub || '');
-      });
-    }
-    function moduleBase(u) { u = String(u || '').replace(/[?#].*$/, ''); return /\/$/.test(u) ? u : u.replace(/\/[^\/]*\.html?$/, '/') .replace(/([^\/])$/, '$1/'); }
+    function openDraft(m, sub, btn) { openMasterDraft(m, sub, btn); }   // shared with the ✏️ card on Teaching Modules
+    function moduleBase(u) { return pfModuleBase(u); }
     /** The build label written in a module page on GitHub (readable without signing in), or null if there is no page. */
     function pageBuild(url) {
       return fetch(url, { cache: 'no-store' }).then(function (r) { return r.ok ? r.text() : ''; }).then(function (t) {

@@ -530,6 +530,11 @@ time; the server's AE_stripAnswers and snapshotQuestion keep `images`). Import: 
 bank in ✏️ Edit master draft; then build the exam in 📚 Library (source 🔒 Assessment bank, topic Practical). They are still
 also in the Spotter's Exam mode (students may have seen them) unless removed there.
 
+**✏️ Edit master draft on Teaching Modules (user 2026-11-14 — "rapid access … rather than the long journey"):** the Admin's
+Teacher Dashboard → Teaching Modules has an ✏️ Edit master draft card beside the Learning Module lock (`quickDraftSection` in
+`assets/portal.js`); it lists the modules with versioned content on and opens one on its master draft (`openMasterDraft`, shared
+with Content → ✏️ Edit master draft). portal.js / portal.css `?v=2026-11-14a`.
+
 ### 4.2.3 Neoplasia (New) — the user's syllabus, NOT condensed (user, 2026-10-30)
 Repository `third-year-med/neoplasia-new` (the user created "Neoplasia-new"), title **"Neoplasia (New)"**, module key **`neonew`**,
 prefix **`nn_`**, build `new-1.0`, own content key (env `NN_CONTENT_KEY`). Written from the user's PDF "Neoplasia (Ch. 6)", pp. 42–64,
