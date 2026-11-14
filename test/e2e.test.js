@@ -4180,6 +4180,38 @@ test('⚡ Topic quizzes: one quiz per topic (pool of its practice questions, 5 r
   }
 });
 
+/* 🖼 Picture references in questions (patch assess-pic-ref, 2026-11-14): pic:<importKey> / atlas:<id> show the module's own
+   Learn picture — used by the 🔒 assessment-bank file made from the exam-only Spotter questions. */
+test('🖼 Question pictures by reference: pic:<importKey> shows the Learn picture with that key (quiz card, as in an assessment attempt); unknown → "Image could not be loaded"', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const sec = function (id) { return { id: id, heading: 'Section ' + id, body: 'Text', tables: [], figures: [], keyPoints: [] }; };
+  const mod = syntheticModule(CI_PAGE, { topics: [{ id: 't01', title: 'Cell injury', summary: 's', sections: [sec('s0101')] }, { id: 't17', title: 'Practical Pathology — Specimens & Slides', summary: 's', sections: [sec('s1701')] }] });
+  const keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['cellinjury'] }).modules.cellinjury;
+  const URL1 = 'https://drive.google.com/thumbnail?id=APREF1XXXXXXXXX&sz=w2000';
+  main.call({ module: 'cellinjury', action: 'upsert', token: tt.token, collection: 'custommedia', id: 's1701', data: { items: [{ id: 'm_ap1', type: 'image', url: URL1, caption: 'Caption names the diagnosis', importKey: 'tst-apref-1' }] } });
+  const start = errors.length;
+  try {
+    const p = await page();
+    await p.route('https://drive.google.com/**', function (route) { return route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from(PNG1, 'base64') }); });
+    await p.route('https://third-year-med.github.io/cell-injury-teaching-platform/**', function (route) { return route.fulfill({ status: 200, contentType: 'text/html', body: mod.html }); });
+    await p.addInitScript(function (v) { localStorage.setItem('ci_backend_token_v1', v); }, JSON.stringify({ token: tt.token, expiresAt: tt.expiresAt }));
+    await p.goto('https://third-year-med.github.io/cell-injury-teaching-platform/#/learn');
+    await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher' && sectionMedia('s1701').length > 0; }, null, { timeout: 20000 });
+    const r = await p.evaluate(function () {
+      const q = function (url) { return { id: 'aqb_ap_' + url.length, type: 'mcq', topic: 't17', stem: 'What is shown?', options: ['A', 'B', 'C', 'D', 'E'], answer: 1, images: [{ url: url }] }; };
+      const card = function (url) { const c = buildQuestionCard(q(url), { mode: 'quiz', number: 1, total: 1 }).el; document.body.appendChild(c); return c; };
+      const ok = card('pic:tst-apref-1'), bad = card('pic:not-here');
+      const img = ok.querySelector('.q-img-row img');
+      return { src: img && img.getAttribute('src'), caption: !!ok.querySelector('figcaption'), bad: bad.textContent.indexOf('Image could not be loaded') >= 0, fig: resolveImgUrl('fig:nope'), plain: resolveImgUrl('https://x.org/a.png') };
+    });
+    assert.deepStrictEqual(r, { src: URL1, caption: false, bad: true, fig: '', plain: 'https://x.org/a.png' });
+    await p.context().close();
+    assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
+  } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
+});
+
 /* 🔒 Assessment-only question bank (Portal.gs 2.33, patch assess-bank): imported in the main copy, hidden from Practice,
    never sent to a student's browser, used by ⚡ Topic quizzes (bank first, ≥ 5 per topic) and by the server-built attempts. */
 test('🔒 Assessment bank: import in the main copy → never in Practice / Revision, never in a student browser (content, sync, storage); ⚡ Topic quizzes take a topic with ≥ 5 bank questions from the bank; a student attempt gets bank questions from the server', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {

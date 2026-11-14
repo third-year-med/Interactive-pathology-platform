@@ -523,6 +523,13 @@ still feed Spotter/OSPE/atlas (looked up among all topics), its questions stay i
 the built-in 🙈 Hide this topic for the practical topic: it hides it from getTopics() for everyone and the Spotter loses its pictures.
 Lesson: DOM `append(null)` writes the text "null" — use `appendKids` (the `el()` helper skips null).
 
+**Practical picture questions in graded exams (user 2026-11-14):** `inflnew-assessment-bank-practical.json` (delivered, never
+committed) = the 99 ready exam-only Spotter questions as 🔒 assessment-bank items `aqb_inp_<spotter id>`, topic t13, type mcq,
+`images: [{url: 'pic:<importKey>'}]` or `atlas:<id>` (patch `assess-pic-ref` resolves them to the Learn pictures at display
+time; the server's AE_stripAnswers and snapshotQuestion keep `images`). Import: Teacher Portal → 📝 Assessments → 🔒 Assessment
+bank in ✏️ Edit master draft; then build the exam in 📚 Library (source 🔒 Assessment bank, topic Practical). They are still
+also in the Spotter's Exam mode (students may have seen them) unless removed there.
+
 ### 4.2.3 Neoplasia (New) — the user's syllabus, NOT condensed (user, 2026-10-30)
 Repository `third-year-med/neoplasia-new` (the user created "Neoplasia-new"), title **"Neoplasia (New)"**, module key **`neonew`**,
 prefix **`nn_`**, build `new-1.0`, own content key (env `NN_CONTENT_KEY`). Written from the user's PDF "Neoplasia (Ch. 6)", pp. 42–64,
