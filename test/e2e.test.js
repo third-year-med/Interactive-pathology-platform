@@ -5301,6 +5301,53 @@ test('🗂 Practical import with "replaces" (inflnew): confirm → the listed ol
   await p.context().close();
 });
 
+/* 📦 Practical import status survives redraws (patch prac-file-status, 2026-11-14; reported: "I press Import practicals and
+   Delete and import, and then no progress appears"): the page is redrawn while the import runs → the redrawn card shows the
+   live progress, then the result and its own ✅ Approve & publish all, which publishes the imported practicals. */
+test('📦 Practical import (inflnew): the page is redrawn during the import → the new card shows the live progress, then the result and a working ✅ Approve & publish all', { skip: SKIP || ((!fs.existsSync(IN[2]) || !IN[3]) && 'module page or IN_CONTENT_KEY not available') }, async function () {
+  main.ctx.STUDENT_AUTH_MODULES.inflnew = true; main.ctx.CONTENT_KEYS.inflnew = IN[3];
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const reg = main.call({ module: 'portal', action: 'portalInfo' }).modules;
+  if (!reg.some(function (m) { return m.id === 'inflnew'; })) assert.ok(main.call({ module: 'portal', action: 'portalAdminSave', token: t, modules: reg.concat([{ id: 'inflnew', title: 'Inflammation (New)', icon: '🔥', status: 'available',
+    url: 'https://third-year-med.github.io/' + IN[1] + '/', moduleKey: 'inflnew', handoff: 'neo', storagePrefix: 'in_' }]) }).ok);
+  const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['inflnew'] }).modules.inflnew;
+  const p = await realPage(IN, []);
+  await p.route('https://script.google.com/**', async function (route) {   // registered last → asked first: slow uploads keep the import running
+    if (/"action":"uploadImage"/.test(route.request().postData() || '')) await new Promise(function (r) { setTimeout(r, 700); });
+    return route.fallback();
+  });
+  await p.addInitScript(function (v) { localStorage.setItem('in_backend_token_v1', v); }, JSON.stringify({ token: tt.token, expiresAt: tt.expiresAt }));
+  await p.goto('https://third-year-med.github.io/' + IN[1] + '/#/practical/import');
+  await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+  await p.waitForSelector('input[aria-label="Practical-import file"]', { timeout: 20000 });
+  const img = 'data:image/png;base64,' + PNG1;
+  const pr = function (k) { return { key: 'st-' + k, title: 'Status case ' + k, diagnosis: 'Dx ' + k, diagnosisConfidence: 'stated', objectives: ['Recognise it.'],
+    specimen: { organ: 'Lung', type: 'Microscopic section', text: 'A test case.' }, gross: 'Grey nodule.', microscopic: 'Sheets of neutrophils.', keyFeatures: ['Neutrophils'],
+    differential: 'Granuloma.', clinical: 'Fever.', stain: 'H&E', teachingPoints: ['A point.'], viva: [{ q: 'Pattern?', a: 'Suppurative.' }],
+    questions: [{ type: 'identification', q: 'What is it?', a: 'Dx ' + k }],
+    images: [1, 2, 3].map(function (j) { return { image: img, slot: 'micro', kind: 'micro', caption: 'picture ' + j }; }) }; };
+  await p.setInputFiles('input[aria-label="Practical-import file"]', { name: 'status.json', mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify({ format: 'neo-practical-import', version: 1, module: 'inflnew', title: 'status test', practicals: [pr(1), pr(2), pr(3)] })) });
+  await p.waitForSelector('[data-a=prac-file-go]:not([disabled])', { timeout: 20000 });
+  await p.click('[data-a=prac-file-go]');
+  await p.waitForFunction(function () { return /Practical 1 of 3/.test(document.querySelector('#view-practical').textContent); }, null, { timeout: 15000 });
+  // the page is redrawn while the import runs (as deleting / syncing / moving away and back does)
+  await p.evaluate(function () { location.hash = '#/practical'; }); await p.waitForTimeout(400);
+  await p.evaluate(function () { location.hash = '#/practical/import'; });
+  await p.waitForSelector('.prac-file-redrawn .prac-file-live', { timeout: 10000 });
+  assert.match(await p.textContent('.prac-file-live'), /Practical \d of 3/, 'the redrawn card shows the live progress');
+  assert.ok(await p.$eval('.prac-file-redrawn input[type=file]', function (n) { return n.disabled; }), 'no second import while one runs');
+  if (process.env.SHOTS) await (await p.$('.prac-file-redrawn')).screenshot({ path: path.join(process.env.SHOTS, 'prac-import-redrawn-running.png') });
+  await p.waitForFunction(function () { return /✓ 3 practicals added as drafts with 9 pictures/.test((document.querySelector('.prac-file-live') || {}).textContent || ''); }, null, { timeout: 60000 });
+  await p.click('[data-a=prac-file-publish-live]');
+  await p.waitForFunction(function () { return /🚀 3 practicals published/.test((document.querySelector('.prac-file-pub') || {}).textContent || ''); }, null, { timeout: 60000 });
+  if (process.env.SHOTS) await (await p.$('.prac-file-redrawn')).screenshot({ path: path.join(process.env.SHOTS, 'prac-import-redrawn-done.png') });
+  assert.deepStrictEqual(await p.evaluate(function () { return State.practicalPub.filter(function (x) { return /^Status case/.test(x.title); }).map(function (x) { return x.title; }).sort(); }), ['Status case 1', 'Status case 2', 'Status case 3']);
+  assert.ok(!(await p.$eval('.prac-file-redrawn input[type=file]', function (n) { return n.disabled; })), 'the file field is free again after the import');
+  await p.context().close();
+});
+
 test('🎓 Viva Examination (inflnew): 🎓 tab; Practice (reveal + own ticks, nothing recorded); Mock Viva 5 × 5 (answers first, then self-marking → result recorded, self-assessed); Examiner Mode (student, topics, rubric, recorded); 📊 results', { skip: SKIP || ((!fs.existsSync(IN[2]) || !IN[3]) && 'module page or IN_CONTENT_KEY not available') }, async function () {
   main.call({ module: 'portal', action: 'setup', password: TPW });
   const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;

@@ -480,7 +480,13 @@ none; `replaces` = the 19 old practical ids), `inflnew-spotter-questions-2.json`
 A–E 29/28/26/29/26), `inflnew-ospe-stations-2.json` (23: 15 case + 8 healing, 92 marks). The old practicals are deleted by the
 practical import itself: NEW patch **`prac-file-replace`** (user approved "A", 2026-11-14; all six active modules) — the file's
 `replaces` list → one confirmation naming them → deleted (draft + students' copy) BEFORE the new ones are added, so they are
-numbered from 1 (imports are numbered after the existing drafts); Cancel keeps everything. e2e "🗂 Practical import with replaces". Rehearsal on the new build from the live data:
+numbered from 1 (imports are numbered after the existing drafts); Cancel keeps everything. e2e "🗂 Practical import with replaces".
+**Bug the user hit (2026-11-14): "Delete and import, then no progress appears".** The page was redrawn during the import, so the
+progress line, the result and the publish button went into the old, detached card (the import itself went on). Patch
+**`prac-file-status`** keeps the status in `PRAC_FILE_UI` (as picture-import does with `PIC_IMPORT` since 2026-10-17); a redrawn
+card shows the live progress, then the result and its own ✅ Approve & publish all. **Lesson (again):** any import that runs
+across saves must keep its status outside the card. e2e "📦 Practical import (inflnew): the page is redrawn…" (fails without).
+Case numbering (user, same day): the keloid case is **Case 12** (cases 1–12, no gap) — build `new-1.5`. Rehearsal on the new build from the live data:
 97/97 pictures, 12 practicals published as 1–12, Spotter 136/138, OSPE 22/23, desktop + iPad without overflow.
 
 ### 4.2.3 Neoplasia (New) — the user's syllabus, NOT condensed (user, 2026-10-30)
