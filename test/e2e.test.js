@@ -5376,8 +5376,15 @@ test('▶ Present all cases (inflnew): title → pictures in slot order → diag
   }, 'data:image/png;base64,' + PNG1);
   await p.evaluate(function () { Views.practical.render(); });
   await p.waitForSelector('[data-a=pcp-start]', { timeout: 10000 });
+  // patch prac-clean (inflnew): no "How to use the practical" box, no "How to answer a practical" row on the Practical hub
+  assert.strictEqual(await p.$('#view-practical [data-a=prac-guide]'), null, 'the green guide box is hidden');
+  await p.evaluate(function () { location.hash = '#/apply'; }); await p.waitForSelector('#view-apply .ux-list', { timeout: 10000 });
+  assert.doesNotMatch(await p.textContent('#view-apply'), /How to answer a practical/);
+  await p.evaluate(function () { location.hash = '#/practical'; }); await p.waitForSelector('[data-a=pcp-start]', { timeout: 10000 });
   await p.click('[data-a=pcp-start]');
   const txt = function () { return p.textContent('.pcp-stage'); };
+  if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'prac-present-title.png') });
+  assert.doesNotMatch(await p.textContent('.pcp-top'), /null/, 'no stray "null" in the top bar');
   let s = await txt();
   assert.match(s, /Case 1/); assert.match(s, /History 1\./); assert.ok(!/Keloid/.test(s), 'the title slide does not name the diagnosis');
   await p.keyboard.press('ArrowRight'); s = await txt();
@@ -5386,6 +5393,7 @@ test('▶ Present all cases (inflnew): title → pictures in slot order → diag
   await p.keyboard.press('ArrowRight'); s = await txt(); assert.match(s, /Picture 2 of 2 · Histopathology/); assert.ok(!/Micro caption 1/.test(s));
   await p.keyboard.press('ArrowRight'); s = await txt(); assert.match(s, /What is your diagnosis\?/); assert.ok(!/Keloid/.test(s), 'diagnosis hidden');
   await p.click('[data-a=pcp-reveal]'); s = await txt(); assert.match(s, /Keloid/); assert.match(s, /Feature 1/);
+  if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'prac-present-dx.png') });
   await p.click('[data-a=pcp-next]'); s = await txt(); assert.match(s, /Case 2/); assert.match(await p.textContent('.pcp-top'), /2 of 2/);
   assert.match(await p.textContent('.pcp-nav'), /Slide 5 of 8/, '2 cases × (title + 2 active pictures + diagnosis)');
   await p.keyboard.press('Escape'); assert.strictEqual(await p.$('.pcp-root'), null, 'Esc closes');
@@ -5405,7 +5413,25 @@ test('▶ Present all cases (inflnew): title → pictures in slot order → diag
   await p.waitForSelector('[data-a=pcp-next-case]', { timeout: 10000 });
   await p.click('[data-a=pcp-next-case]');
   await p.waitForFunction(function (id) { return location.hash.indexOf(id) >= 0; }, ids[1], { timeout: 10000 });
+  // patch prac-clean: the teacher still has the Learn practical topic …
+  const tv = await p.evaluate(function () { return { learn: getTopics().some(function (t) { return /practical/i.test(t.title); }), atlas: ATLAS.all().length }; });
+  assert.ok(tv.learn, 'the teacher still sees the Learn practical topic');
   await p.context().close();
+  // … a student does not, while the Spotter / OSPE / atlas still find its pictures and the presentation works
+  main.addStudents('inflnew', [{ username: 'pc1', name: 'Clean Student', password: PW, mustChange: false }]);
+  const sp = await realPage(IN, []);
+  await sp.goto('https://third-year-med.github.io/' + IN[1] + '/');
+  await sp.waitForSelector('#nb-user'); await sp.fill('#nb-user', 'pc1'); await sp.fill('#nb-pass', PW); await sp.click('#neo-boot button[type=submit]');
+  await sp.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'student'; }, null, { timeout: 20000 });
+  const sv = await sp.evaluate(function () { return { learn: getTopics().some(function (t) { return /practical/i.test(t.title); }), all: getTopics(true).some(function (t) { return /practical/i.test(t.title); }),
+    spotter: !!Spotter.topic(), pool: SpotterEdit.pool().length, atlas: ATLAS.all().length }; });
+  assert.deepStrictEqual({ learn: sv.learn, all: sv.all, spotter: sv.spotter, atlas: sv.atlas }, { learn: false, all: true, spotter: true, atlas: tv.atlas });
+  assert.ok(sv.pool > 0, 'the Spotter / OSPE picture pool still has the practical pictures');
+  await sp.evaluate(function () { location.hash = '#/learn'; }); await sp.waitForTimeout(800);
+  assert.doesNotMatch(await sp.textContent('#view-learn'), /Practical Pathology/, 'not in the Learn page');
+  await sp.evaluate(function () { location.hash = '#/practical'; }); await sp.waitForSelector('[data-a=pcp-start]', { timeout: 10000 });
+  assert.strictEqual(await sp.$('#view-practical [data-a=prac-guide]'), null);
+  await sp.context().close();
 });
 
 test('🎓 Viva Examination (inflnew): 🎓 tab; Practice (reveal + own ticks, nothing recorded); Mock Viva 5 × 5 (answers first, then self-marking → result recorded, self-assessed); Examiner Mode (student, topics, rubric, recorded); 📊 results', { skip: SKIP || ((!fs.existsSync(IN[2]) || !IN[3]) && 'module page or IN_CONTENT_KEY not available') }, async function () {

@@ -12,6 +12,7 @@ R = [
 ("""Bus.on('prac-changed', () => { if (Router.current === 'practical' && !['edit', 'import'].includes(Views.practical.params[0])) Views.practical.render(); });""",
  """Bus.on('prac-changed', () => { if (Router.current === 'practical' && !['edit', 'import'].includes(Views.practical.params[0])) Views.practical.render(); });
 /* ---------- ▶ Present all practical cases (patch prac-present) ---------- */
+function pcpPut(n, ...kids) { appendKids(n, kids); return n; }   // DOM append() would write "null"
 const PracPresent = {
   slides: [], i: 0, shown: new Set(), root: null, keyFn: null,
   touch() { return (window.matchMedia && matchMedia('(pointer: coarse)').matches) || navigator.maxTouchPoints > 1; },
@@ -50,37 +51,43 @@ const PracPresent = {
     if (document.getElementById('pcp-style')) return;
     document.head.appendChild(el('style', { id: 'pcp-style' }, `
 body.pcp-open{overflow:hidden}
-.pcp-root{position:fixed;inset:0;z-index:9000;background:#0d1b26;color:#eef3f7;display:flex;flex-direction:column;font-size:16px}
-.pcp-top{display:flex;align-items:center;gap:.6rem;padding:.55rem .9rem;background:#122636;flex-wrap:wrap}
-.pcp-top .pcp-where{font-weight:700;letter-spacing:.02em;margin-right:auto}
-.pcp-top select,.pcp-top button,.pcp-nav button{font:inherit;font-size:.92rem;border-radius:10px;border:1px solid #2f5068;background:#183247;color:#eef3f7;padding:.42rem .75rem;cursor:pointer}
-.pcp-top button.pcp-rev{background:#0f8a7e;border-color:#0f8a7e;font-weight:700}
-.pcp-stage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:1rem;overflow:auto;touch-action:pan-y}
-.pcp-slide{width:min(1200px,100%);max-height:100%;display:flex;flex-direction:column;align-items:center;gap:.8rem;text-align:center}
-.pcp-kicker{color:#7fd1c7;font-weight:800;letter-spacing:.12em;text-transform:uppercase;font-size:.85rem}
-.pcp-case{font-size:clamp(2.2rem,6vw,4rem);font-weight:800;margin:0}
-.pcp-meta{font-size:clamp(1rem,2.2vw,1.35rem);color:#c9d8e3}
-.pcp-clin{max-width:900px;font-size:clamp(1rem,2.2vw,1.4rem);line-height:1.5;background:#14293a;border-radius:14px;padding:1rem 1.2rem;text-align:left}
-.pcp-img{max-width:100%;max-height:calc(100vh - 15rem);object-fit:contain;border-radius:10px;background:#000;box-shadow:0 10px 30px rgba(0,0,0,.4)}
-.pcp-label{font-weight:700;color:#bfe9e3}
-.pcp-hidden{color:#8aa3b5;font-style:italic;border:1px dashed #3a5a70;border-radius:12px;padding:.7rem 1rem}
-.pcp-cap{max-width:1000px;font-size:clamp(.95rem,2vw,1.2rem);line-height:1.45;background:#14293a;border-radius:12px;padding:.7rem 1rem}
-.pcp-dx{font-size:clamp(1.6rem,4.5vw,2.8rem);font-weight:800;color:#ffd66b;margin:.2rem 0}
-.pcp-box{max-width:960px;width:100%;text-align:left;background:#14293a;border-radius:14px;padding:.9rem 1.2rem;font-size:clamp(.95rem,2vw,1.15rem);line-height:1.5}
-.pcp-box h4{margin:.4rem 0 .2rem;color:#7fd1c7}
+.pcp-root{position:fixed;inset:0;z-index:9000;background:#eef3f7;color:#14293d;display:flex;flex-direction:column;font-size:16px}
+.pcp-top{display:flex;align-items:center;gap:.6rem;padding:.6rem 1rem;background:#fff;border-bottom:1px solid #d8e2ea;box-shadow:0 1px 6px rgba(20,41,61,.06)}
+.pcp-root .pcp-where{font-weight:800;color:#0f2a43;margin-right:auto;white-space:nowrap}
+.pcp-root .pcp-top select{width:auto;max-width:22rem;min-width:0}
+.pcp-top select,.pcp-top button,.pcp-nav button{font:inherit;font-size:.92rem;border-radius:999px;border:1px solid #cfdbe5;background:#fff;color:#14293d;padding:.45rem .9rem;cursor:pointer}
+.pcp-top button:hover,.pcp-nav button:hover:not([disabled]){border-color:#0e9f9a;color:#0b7d78}
+.pcp-root button.pcp-rev{background:#0e9f9a;border-color:#0e9f9a;color:#fff;font-weight:700}
+.pcp-root button.pcp-rev:hover{background:#0b8b86;color:#fff}
+.pcp-stage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:1.2rem;overflow:auto;touch-action:pan-y}
+.pcp-slide{width:min(1200px,100%);max-height:100%;display:flex;flex-direction:column;align-items:center;gap:.9rem;text-align:center}
+.pcp-root .pcp-kicker{color:#0b8b86;font-weight:800;letter-spacing:.14em;text-transform:uppercase;font-size:.85rem}
+.pcp-root .pcp-case{font-size:clamp(2.2rem,6vw,4rem);font-weight:800;margin:0;color:#0f2a43;line-height:1.1}
+.pcp-root .pcp-meta{font-size:clamp(1rem,2.2vw,1.3rem);color:#4a6377}
+.pcp-clin{max-width:900px;font-size:clamp(1rem,2.2vw,1.35rem);line-height:1.55;background:#fff;border:1px solid #dbe5ed;border-left:5px solid #0e9f9a;border-radius:14px;padding:1rem 1.3rem;text-align:left;box-shadow:0 6px 20px rgba(20,41,61,.07)}
+.pcp-clin b{color:#0f2a43}
+.pcp-img{max-width:100%;max-height:calc(100vh - 15rem);object-fit:contain;border-radius:12px;background:#fff;border:1px solid #dbe5ed;box-shadow:0 10px 28px rgba(20,41,61,.14)}
+.pcp-root .pcp-label{font-weight:700;color:#0f2a43;background:#fff;border:1px solid #dbe5ed;border-radius:999px;padding:.3rem .9rem;font-size:.92rem}
+.pcp-hidden{color:#5b7083;font-style:italic;background:#f8fbfd;border:1.5px dashed #b9cad7;border-radius:12px;padding:.7rem 1.1rem}
+.pcp-cap{max-width:1000px;font-size:clamp(.95rem,2vw,1.15rem);line-height:1.5;background:#fff;border:1px solid #dbe5ed;border-left:5px solid #0e9f9a;border-radius:12px;padding:.75rem 1.1rem;text-align:left;box-shadow:0 6px 20px rgba(20,41,61,.07)}
+.pcp-root .pcp-dx{font-size:clamp(1.6rem,4.5vw,2.7rem);font-weight:800;color:#0b7d78;margin:.2rem 0}
+.pcp-box{max-width:960px;width:100%;text-align:left;background:#fff;border:1px solid #dbe5ed;border-radius:14px;padding:.9rem 1.3rem;font-size:clamp(.95rem,2vw,1.12rem);line-height:1.55;box-shadow:0 6px 20px rgba(20,41,61,.07)}
+.pcp-root .pcp-box h4{margin:.5rem 0 .2rem;color:#0b7d78;font-size:.95em}
 .pcp-box ul{margin:.2rem 0 .4rem 1.2rem;padding:0}
-.pcp-nav{display:flex;justify-content:space-between;align-items:center;gap:.6rem;padding:.55rem .9rem;background:#122636}
-.pcp-nav button{font-size:1.05rem;padding:.6rem 1.2rem}
-.pcp-nav .pcp-count{color:#9fb6c7;font-size:.9rem}
-.pcp-hint{color:#7f98aa;font-size:.8rem}
-@media (max-width:720px){.pcp-top .pcp-where{width:100%}.pcp-img{max-height:calc(100vh - 17rem)}}
+.pcp-nav{display:flex;justify-content:space-between;align-items:center;gap:.6rem;padding:.6rem 1rem;background:#fff;border-top:1px solid #d8e2ea}
+.pcp-nav button{font-size:1.02rem;padding:.6rem 1.3rem}
+.pcp-root .pcp-nav button[data-a=pcp-next]{background:#0e9f9a;border-color:#0e9f9a;color:#fff;font-weight:700}
+.pcp-nav button[disabled]{opacity:.4;cursor:default}
+.pcp-nav .pcp-count{color:#5b7083;font-size:.88rem}
+.pcp-root .pcp-hint{color:#6c8395;font-size:.82rem}
+@media (max-width:720px){.pcp-top{flex-wrap:wrap}.pcp-root .pcp-where{width:100%}.pcp-img{max-height:calc(100vh - 17rem)}}
 `));
   },
   mount() {
     this.style(); this.close();
     const root = el('div', { class: 'pcp-root', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Practical cases — presentation' });
     const top = el('div', { class: 'pcp-top' }), stage = el('div', { class: 'pcp-stage' }), nav = el('div', { class: 'pcp-nav' });
-    root.append(top, stage, nav); document.body.appendChild(root); document.body.classList.add('pcp-open');
+    pcpPut(root, top, stage, nav); document.body.appendChild(root); document.body.classList.add('pcp-open');
     this.root = root; this.top = top; this.stage = stage; this.nav = nav;
     let x0 = null, y0 = null;
     stage.addEventListener('pointerdown', e => { if (e.pointerType !== 'mouse') { x0 = e.clientX; y0 = e.clientY; } });
@@ -106,14 +113,14 @@ body.pcp-open{overflow:hidden}
     const cases = this.cases(), sel = el('select', { 'aria-label': 'Go to case', class: 'pcp-sel' },
       cases.map((c, k) => el('option', { value: c.id, selected: c.id === p.id }, 'Case ' + (c.number || k + 1) + (c.specimen && c.specimen.organ ? ' — ' + c.specimen.organ : ''))));
     sel.addEventListener('change', () => { const k = this.slides.findIndex(x => x.p.id === sel.value); if (k >= 0) this.go(k); sel.blur(); });
-    this.top.append(el('span', { class: 'pcp-where' }, 'Practical cases · ' + (cases.findIndex(c => c.id === p.id) + 1) + ' of ' + this.total), sel,
+    pcpPut(this.top, el('span', { class: 'pcp-where' }, 'Practical cases · ' + (cases.findIndex(c => c.id === p.id) + 1) + ' of ' + this.total), sel,
       s.t !== 'title' ? el('button', { class: 'pcp-rev', 'data-a': 'pcp-reveal', onclick: () => this.reveal() }, open ? '🙈 Hide' : '👁 Reveal (R)') : null,
       this.touch() ? null : el('button', { onclick: () => this.fullscreen(), title: 'Full screen (F)' }, '⛶'),
       el('button', { 'data-a': 'pcp-close', onclick: () => this.close(), title: 'Close (Esc)' }, '✕ Close'));
     const slide = el('div', { class: 'pcp-slide' });
     const hidden = t => el('div', { class: 'pcp-hidden' }, t);
     if (s.t === 'title') {
-      slide.append(el('div', { class: 'pcp-kicker' }, 'Practical case'), el('h1', { class: 'pcp-case' }, 'Case ' + s.ci),
+      pcpPut(slide, el('div', { class: 'pcp-kicker' }, 'Practical case'), el('h1', { class: 'pcp-case' }, 'Case ' + s.ci),
         el('div', { class: 'pcp-meta' }, [organ, sp.type].filter(Boolean).join(' · ')),
         sp.text ? el('div', { class: 'pcp-clin' }, el('b', null, 'Clinical information: '), sp.text) : null,
         el('div', { class: 'pcp-hint' }, plural(s.n, 'picture') + ' · → next · R reveals the description and the diagnosis'));
@@ -121,20 +128,20 @@ body.pcp-open{overflow:hidden}
       const im = el('img', { class: 'pcp-img', alt: 'Case ' + s.ci + ', picture ' + (s.j + 1) });
       PracImages.setSrc(im, s.im.url);
       const kind = PE_IMAGE_KINDS[s.im.kind] || PE_IMAGE_SLOTS[s.im.slot] || 'Picture';
-      slide.append(el('div', { class: 'pcp-label' }, 'Case ' + s.ci + ' · Picture ' + (s.j + 1) + ' of ' + s.n + ' · ' + kind + (s.im.stain ? ' (' + s.im.stain + ')' : '')), im,
+      pcpPut(slide, el('div', { class: 'pcp-label' }, 'Case ' + s.ci + ' · Picture ' + (s.j + 1) + ' of ' + s.n + ' · ' + kind + (s.im.stain ? ' (' + s.im.stain + ')' : '')), im,
         open ? el('div', { class: 'pcp-cap' }, PE_figCaption(s.im)) : hidden('Describe what you see — then press R (👁 Reveal) for the description.'));
     } else {
-      slide.append(el('div', { class: 'pcp-kicker' }, 'Case ' + s.ci + (organ ? ' · ' + organ : '')), el('h2', { class: 'pcp-case', style: 'font-size:clamp(1.6rem,4vw,2.6rem)' }, 'What is your diagnosis?'));
-      if (!open) slide.append(hidden('Give the diagnosis, two features you can see and one clinical point — then press R (👁 Reveal).'));
+      pcpPut(slide, el('div', { class: 'pcp-kicker' }, 'Case ' + s.ci + (organ ? ' · ' + organ : '')), el('h2', { class: 'pcp-case', style: 'font-size:clamp(1.6rem,4vw,2.6rem)' }, 'What is your diagnosis?'));
+      if (!open) pcpPut(slide, hidden('Give the diagnosis, two features you can see and one clinical point — then press R (👁 Reveal).'));
       else {
         const box = el('div', { class: 'pcp-box' });
-        const add = (h, v) => { if (!v || (Array.isArray(v) && !v.length)) return; box.append(el('h4', null, h), Array.isArray(v) ? el('ul', null, v.map(x => el('li', null, x))) : el('div', null, v)); };
+        const add = (h, v) => { if (!v || (Array.isArray(v) && !v.length)) return; pcpPut(box, el('h4', null, h), Array.isArray(v) ? el('ul', null, v.map(x => el('li', null, x))) : el('div', null, v)); };
         add('Key features', p.keyFeatures); add('Gross / clinical', p.gross); add('Microscopic', p.microscopic); add('Differential diagnosis', p.differential); add('Clinical point', p.clinical);
-        slide.append(el('div', { class: 'pcp-dx' }, p.diagnosis || p.title), el('div', { class: 'pcp-meta' }, p.title), box);
+        pcpPut(slide, el('div', { class: 'pcp-dx' }, p.diagnosis || p.title), el('div', { class: 'pcp-meta' }, p.title), box);
       }
     }
     clear(this.stage).appendChild(slide); this.stage.scrollTop = 0;
-    clear(this.nav).append(el('button', { 'data-a': 'pcp-prev', disabled: this.i === 0, onclick: () => this.go(this.i - 1) }, '‹ Back'),
+    pcpPut(clear(this.nav), el('button', { 'data-a': 'pcp-prev', disabled: this.i === 0, onclick: () => this.go(this.i - 1) }, '‹ Back'),
       el('span', { class: 'pcp-count' }, 'Slide ' + (this.i + 1) + ' of ' + this.slides.length + (this.touch() ? ' · swipe ← →' : ' · ← → · R · Esc')),
       el('button', { 'data-a': 'pcp-next', disabled: this.i === this.slides.length - 1, onclick: () => this.go(this.i + 1) }, 'Next ›'));
   },
@@ -164,9 +171,19 @@ body.pcp-open{overflow:hidden}
 const PRAC_PRESENT_RENDER0 = Views.practical.render;
 Views.practical.render = function () { const r = PRAC_PRESENT_RENDER0.apply(this, arguments); try { PracPresent.decorate(this.params); } catch (e) { } return r; };"""),
 ]
+HEAD = '/* ---------- ▶ Present all practical cases (patch prac-present) ---------- */'
+END = 'Views.practical.render = function () { const r = PRAC_PRESENT_RENDER0.apply(this, arguments); try { PracPresent.decorate(this.params); } catch (e) { } return r; };'
+def upgrade(s, b):
+    """An earlier version of this block (2026-11-14 dark design) is replaced in place by the current one."""
+    i = s.find(HEAD)
+    if i < 0 or b in s: return s, 0
+    j = s.find(END, i); assert j > i, 'prac-present block end not found'
+    new = b[b.index(HEAD):]
+    return s[:i] + new + s[j + len(END):], 1
 for path in sys.argv[1:]:
     s = open(path, encoding='utf-8').read(); n = 0
     for a, b in R:
+        s, u = upgrade(s, b); n += u
         if b in s: continue
         assert s.count(a) == 1, (path, a[:70]); s = s.replace(a, b); n += 1
     open(path, 'w', encoding='utf-8').write(s); print(path, 'changes:', n)

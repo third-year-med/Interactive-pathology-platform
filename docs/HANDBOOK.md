@@ -515,6 +515,14 @@ shows the new set, every group keeps the master's old one. Fix: Content → Grou
 Changes in draft shows only that item → ⬆ Publish draft (the local copy is then removed). Always check for the yellow
 "Editing the MASTER DRAFT" bar before importing.
 
+**Light presentation + clean Practical pages (user 2026-11-14: "it looks so dark", "I want a clean page"):** `prac-present` now
+uses a light design (white bars, teal accents; its upgrade() replaces an older copy of the block). New patch `prac-clean`
+(inflnew only, `PRAC_CLEAN_MODULES`): no "🧭 How to use the practical" box, no "How to answer a practical" hub rows, and the
+Learn practical topic (+ the pathway's "The practical cases" unit) hidden from STUDENTS only — the user's choice; its pictures
+still feed Spotter/OSPE/atlas (looked up among all topics), its questions stay in Review (not in the topic filter). Never use
+the built-in 🙈 Hide this topic for the practical topic: it hides it from getTopics() for everyone and the Spotter loses its pictures.
+Lesson: DOM `append(null)` writes the text "null" — use `appendKids` (the `el()` helper skips null).
+
 ### 4.2.3 Neoplasia (New) — the user's syllabus, NOT condensed (user, 2026-10-30)
 Repository `third-year-med/neoplasia-new` (the user created "Neoplasia-new"), title **"Neoplasia (New)"**, module key **`neonew`**,
 prefix **`nn_`**, build `new-1.0`, own content key (env `NN_CONTENT_KEY`). Written from the user's PDF "Neoplasia (Ch. 6)", pp. 42–64,
