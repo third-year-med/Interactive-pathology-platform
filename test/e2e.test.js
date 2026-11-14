@@ -5247,6 +5247,60 @@ test('Inflammation (New) module (inflnew): every topic, section, view and slide 
 
 /* 🎓 Viva Examination (patch viva; Portal.gs 2.45) on the real Inflammation (New) page — with a small made-up bank (the real
    bank is course material, imported by the Admin, never in the repository). */
+/* 🗂 Replaced practicals (patch prac-file-replace, 2026-11-14): a practical-import file that lists "replaces" deletes those
+   practicals first (draft + students' copy), after ONE confirmation; the others stay; Cancel keeps everything and adds nothing. */
+test('🗂 Practical import with "replaces" (inflnew): confirm → the listed old practicals are deleted (also for students), others kept, the new one added; cancel → nothing changes', { skip: SKIP || ((!fs.existsSync(IN[2]) || !IN[3]) && 'module page or IN_CONTENT_KEY not available') }, async function () {
+  main.ctx.STUDENT_AUTH_MODULES.inflnew = true; main.ctx.CONTENT_KEYS.inflnew = IN[3];
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const reg = main.call({ module: 'portal', action: 'portalInfo' }).modules;
+  if (!reg.some(function (m) { return m.id === 'inflnew'; })) assert.ok(main.call({ module: 'portal', action: 'portalAdminSave', token: t, modules: reg.concat([{ id: 'inflnew', title: 'Inflammation (New)', icon: '🔥', status: 'available',
+    url: 'https://third-year-med.github.io/' + IN[1] + '/', moduleKey: 'inflnew', handoff: 'neo', storagePrefix: 'in_' }]) }).ok);
+  const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['inflnew'] }).modules.inflnew;
+  const p = await realPage(IN, []);
+  await p.addInitScript(function (v) { localStorage.setItem('in_backend_token_v1', v); }, JSON.stringify({ token: tt.token, expiresAt: tt.expiresAt }));
+  await p.goto('https://third-year-med.github.io/' + IN[1] + '/#/practical');
+  await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+  // three earlier practicals: A and B (A also published for students) are to be replaced, C stays
+  const old = await p.evaluate(async function () {
+    const mk = async function (title, n) { const d = PE_buildDraft({ title: title, number: n, diagnosis: title, diagnosisConfidence: 'stated' }); await PracData.save(d); return d; };
+    const a = await mk('Old case A', 1), b = await mk('Old case B', 2), c = await mk('Keep case C', 3);
+    await PracData.publish(a);
+    return { a: a.id, b: b.id, c: c.id, pub: State.practicalPub.some(function (x) { return x.id === a.id; }) };
+  });
+  assert.ok(old.pub, 'A is published for students before the import');
+  const img = 'data:image/png;base64,' + PNG1;
+  const file = function (name, replaces, key) { return { name: name, mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ format: 'neo-practical-import', version: 1, module: 'inflnew', title: name, replaces: replaces,
+    practicals: [{ key: key, title: 'New case ' + key, diagnosis: 'New diagnosis', diagnosisConfidence: 'stated', objectives: ['o'], images: [{ image: img, slot: 'micro', kind: 'micro', caption: 'new picture' }], questions: [{ type: 'identification', q: 'What is it?', a: 'New diagnosis' }] }] })) }; };
+  const run = async function (f) {
+    await p.evaluate(function () { location.hash = '#/practical'; }); await p.waitForTimeout(300);
+    await p.evaluate(function () { location.hash = '#/practical/import'; });
+    await p.waitForSelector('input[aria-label="Practical-import file"]', { timeout: 20000 });
+    await p.setInputFiles('input[aria-label="Practical-import file"]', f);
+    await p.waitForSelector('[data-a=prac-file-go]:not([disabled])', { timeout: 20000 });
+    await p.click('[data-a=prac-file-go]');
+    await p.waitForSelector('.modal', { timeout: 10000 });
+    return p.textContent('.modal');
+  };
+  // 1 · confirm: A and B deleted (A also from the students' copy), C kept, the new practical added after C
+  const ask = await run(file('replace-AB.json', [{ id: old.a, title: 'Old case A' }, old.b, 'prac_not_here'], 'rp-1'));
+  assert.match(ask, /replaces 2 earlier practicals: “Old case A”, “Old case B”/);
+  await p.click('.modal button:has-text("Delete and import")');
+  await p.waitForFunction(function () { return /✓ 1 practical added as drafts/.test(document.querySelector('#view-practical').textContent); }, null, { timeout: 30000 });
+  const after = await p.evaluate(function () { return { drafts: PracData.drafts.map(function (d) { return [d.title, d.number]; }).sort(function (x, y) { return x[1] - y[1]; }), pub: State.practicalPub.map(function (x) { return x.id; }) }; });
+  assert.deepStrictEqual(after.drafts, [['Keep case C', 3], ['New case rp-1', 4]]);
+  assert.ok(after.pub.indexOf(old.a) < 0, 'A is gone for the students too');
+  const stored = main.call({ module: 'inflnew', action: 'getAllContent', token: tt.token, since: 0 }).items.filter(function (i) { return i.collection === 'practicalpub' && i.id === old.a && !i.deleted; });
+  assert.strictEqual(stored.length, 0, 'deleted on the server as well');
+  // 2 · cancel: nothing deleted, nothing added
+  const ask2 = await run(file('replace-C.json', [old.c], 'rp-2'));
+  assert.match(ask2, /replaces 1 earlier practical: “Keep case C”/);
+  await p.click('.modal button:has-text("Cancel")');
+  await p.waitForFunction(function () { return /import cancelled — the earlier practicals were kept/.test(document.querySelector('#view-practical').textContent); }, null, { timeout: 15000 });
+  assert.deepStrictEqual(await p.evaluate(function () { return PracData.drafts.map(function (d) { return d.title; }).sort(); }), ['Keep case C', 'New case rp-1']);
+  await p.context().close();
+});
+
 test('🎓 Viva Examination (inflnew): 🎓 tab; Practice (reveal + own ticks, nothing recorded); Mock Viva 5 × 5 (answers first, then self-marking → result recorded, self-assessed); Examiner Mode (student, topics, rubric, recorded); 📊 results', { skip: SKIP || ((!fs.existsSync(IN[2]) || !IN[3]) && 'module page or IN_CONTENT_KEY not available') }, async function () {
   main.call({ module: 'portal', action: 'setup', password: TPW });
   const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;

@@ -477,8 +477,10 @@ case items had no picture); `in-hprac-02` is missing from s1311 (Spotter in-sph-
 Deliverables (never committed): `inflnew-practical-pictures-2.json`, `inflnew-practical-cases-2.json` (12 practicals `in-pr2-NN`,
 `diagnosisConfidence: 'stated'` — without it every imported practical waits for "confirm diagnosis" and Publish all publishes
 none; `replaces` = the 19 old practical ids), `inflnew-spotter-questions-2.json` (138: 28 healing kept, 24 re-pointed, 86 new,
-A–E 29/28/26/29/26), `inflnew-ospe-stations-2.json` (23: 15 case + 8 healing, 92 marks). The old practicals must be deleted
-BEFORE the practical import (imports are numbered after the existing drafts). Rehearsal on the new build from the live data:
+A–E 29/28/26/29/26), `inflnew-ospe-stations-2.json` (23: 15 case + 8 healing, 92 marks). The old practicals are deleted by the
+practical import itself: NEW patch **`prac-file-replace`** (user approved "A", 2026-11-14; all six active modules) — the file's
+`replaces` list → one confirmation naming them → deleted (draft + students' copy) BEFORE the new ones are added, so they are
+numbered from 1 (imports are numbered after the existing drafts); Cancel keeps everything. e2e "🗂 Practical import with replaces". Rehearsal on the new build from the live data:
 97/97 pictures, 12 practicals published as 1–12, Spotter 136/138, OSPE 22/23, desktop + iPad without overflow.
 
 ### 4.2.3 Neoplasia (New) — the user's syllabus, NOT condensed (user, 2026-10-30)
