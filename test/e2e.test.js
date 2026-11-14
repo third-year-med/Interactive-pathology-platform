@@ -5348,11 +5348,71 @@ test('📦 Practical import (inflnew): the page is redrawn during the import →
   await p.context().close();
 });
 
+/* ▶ Present all practical cases (patch prac-present, 2026-11-14; user: "one presentation presents all the cases"; the diagnosis
+   hidden until revealed): title slide → pictures (clinical/gross before microscopic) → diagnosis; R reveals; next case; the
+   case page has ▶ Present from this case and Previous / Next case; fits an iPad screen. */
+test('▶ Present all cases (inflnew): title → pictures in slot order → diagnosis hidden until R; next case; Present from this case; Previous/Next case; iPad fit', { skip: SKIP || ((!fs.existsSync(IN[2]) || !IN[3]) && 'module page or IN_CONTENT_KEY not available') }, async function () {
+  main.ctx.STUDENT_AUTH_MODULES.inflnew = true; main.ctx.CONTENT_KEYS.inflnew = IN[3];
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const reg = main.call({ module: 'portal', action: 'portalInfo' }).modules;
+  if (!reg.some(function (m) { return m.id === 'inflnew'; })) assert.ok(main.call({ module: 'portal', action: 'portalAdminSave', token: t, modules: reg.concat([{ id: 'inflnew', title: 'Inflammation (New)', icon: '🔥', status: 'available',
+    url: 'https://third-year-med.github.io/' + IN[1] + '/', moduleKey: 'inflnew', handoff: 'neo', storagePrefix: 'in_' }]) }).ok);
+  const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['inflnew'] }).modules.inflnew;
+  const p = await realPage(IN, []);
+  await p.addInitScript(function (v) { localStorage.setItem('in_backend_token_v1', v); }, JSON.stringify({ token: tt.token, expiresAt: tt.expiresAt }));
+  await p.goto('https://third-year-med.github.io/' + IN[1] + '/#/practical');
+  await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+  const ids = await p.evaluate(async function (img) {
+    const mk = async function (n, title, dx) {
+      const d = PE_buildDraft({ title: title, number: n, diagnosis: dx, diagnosisConfidence: 'stated', specimen: { organ: 'Skin', type: 'Clinical photograph and slide', text: 'History ' + n + '.' }, keyFeatures: ['Feature ' + n] });
+      d.images = [{ id: 'm' + n, url: img, slot: 'micro', kind: 'micro', caption: 'Micro caption ' + n, active: true },
+        { id: 'g' + n, url: img, slot: 'gross', kind: 'clinical', caption: 'Clinical caption ' + n, active: true },
+        { id: 'x' + n, url: img, slot: 'micro', kind: 'micro', caption: 'Hidden picture', active: false }];
+      await PracData.save(d); await PracData.publish(PracData.get(d.id)); return d.id;
+    };
+    State.practicalPub.length = 0;
+    return [await mk(1, 'Keloid of the ear', 'Keloid'), await mk(2, 'Acute appendicitis', 'Acute suppurative appendicitis')];
+  }, 'data:image/png;base64,' + PNG1);
+  await p.evaluate(function () { Views.practical.render(); });
+  await p.waitForSelector('[data-a=pcp-start]', { timeout: 10000 });
+  await p.click('[data-a=pcp-start]');
+  const txt = function () { return p.textContent('.pcp-stage'); };
+  let s = await txt();
+  assert.match(s, /Case 1/); assert.match(s, /History 1\./); assert.ok(!/Keloid/.test(s), 'the title slide does not name the diagnosis');
+  await p.keyboard.press('ArrowRight'); s = await txt();
+  assert.match(s, /Picture 1 of 2 · Clinical photograph/, 'clinical / gross first'); assert.ok(!/Clinical caption 1/.test(s), 'caption hidden');
+  await p.keyboard.press('r'); assert.match(await txt(), /Clinical caption 1/, 'R reveals the caption');
+  await p.keyboard.press('ArrowRight'); s = await txt(); assert.match(s, /Picture 2 of 2 · Histopathology/); assert.ok(!/Micro caption 1/.test(s));
+  await p.keyboard.press('ArrowRight'); s = await txt(); assert.match(s, /What is your diagnosis\?/); assert.ok(!/Keloid/.test(s), 'diagnosis hidden');
+  await p.click('[data-a=pcp-reveal]'); s = await txt(); assert.match(s, /Keloid/); assert.match(s, /Feature 1/);
+  await p.click('[data-a=pcp-next]'); s = await txt(); assert.match(s, /Case 2/); assert.match(await p.textContent('.pcp-top'), /2 of 2/);
+  assert.match(await p.textContent('.pcp-nav'), /Slide 5 of 8/, '2 cases × (title + 2 active pictures + diagnosis)');
+  await p.keyboard.press('Escape'); assert.strictEqual(await p.$('.pcp-root'), null, 'Esc closes');
+  // a case page: Present from this case, Previous / Next case
+  await p.evaluate(function (id) { Router.go('practical', ['p', id]); }, ids[1]);
+  await p.waitForSelector('[data-a=pcp-prev-case]', { timeout: 10000 });
+  assert.strictEqual(await p.$('[data-a=pcp-next-case]'), null, 'last case has no Next');
+  await p.click('[data-a=pcp-start-here]'); assert.match(await txt(), /Case 2/); assert.match(await p.textContent('.pcp-stage'), /History 2\./);
+  // iPad: no horizontal overflow, picture inside the screen
+  await p.setViewportSize({ width: 820, height: 1180 });
+  await p.keyboard.press('ArrowRight');
+  const fit = await p.evaluate(function () { const r = document.querySelector('.pcp-root'), im = document.querySelector('.pcp-img').getBoundingClientRect(); return { over: r.scrollWidth > r.clientWidth, imOk: im.right <= innerWidth + 1 && im.bottom <= innerHeight + 1 }; });
+  assert.deepStrictEqual(fit, { over: false, imOk: true });
+  if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'prac-present-ipad.png') });
+  await p.click('[data-a=pcp-close]');
+  await p.evaluate(function (id) { Router.go('practical', ['p', id]); }, ids[0]);
+  await p.waitForSelector('[data-a=pcp-next-case]', { timeout: 10000 });
+  await p.click('[data-a=pcp-next-case]');
+  await p.waitForFunction(function (id) { return location.hash.indexOf(id) >= 0; }, ids[1], { timeout: 10000 });
+  await p.context().close();
+});
+
 test('🎓 Viva Examination (inflnew): 🎓 tab; Practice (reveal + own ticks, nothing recorded); Mock Viva 5 × 5 (answers first, then self-marking → result recorded, self-assessed); Examiner Mode (student, topics, rubric, recorded); 📊 results', { skip: SKIP || ((!fs.existsSync(IN[2]) || !IN[3]) && 'module page or IN_CONTENT_KEY not available') }, async function () {
   main.call({ module: 'portal', action: 'setup', password: TPW });
   const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
   const reg = main.call({ module: 'portal', action: 'portalInfo' }).modules;
-  assert.ok(main.call({ module: 'portal', action: 'portalAdminSave', token: t, modules: reg.concat([{ id: 'inflnew', title: 'Inflammation (New)', icon: '🔥', status: 'available',
+  if (!reg.some(function (m) { return m.id === 'inflnew'; })) assert.ok(main.call({ module: 'portal', action: 'portalAdminSave', token: t, modules: reg.concat([{ id: 'inflnew', title: 'Inflammation (New)', icon: '🔥', status: 'available',
     url: 'https://third-year-med.github.io/' + IN[1] + '/', moduleKey: 'inflnew', handoff: 'neo', storagePrefix: 'in_' }]) }).ok);
   main.ctx.STUDENT_AUTH_MODULES.inflnew = true; main.ctx.CONTENT_KEYS.inflnew = IN[3];
   main.addStudents('inflnew', [{ username: 'vv1', name: 'Viva Student', password: PW, mustChange: false }]);

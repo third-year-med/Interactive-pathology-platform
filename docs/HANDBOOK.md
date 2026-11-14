@@ -494,6 +494,12 @@ for diagrams, endoscopy and radiology. Fixing published cases: ✏️ Edit each 
 → Practical list → 🚀 Approve & publish all → ⬆ Publish draft. Rehearsal on the new build from the live data:
 97/97 pictures, 12 practicals published as 1–12, Spotter 136/138, OSPE 22/23, desktop + iPad without overflow.
 
+**▶ Present all cases (patch `prac-present`, user 2026-11-14 — "one presentation presents all the cases", diagnosis hidden until
+revealed):** Practical → Practical cases → ▶ Present all cases (teachers and students, published cases only). Per case: title slide
+(case number, organ, clinical information — never the title, which names the diagnosis) → each active picture in slot order →
+"What is your diagnosis?"; captions and the diagnosis appear on R / 👁 Reveal. ← → Space / swipe, case menu, F full screen (desktop
+only), Esc. A case page has ▶ Present from this case and ‹ Previous / Next case ›. e2e test "▶ Present all cases (inflnew)".
+
 ### 4.2.3 Neoplasia (New) — the user's syllabus, NOT condensed (user, 2026-10-30)
 Repository `third-year-med/neoplasia-new` (the user created "Neoplasia-new"), title **"Neoplasia (New)"**, module key **`neonew`**,
 prefix **`nn_`**, build `new-1.0`, own content key (env `NN_CONTENT_KEY`). Written from the user's PDF "Neoplasia (Ch. 6)", pp. 42–64,
