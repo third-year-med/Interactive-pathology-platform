@@ -5924,6 +5924,41 @@ test('Neoplasia (New) module (neonew): every topic, section, view and slide rend
   });
 });
 
+/* 🧹 Clean Practical pages in Neoplasia (New) (patch prac-clean, user 2026-11-15): its last Learn unit holds t13, t14 AND the
+   practical t15 — students lose only t15 (t13 Clinical aspects, t14 Laboratory diagnosis stay); the teacher sees everything. */
+test('🧹 Clean Practical pages (neonew): no guide box / "How to answer" row; students lose only the practical topic t15 (t13, t14 stay in the last unit); Spotter still finds t15', { skip: SKIP || ((!fs.existsSync(NN[2]) || !NN[3]) && 'module page or NN_CONTENT_KEY not available') }, async function () {
+  main.ctx.STUDENT_AUTH_MODULES.neonew = true; main.ctx.CONTENT_KEYS.neonew = NN[3];
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const reg = main.call({ module: 'portal', action: 'portalInfo' }).modules;
+  if (!reg.some(function (m) { return m.id === 'neonew'; })) assert.ok(main.call({ module: 'portal', action: 'portalAdminSave', token: t, modules: reg.concat([{ id: 'neonew', title: 'Neoplasia (New)', icon: '🦀', status: 'available',
+    url: 'https://third-year-med.github.io/' + NN[1] + '/', moduleKey: 'neonew', handoff: 'neo', storagePrefix: 'nn_' }]) }).ok);
+  const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['neonew'] }).modules.neonew;
+  const p = await realPage(NN, []);
+  await p.addInitScript(function (v) { localStorage.setItem('nn_backend_token_v1', v); }, JSON.stringify({ token: tt.token, expiresAt: tt.expiresAt }));
+  await p.goto('https://third-year-med.github.io/' + NN[1] + '/#/practical');
+  await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+  await p.waitForSelector('#view-practical .page', { timeout: 15000 });
+  assert.strictEqual(await p.$('#view-practical [data-a=prac-guide]'), null, 'no guide box');
+  await p.evaluate(function () { location.hash = '#/apply'; }); await p.waitForSelector('#view-apply .ux-list', { timeout: 10000 });
+  assert.doesNotMatch(await p.textContent('#view-apply'), /How to answer a practical/);
+  assert.ok(await p.evaluate(function () { return getTopics().some(function (x) { return x.id === 't15'; }) && UX_FINALE.topics.indexOf('t15') >= 0; }), 'the teacher still has t15');
+  await p.context().close();
+  main.addStudents('neonew', [{ username: 'nc1', name: 'Clean Neo Student', password: PW, mustChange: false }]);
+  const sp = await realPage(NN, []);
+  await sp.goto('https://third-year-med.github.io/' + NN[1] + '/');
+  await sp.waitForSelector('#nb-user'); await sp.fill('#nb-user', 'nc1'); await sp.fill('#nb-pass', PW); await sp.click('#neo-boot button[type=submit]');
+  await sp.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'student'; }, null, { timeout: 20000 });
+  const sv = await sp.evaluate(function () { const ids = getTopics().map(function (x) { return x.id; });
+    return { t13: ids.indexOf('t13') >= 0, t14: ids.indexOf('t14') >= 0, t15: ids.indexOf('t15') >= 0, finale: UX_FINALE.topics.slice(), inUnits: UX_ALL_UNITS.indexOf(UX_FINALE) >= 0, spotter: (Spotter.topic() || {}).id }; });
+  assert.deepStrictEqual(sv, { t13: true, t14: true, t15: false, finale: ['t13', 't14'], inUnits: true, spotter: 't15' });
+  await sp.evaluate(function () { location.hash = '#/learn'; }); await sp.waitForTimeout(800);
+  const learn = await sp.textContent('#view-learn');
+  assert.doesNotMatch(learn, /Practical Pathology — Specimens/, 'the practical topic is not in Learn');
+  assert.match(learn, /Topic 13/, 'Topic 13 is still in Learn'); assert.match(learn, /Topic 14/, 'Topic 14 is still in Learn');
+  await sp.context().close();
+});
+
 /* ---------------- Granulomatous and Parasitic Diseases (granuloma): the user's syllabus "Chapter 6: Granulomatous and Parasitic Diseases" + practical book Ex. 14–17,
    NOT condensed (2026-11-04). Needs GP_CONTENT_KEY (env only). */
 test('Granulomatous and Parasitic Diseases module (granuloma): every topic, section, view and slide renders with the real course; student and teacher', { skip: SKIP || ((!fs.existsSync(GP[2]) || !GP[3]) && 'Granulomatous and Parasitic Diseases module page or GP_CONTENT_KEY not available') }, async function () {
