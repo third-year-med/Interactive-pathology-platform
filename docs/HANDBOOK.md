@@ -667,6 +667,7 @@ a module without one, the parts that apply):
   (Questions switch). **Clean Practical pages** (patch `prac-clean`): add the new module's key to `PRAC_CLEAN_MODULES` —
   no "How to use the practical" box, no "How to answer a practical" rows, the Learn practical topic hidden from STUDENTS
   (never the built-in 🙈 Hide this topic: the Spotter would lose its pictures).
+  On 2026-11-15 also Neoplasia (New): its last Learn unit holds t13, t14 and t15 — only t15 leaves it (patch fix).
 - **Every import in ✏️ Edit master draft** (check for the yellow bar; the Teaching Modules page now has an ✏️ Edit master
   draft card). An import from a normal / group link becomes that link's LOCAL change and the groups keep the old master:
   fix with Content → Group local changes → Copy to master draft → ⬆ Publish draft.

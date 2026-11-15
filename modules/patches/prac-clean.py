@@ -6,7 +6,7 @@ quizzes; the teacher still sees it; its pictures keep feeding the Spotter, OSPE 
 nothing is deleted). Applied only to the
 modules in PRAC_CLEAN_MODULES (Inflammation (New)); other modules are skipped. Wraps pracGuideCard and uxList. Idempotent."""
 import sys, re
-PRAC_CLEAN_MODULES = ['inflnew']
+PRAC_CLEAN_MODULES = ['inflnew', 'neonew']   # neonew: user, 2026-11-15
 R = [
 ("""/* ==========================================================================
    20_universal_edit.js — UNIVERSAL EDITOR for text, pictures, links and videos""",
@@ -21,9 +21,11 @@ R = [
   // Spotter, the OSPE and the atlas, which now look the topic up among ALL topics
   const PRAC_RE = /practical/i, gt0 = getTopics;
   const studentView = () => (window.NEO_BOOT || {}).role === 'student';
-  const dropFinale = () => {   // the Learn pathway's last unit ("The practical cases") goes with the topic
-    if (typeof UX_ALL_UNITS === 'undefined' || typeof UX_FINALE === 'undefined') return;
-    const k = UX_ALL_UNITS.indexOf(UX_FINALE); if (k >= 0) UX_ALL_UNITS.splice(k, 1);
+  const dropFinale = () => {   // the practical topic leaves the Learn pathway's last unit; the unit goes only when nothing else is in it
+    if (typeof UX_ALL_UNITS === 'undefined' || typeof UX_FINALE === 'undefined') return;   // (Neoplasia (New): t13, t14 stay)
+    const prac = gt0(true).filter(t => PRAC_RE.test(t.title || '')).map(t => t.id);
+    UX_FINALE.topics = (UX_FINALE.topics || []).filter(id => !prac.includes(id));
+    const k = UX_ALL_UNITS.indexOf(UX_FINALE); if (k >= 0 && !UX_FINALE.topics.length) UX_ALL_UNITS.splice(k, 1);
   };
   getTopics = function (includeHidden) {
     const l = gt0.apply(this, arguments); if (!studentView()) return l;
