@@ -1038,7 +1038,14 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
 - Preserve existing features and data; no redesigns or rewrites unless asked; smallest reliable fix.
 - After each step give: what changed, how it was tested, and the exact deployment steps.
 
-## 10. Current state (updated 2026-11-14)
+## 10. Current state (updated 2026-11-15)
+
+- **2026-11-15 — Neoplasia (New) practical rebuilt to §4.4 (build new-1.2):** 14 cases in the user's folder order, 6 new specimen sections
+  (s1513–s1518), 4 galleries (s1519–s1522); 220 departmental pictures (ExpertPath, WebPathology, Robbins) in 3 picture files; 14 practical
+  cases with MERGED practical + viva questions (user's choice for neonew; Inflammation keeps two groups); Spotter 110 (38 hardest in
+  Practice), OSPE 30, 🔒 bank 72. prac-clean on for neonew (fix: only the practical topic leaves the last Learn unit; the Viva keeps every
+  topic). Lesson: a master draft that edited a topic's sections (here: hiding 2 papilloma pictures) stores the WHOLE section list — the
+  preview then shows the old list until Go live applies "Remove (use the new build)"; carry such edits into the build first.
 
 - **2026-11-14 — Inflammation (New) practical rebuilt + new standards (§4.4):** builds new-1.4 / new-1.5 (12 practical cases,
   Cases 12–18 removed, the keloid case renumbered to Case 12, 97 departmental pictures, 31 practical questions p001–p031);
