@@ -7,7 +7,7 @@ build of a module; `SETUP.md` is the user-facing setup guide.
 Essentials:
 - **ACTIVE MODULES ONLY (user, 2026-10-31 — applies to every task until the user changes it):** work only on
   `introduction-to-pathology` (`intropath`), `cell-injury-condensed` (`cellcondensed`), `inflammation-new` (`inflnew`),
-  `neoplasia-new` (`neonew`), `Granulomatous-and-parasitic-diseases` (`granuloma`, added 2026-11-04) and `third-year-med-autonomic-nervous-system` (`autonomic`, added 2026-11-11). All other modules are ARCHIVED (`modules/INACTIVE`: `cellinjury`, `inflhealing`, `inflcondensed`,
+  `neoplasia-new` (`neonew`), `Granulomatous-and-parasitic-diseases` (`granuloma`, added 2026-11-04), `third-year-med-autonomic-nervous-system` (`autonomic`, added 2026-11-11) and `genetics` (`genetics`, **re-activated 2026-11-15** at the user's request: brought up to date with all patches + the viva). All other modules are ARCHIVED (`modules/INACTIVE`: `cellinjury`, `inflhealing`, `inflcondensed`,
   `neoplasm`): never modify, rebuild, patch, refresh or delete them, even to fix an error — `apply.sh` and
   `tools/module-release.js` refuse them. A change to a shared component (patches, Portal.gs, platform-nav, tests) that
   could affect other modules needs the user's explicit approval first. Token policy: inspect only the files the task
@@ -54,7 +54,7 @@ Essentials:
 - Test before every push: `cd test && node --test backend.test.js && node --test e2e.test.js` (real module pages from the
   sibling repos; set the content keys as env variables to unlock them). Reproduce bugs on the real page first.
 - **After every change to `assets/portal.js` or `assets/portal.css`, raise `?v=` on both in `index.html`** (e.g. `?v=2026-11-10b`), or browsers keep the old file (user 2026-11-10: the Module Report still showed the test student).
-- **🎓 Viva Examination (2026-11-11, pilot Inflammation (New); Neoplasia (New) added 2026-11-15):** patch `viva` + Portal.gs 2.45 (`vb*` actions, sheet VivaResults). The viva banks (`<module>-viva-bank.json`, format `neo-viva-bank`) are course material: delivered to the user and imported in ✏️ Edit master draft, never committed. To add a module, put its key in `VIVA_MODULES` in `modules/patches/viva.py` (the user asked for: intropath, cellcondensed, inflnew, neonew).
+- **🎓 Viva Examination (2026-11-11, pilot Inflammation (New); Neoplasia (New), Granulomatous, Introduction to Pathology, Cell Injury and Genetics added 2026-11-15):** patch `viva` + Portal.gs 2.45 (`vb*` actions, sheet VivaResults). The viva banks (`<module>-viva-bank.json`, format `neo-viva-bank`) are course material: delivered to the user and imported in ✏️ Edit master draft, never committed. To add a module, put its key in `VIVA_MODULES` in `modules/patches/viva.py` (now: inflnew, neonew, granuloma, intropath, cellcondensed, genetics). e2e: "🎓 Viva Examination (<key>)" per module; `<PFX>_VIVA_BANK=<file>` tests the real delivered bank.
 - **Practical standard for every new module (2026-11-14): HANDBOOK §4.4** — all uploaded pictures used; clinical photos in the
   gross slot (before micro); Spotter Practice = ~38 hardest (one per picture), Exam = all; exam-only questions also as a 🔒
   bank file (`pic:` refs); OSPE pictures from one case; add the key to `PRAC_CLEAN_MODULES`; every import in ✏️ Edit master

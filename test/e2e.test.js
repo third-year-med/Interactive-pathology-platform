@@ -740,6 +740,8 @@ const GP = ['granuloma', 'Granulomatous-and-parasitic-diseases', process.env.GP_
 // Autonomic Nervous System (2026-11-11): Medical Physiology for dental students, very condensed (module key autonomic, prefix an_, AN_CONTENT_KEY, env only).
 const AN = ['autonomic', 'third-year-med-autonomic-nervous-system', process.env.AN_MODULE_HTML || '/home/user/third-year-med-autonomic-nervous-system/index.html', process.env.AN_CONTENT_KEY];
 const GEN = ['genetics', 'genetics', process.env.GEN_MODULE_HTML || '/home/user/genetics/index.html', process.env.GEN_CONTENT_KEY];
+// Introduction to Pathology (real course; IP_CONTENT_KEY, env only) — served for the viva test (2026-11-15).
+const IP = ['intropath', 'introduction-to-pathology', process.env.IP_MODULE_HTML || '/home/user/introduction-to-pathology/index.html', process.env.IP_CONTENT_KEY];
 const HOME = 'https://third-year-med.github.io/Interactive-pathology-platform/';
 const SERVE = {};
 const PNG1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
@@ -759,7 +761,7 @@ async function realPage(M, calls, ctxOpts) {
   await p.route('https://third-year-med.github.io/**', function (route) {
     const u = new URL(route.request().url());
     if (u.pathname.indexOf('/pathology-exams/') === 0) return route.fulfill({ status: 200, contentType: 'text/html', body: fs.readFileSync(EXAM_HTML) });
-    const own = REAL.concat([IC, CC, NM, GEN, IN, NN, GP, AN]).filter(function (R) { return u.pathname.indexOf('/' + R[1] + '/') === 0; })[0];
+    const own = REAL.concat([IC, CC, NM, GEN, IN, NN, GP, AN, IP]).filter(function (R) { return u.pathname.indexOf('/' + R[1] + '/') === 0; })[0];
     if (own) {
       const sub = /\/preview\/(index\.html)?$/.test(u.pathname) ? own[1] + '/preview/' : own[1] + '/';
       if (SERVE[sub] === null || (sub !== own[1] + '/' && !SERVE[sub])) return route.fulfill({ status: 404, body: '' });
@@ -5857,64 +5859,69 @@ test('Neoplasia (New) module (neonew): every topic, section, view and slide rend
   }
 });
 
-/* 🎓 Viva Examination on Neoplasia (New) (patch viva, VIVA_MODULES += neonew, 2026-11-15): the Admin imports a bank in ✏️ Edit
-   master draft; a student finds the 🎓 tab, filters a topic and practises a picture question (atlas picture shown). With
-   NN_VIVA_BANK=<the delivered neonew-viva-bank.json> (never committed) the real bank is imported instead and every topic and
-   every picture is checked. */
-test('🎓 Viva Examination (neonew): import the bank; student practice with a picture question', { skip: SKIP || ((!fs.existsSync(NN[2]) || !NN[3]) && 'Neoplasia (New) module page or NN_CONTENT_KEY not available') }, async function () {
-  main.ctx.STUDENT_AUTH_MODULES.neonew = true; main.ctx.CONTENT_KEYS.neonew = NN[3];
-  main.call({ module: 'portal', action: 'setup', password: TPW });
-  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
-  const reg = main.call({ module: 'portal', action: 'portalInfo' }).modules;
-  if (!reg.some(function (m) { return m.id === 'neonew'; })) assert.ok(main.call({ module: 'portal', action: 'portalAdminSave', token: t, modules: reg.concat([{ id: 'neonew', title: 'Neoplasia (New)', icon: '🧬', status: 'available',
-    url: 'https://third-year-med.github.io/' + NN[1] + '/', moduleKey: 'neonew', handoff: 'neo', storagePrefix: 'nn_' }]) }).ok);
-  main.addStudents('neonew', [{ username: 'nv1', name: 'Viva NN Student', password: PW, mustChange: false }]);
-  const start = errors.length;
-  try {
-    const real = process.env.NN_VIVA_BANK && fs.existsSync(process.env.NN_VIVA_BANK);
-    const pts = [{ p: 'Point A', m: 2 }, { p: 'Point B', m: 2 }, { p: 'Point C', m: 1 }];
-    const bank = real ? JSON.parse(fs.readFileSync(process.env.NN_VIVA_BANK, 'utf8')).items : [1, 2, 3, 4, 5].map(function (i) {
-      return { id: 'vn_test_' + i, topic: 't15', level: 'basic', type: i === 5 ? 'image' : 'definition', q: 'Neoplasia viva test ' + i + '?', max: 5, points: pts, model: 'Model ' + i + '.', follow: [], notes: '',
-        image: i === 5 ? { atlas: 'nm-img-076' } : undefined }; });
-    const tt0 = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['neonew'] }).modules.neonew;
-    const f = path.join(require('os').tmpdir(), 'viva-nn-bank.json'); fs.writeFileSync(f, JSON.stringify({ format: 'neo-viva-bank', version: 1, module: 'neonew', items: bank }));
-    const a = await realPage(NN, []);
-    await a.addInitScript(function (v) { localStorage.setItem('nn_backend_token_v1', v); }, JSON.stringify({ token: tt0.token, expiresAt: tt0.expiresAt }));
-    await a.goto('https://third-year-med.github.io/' + NN[1] + '/#/viva');
-    await a.waitForSelector('#view-viva [data-a=vv-import]', { timeout: 20000 });
-    const [fc] = await Promise.all([a.waitForEvent('filechooser'), a.click('#view-viva [data-a=vv-import]')]);
-    await fc.setFiles(f);
-    await a.click('.modal button:has-text("Import")');
-    await a.waitForSelector('#view-viva [data-a=vv-f-topic] option[value="t15"]', { state: 'attached', timeout: 120000 });
-    const n15 = bank.filter(function (x) { return x.topic === 't15'; }).length;
-    await a.waitForFunction(function (n) { const o = document.querySelector('#view-viva [data-a=vv-f-topic] option[value="t15"]'); return o && o.textContent.indexOf('(' + n + ')') >= 0; }, n15, { timeout: 120000 });
-    assert.strictEqual(await a.$('.modal'), null, 'no error window');
-    if (real) {
-      const counts = await a.$$eval('#view-viva [data-a=vv-f-topic] option', function (x) { return x.filter(function (o) { return /^t\d\d$/.test(o.value); }).map(function (o) { return [o.value, +(/\((\d+)\)/.exec(o.textContent) || [0, 0])[1]]; }); });
-      assert.strictEqual(counts.length, 15, 'every topic has viva questions'); counts.forEach(function (c) { assert.ok(c[1] >= 5, c[0] + ' has ≥ 5 questions'); });
-      // every picture of the bank renders (atlas picture or syllabus figure)
-      const missing = await a.evaluate(function (b) { return b.filter(function (x) { return x.image && !vivaPicture(x); }).map(function (x) { return x.id; }); }, bank);
-      assert.deepStrictEqual(missing, [], 'every picture is found');
+/* 🎓 Viva Examination on the other viva modules (patch viva, VIVA_MODULES; 2026-11-15: neonew, granuloma, intropath, cellcondensed,
+   genetics): the Admin imports a bank in ✏️ Edit master draft; a student finds the 🎓 tab, filters a topic and practises a picture
+   question (atlas picture shown). With <PFX>_VIVA_BANK=<the delivered <module>-viva-bank.json> (never committed) the real bank is
+   imported instead and every topic and every picture is checked. */
+[[NN, 'nn_', 'Neoplasia (New)', 'NN', 't15', 'nm-img-076', /Neoplasia/], [GP, 'gp_', 'Granulomatous and Parasitic Diseases', 'GP', 't14', 'gp-img-007', /Granulomatous/],
+  [IP, 'ip_', 'Introduction to Pathology', 'IP', 't17', 'c-rotary', /Introduction to Pathology/], [CC, 'cc_', 'Cell Injury & Cell Death', 'CC', 't17', 'peir-kidney-infarct-gross', /Cell Injury/],
+  [GEN, 'gen_', 'Genetics and Pediatric Diseases', 'GEN', 't14', 'wm-rb-leukocoria', /Genetics/]].forEach(function (V) {
+  const M = V[0], pfx = V[1], title = V[2], env = V[3], tp = V[4], img = V[5], barRe = V[6], key = M[0];
+  test('🎓 Viva Examination (' + key + '): import the bank; student practice with a picture question', { skip: SKIP || ((!fs.existsSync(M[2]) || !M[3]) && title + ' module page or ' + env + '_CONTENT_KEY not available') }, async function () {
+    main.ctx.STUDENT_AUTH_MODULES[key] = true; main.ctx.CONTENT_KEYS[key] = M[3];
+    main.call({ module: 'portal', action: 'setup', password: TPW });
+    const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+    const reg = main.call({ module: 'portal', action: 'portalInfo' }).modules;
+    if (!reg.some(function (m) { return m.id === key; })) assert.ok(main.call({ module: 'portal', action: 'portalAdminSave', token: t, modules: reg.concat([{ id: key, title: title, icon: '🎓', status: 'available',
+      url: 'https://third-year-med.github.io/' + M[1] + '/', moduleKey: key, handoff: 'neo', storagePrefix: pfx }]) }).ok);
+    main.addStudents(key, [{ username: 'vs' + key, name: 'Viva ' + key + ' Student', password: PW, mustChange: false }]);
+    const start = errors.length;
+    try {
+      const bf = process.env[env + '_VIVA_BANK'], real = !!(bf && fs.existsSync(bf));
+      const pts = [{ p: 'Point A', m: 2 }, { p: 'Point B', m: 2 }, { p: 'Point C', m: 1 }];
+      const bank = real ? JSON.parse(fs.readFileSync(bf, 'utf8')).items : [1, 2, 3, 4, 5].map(function (i) {
+        return { id: 'vx_test_' + i, topic: tp, level: 'basic', type: i === 5 ? 'image' : 'definition', q: 'Viva test ' + i + '?', max: 5, points: pts, model: 'Model ' + i + '.', follow: [], notes: '',
+          image: i === 5 ? { atlas: img } : undefined }; });
+      const tt0 = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: [key] }).modules[key];
+      const f = path.join(require('os').tmpdir(), 'viva-' + key + '-bank.json'); fs.writeFileSync(f, JSON.stringify({ format: 'neo-viva-bank', version: 1, module: key, items: bank }));
+      const a = await realPage(M, []);
+      await a.addInitScript(function (v) { localStorage.setItem(v[0] + 'backend_token_v1', v[1]); }, [pfx, JSON.stringify({ token: tt0.token, expiresAt: tt0.expiresAt })]);
+      await a.goto('https://third-year-med.github.io/' + M[1] + '/#/viva');
+      await a.waitForSelector('#view-viva [data-a=vv-import]', { timeout: 20000 });
+      const [fc] = await Promise.all([a.waitForEvent('filechooser'), a.click('#view-viva [data-a=vv-import]')]);
+      await fc.setFiles(f);
+      await a.click('.modal button:has-text("Import")');
+      const nT = bank.filter(function (x) { return x.topic === tp; }).length;
+      await a.waitForFunction(function (v) { const o = document.querySelector('#view-viva [data-a=vv-f-topic] option[value="' + v[0] + '"]'); return o && o.textContent.indexOf('(' + v[1] + ')') >= 0; }, [tp, nT], { timeout: 180000 });
+      assert.strictEqual(await a.$('.modal'), null, 'no error window');
+      if (real) {
+        const nTopics = await a.evaluate(function () { return getTopics(true).length; });
+        const counts = await a.$$eval('#view-viva [data-a=vv-f-topic] option', function (x) { return x.filter(function (o) { return /^t\d\d$/.test(o.value); }).map(function (o) { return [o.value, +(/\((\d+)\)/.exec(o.textContent) || [0, 0])[1]]; }); });
+        assert.strictEqual(counts.length, nTopics, 'every topic has viva questions'); counts.forEach(function (c) { assert.ok(c[1] >= 5, c[0] + ' has ≥ 5 questions'); });
+        const missing = await a.evaluate(function (b) { return b.filter(function (x) { return x.image && !vivaPicture(x); }).map(function (x) { return x.id; }); }, bank);
+        assert.deepStrictEqual(missing, [], 'every picture is found');
+      }
+      await a.context().close();
+      // student: the 🎓 tab → Practice of the picture questions of the topic
+      const p = await realPage(M, []);
+      await p.goto('https://third-year-med.github.io/' + M[1] + '/');
+      await p.waitForSelector('#nb-user'); await p.fill('#nb-user', 'vs' + key); await p.fill('#nb-pass', PW); await p.click('#neo-boot button[type=submit]');
+      await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'student'; }, null, { timeout: 20000 });
+      await p.evaluate(function () { location.hash = '#/viva'; });
+      await p.waitForSelector('#view-viva .vv-toolbar [data-a=vv-f-topic]', { timeout: 20000 });
+      await p.selectOption('#view-viva [data-a=vv-f-topic]', tp);
+      await p.selectOption('#view-viva [data-a=vv-f-type]', 'image');
+      await p.click('#view-viva [data-a=vv-start]');
+      await p.waitForSelector('#view-viva .vv-bar');
+      const bar = await p.textContent('#view-viva .vv-bar');
+      assert.match(bar, barRe); assert.match(bar, /Practice — not recorded[\s\S]*Max 5 marks/);
+      await p.waitForSelector('#view-viva .vv-pic img', { timeout: 10000 });
+      await p.context().close();
+      assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
+    } finally {
+      assert.ok(main.call({ module: 'portal', action: 'portalAdminSave', token: t, modules: reg }).ok);
     }
-    await a.context().close();
-    // student: the 🎓 tab → Practice of the picture questions of the practical topic
-    const p = await realPage(NN, []);
-    await p.goto('https://third-year-med.github.io/' + NN[1] + '/');
-    await p.waitForSelector('#nb-user'); await p.fill('#nb-user', 'nv1'); await p.fill('#nb-pass', PW); await p.click('#neo-boot button[type=submit]');
-    await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'student'; }, null, { timeout: 20000 });
-    await p.evaluate(function () { location.hash = '#/viva'; });
-    await p.waitForSelector('#view-viva .vv-toolbar [data-a=vv-f-topic]', { timeout: 20000 });
-    await p.selectOption('#view-viva [data-a=vv-f-topic]', 't15');
-    await p.selectOption('#view-viva [data-a=vv-f-type]', 'image');
-    await p.click('#view-viva [data-a=vv-start]');
-    await p.waitForSelector('#view-viva .vv-bar');
-    assert.match(await p.textContent('#view-viva .vv-bar'), /Neoplasia[\s\S]*Practice — not recorded[\s\S]*Max 5 marks/);
-    await p.waitForSelector('#view-viva .vv-pic img', { timeout: 10000 });
-    await p.context().close();
-    assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
-  } finally {
-    assert.ok(main.call({ module: 'portal', action: 'portalAdminSave', token: t, modules: reg }).ok);
-  }
+  });
 });
 
 /* ---------------- Granulomatous and Parasitic Diseases (granuloma): the user's syllabus "Chapter 6: Granulomatous and Parasitic Diseases" + practical book Ex. 14–17,
