@@ -11,9 +11,9 @@ marks, model answer, examiner notes, follow-up questions with answers, level, ty
   • Examiner Mode (teachers) — one student, one topic or several (the whole module); the examiner picks or draws
     questions, sees model answers, rubric and follow-ups, marks each point or types the mark, comments; recorded as
     EXAMINER-MARKED. 📊 Viva results (teachers): list, summary per topic / student, details, CSV.
-Applied only to the modules in VIVA_MODULES (pilot: Inflammation (New)); other modules are skipped. Idempotent."""
+Applied only to the modules in VIVA_MODULES (Inflammation (New), Neoplasia (New)); other modules are skipped. Idempotent."""
 import sys, re
-VIVA_MODULES = ['inflnew']
+VIVA_MODULES = ['inflnew', 'neonew']
 CODE = r"""/* ==========================================================================
    🎓 Viva Examination (patch viva; Portal.gs 2.45) — its own main tab (#/viva)
    ========================================================================== */
