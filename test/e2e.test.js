@@ -6914,7 +6914,7 @@ test('🧪 Spotter practice set: only questions marked practice in 🧪 Practice
 
 /* 🖼 Image Bank hidden while empty (patch bank-hide-empty, user 2026-10-29): a student sees no Image Bank tab and is sent from
    #/practical/bank to the Practicals while it is empty; a teacher always sees it; with one item students see it again. */
-test('🖼 Image Bank: hidden from students while empty (tab, link), always visible to the teacher, back for students once it has an item', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+test('🖼 Image Bank: hidden from students (empty or not — Admin only since 2026-11-16), always visible to the Admin', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
   groupFixture();
   const mod = syntheticModule(CI_PAGE, { topics: [{ id: 't17', title: 'Practical Pathology', summary: 's', sections: [{ id: 's1701', heading: 'Specimen 1', body: 'Text', tables: [], figures: [], keyPoints: [] }] }] });
   const keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
@@ -6935,9 +6935,11 @@ test('🖼 Image Bank: hidden from students while empty (tab, link), always visi
     assert.ok(main.call({ module: 'cellinjury-tr-a', action: 'upsert', token: tok.token, collection: 'practical', id: 'pr_1', data: { id: 'pr_1', title: 'Fatty liver', diagnosis: 'Fatty change', images: [] } }).ok);
     await p.evaluate(function () { return Backend.syncFromBackend({ full: true }); });
     await p.evaluate(function () { location.hash = '#/practical/bank'; }); await p.waitForTimeout(300); await p.evaluate(function () { location.hash = '#/practical'; });
-    await p.waitForFunction(function () { return Array.from(document.querySelectorAll('.prac-tabs .tab')).some(function (b) { return /Image Bank/.test(b.textContent); }); }, null, { timeout: 10000 });
+    // since 2026-11-16 (patch prac-admin-only) the Image Bank is for the Admin only: a student never gets it back
+    await p.waitForTimeout(500);
+    assert.ok(!(await tabs()).some(function (t) { return /Image Bank/.test(t); }), 'student: no Image Bank tab (Admin only) — ' + (await tabs()).join(', '));
     await p.context().close();
-    // a teacher always sees it, even when empty
+    // the Admin always sees it, even when empty
     const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['cellinjury'] }).modules.cellinjury;
     const q = await page();
     await q.route('https://third-year-med.github.io/cell-injury-teaching-platform/**', function (route) { return route.fulfill({ status: 200, contentType: 'text/html', body: mod.html }); });
@@ -7505,15 +7507,15 @@ test('🧭 Main menu Learn · Review · Practical: labels, Review sections (ques
     assert.match(await p.textContent('#view-practise'), /^\s*\S*\s*Review/);
     await p.evaluate(function () { location.hash = '#/apply'; }); await p.waitForSelector('#view-apply .ux-h2');
     const bank = await p.evaluate(function () { return (State.practical || []).length > 0; });   // the Image Bank shows only when it has items (another test may have added one)
-    assert.deepStrictEqual(await p.evaluate(function () { return Array.from(document.querySelectorAll('#view-apply .ux-list li b')).map(function (b) { return b.textContent; }); }), ['Practical cases', 'How to answer a practical', 'Image atlas'].concat(bank ? ['Image Bank'] : []));
+    assert.deepStrictEqual(await p.evaluate(function () { return Array.from(document.querySelectorAll('#view-apply .ux-list li b')).map(function (b) { return b.textContent; }); }), ['Practical cases', 'How to answer a practical']);   // Spotter, OSPE, atlas and Image Bank: Admin only (patch prac-admin-only)
     assert.strictEqual(await active('#/cases'), 'Review', 'clinical cases belong to Review');
     assert.strictEqual(await active('#/review'), 'Review', 'the Last-Minute Review is inside Review');
     assert.strictEqual(await active('#/revision'), 'Review');
     assert.strictEqual(await active('#/practical'), 'Practical');
     assert.strictEqual(await active('#/practical/ospe'), 'Practical');
     assert.strictEqual(await active('#/study/challenge'), 'Practical');
-    const pills = await p.evaluate(function () { location.hash = '#/practical/atlas'; return new Promise(function (r) { setTimeout(function () { r(Array.from(document.querySelectorAll('#area-bar .area-pill')).map(function (a) { return (a.classList.contains('on') ? '*' : '') + a.textContent.trim(); })); }, 500); }); });
-    assert.ok(!pills.some(function (x) { return /Spotter|OSPE/.test(x); }), 'a student: no Spotter / OSPE pill (Admin only, patch prac-admin-only): ' + pills.join(', '));
+    const pills = await p.evaluate(function () { location.hash = '#/practical/x'; return new Promise(function (r) { setTimeout(function () { r(Array.from(document.querySelectorAll('#area-bar .area-pill')).map(function (a) { return (a.classList.contains('on') ? '*' : '') + a.textContent.trim(); })); }, 500); }); });
+    assert.ok(!pills.some(function (x) { return /Spotter|OSPE|Image atlas/.test(x); }), 'a student: no Spotter / OSPE / atlas pill (Admin only, patch prac-admin-only): ' + pills.join(', '));
     await p.context().close();
     assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
   } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
@@ -7624,6 +7626,7 @@ test('▦ Image atlas: includes the pictures added to the Learning Blocks (diagn
   try {
     const p = await page();
     await openSyntheticModule(p, mod, [], { stubAssess: false });
+    await p.evaluate(function () { window.pracIsAdmin = function () { return true; }; });   // the atlas is Admin-only (patch prac-admin-only); this test checks the atlas itself
     await p.evaluate(function () { location.hash = '#/practical/atlas'; });
     await p.waitForSelector('#view-practical .atl-card');
     const cards = function () { return p.evaluate(function () { return Array.from(document.querySelectorAll('#view-practical .atl-card .atl-dx')).map(function (b) { return b.textContent; }); }); };
@@ -7652,7 +7655,7 @@ const AO = NN[3] ? [NN, 'nn_'] : [REAL[1], 'ih_'];   // the real neonew page, el
 /* Spotter and OSPE for the Administrator only (patch prac-admin-only, 2026-11-16): the Admin (teacherWho admin) sees them;
    a teacher account and a student see neither on the Practical hub, the tabs or the menu pills, and their addresses lead to
    Practical cases. */
-test('🔐 Spotter and OSPE for the Admin only: teacher and student see neither; addresses lead to Practical (neonew, or a patched Inflammation & Healing copy)', { skip: SKIP || ((!fs.existsSync(AO[0][2]) || !AO[0][3]) && 'module page or content key not available') }, async function () {
+test('🔐 Spotter, OSPE, Image atlas and Image Bank for the Admin only: teacher and student see none; addresses lead to Practical (neonew, or a patched Inflammation & Healing copy)', { skip: SKIP || ((!fs.existsSync(AO[0][2]) || !AO[0][3]) && 'module page or content key not available') }, async function () {
   const F = AO[0], K = F[0], PF = AO[1];
   main.ctx.STUDENT_AUTH_MODULES[K] = true; main.ctx.CONTENT_KEYS[K] = F[3];
   main.call({ module: 'portal', action: 'setup', password: TPW });
@@ -7666,19 +7669,22 @@ test('🔐 Spotter and OSPE for the Admin only: teacher and student see neither;
   await p.goto('https://third-year-med.github.io/' + F[1] + '/#/apply');
   await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
   // Admin: both rows (after teacherWho answers)
-  await p.waitForFunction(function () { const v = document.getElementById('view-apply'); return PRAC_ADMIN.known && v && /Pathology Spotter/.test(v.textContent) && /OSPE exam/.test(v.textContent); }, null, { timeout: 20000 });
+  await p.waitForFunction(function () { const v = document.getElementById('view-apply'); return PRAC_ADMIN.known && v && /Pathology Spotter/.test(v.textContent) && /OSPE exam/.test(v.textContent) && /Image atlas/.test(v.textContent); }, null, { timeout: 20000 });
   assert.strictEqual(await p.evaluate(function () { return PRAC_ADMIN.admin; }), true);
   // a teacher account (teacherWho admin: false)
   await p.evaluate(function () { PRAC_ADMIN.admin = false; Views.apply.render(); });
   const hub = await p.textContent('#view-apply');
-  assert.doesNotMatch(hub, /Pathology Spotter|OSPE exam/); assert.match(hub, /Practical cases/);
+  assert.doesNotMatch(hub, /Pathology Spotter|OSPE exam|Image atlas|Image Bank/); assert.match(hub, /Practical cases/);
   await p.evaluate(function () { location.hash = '#/practical/ospe'; }); await p.waitForFunction(function () { return location.hash === '#/practical'; }, null, { timeout: 10000 });
   await p.evaluate(function () { location.hash = '#/study/challenge'; }); await p.waitForFunction(function () { return location.hash === '#/practical'; }, null, { timeout: 10000 });
+  await p.evaluate(function () { location.hash = '#/practical/atlas'; }); await p.waitForFunction(function () { return location.hash === '#/practical'; }, null, { timeout: 10000 });
+  await p.evaluate(function () { location.hash = '#/practical/bank'; }); await p.waitForFunction(function () { return location.hash === '#/practical'; }, null, { timeout: 10000 });
   await p.waitForSelector('#view-practical .page', { timeout: 10000 });
   assert.strictEqual(await p.$('#view-practical [data-a=ospe-tab]'), null, 'no OSPE tab for a teacher');
   const pills = await p.evaluate(function () { uxRenderAreaBar('practical', ['atlas'], 'apply'); return [].map.call(document.querySelectorAll('#area-bar .area-pill'), function (a) { return a.textContent; }).join(' | '); });
-  assert.match(pills, /Practical cases/); assert.match(pills, /Image atlas/);
-  assert.doesNotMatch(pills, /Spotter|OSPE/, 'no Spotter / OSPE pills');
+  assert.match(pills, /Practical cases/);
+  assert.doesNotMatch(pills, /Spotter|OSPE|Image atlas/, 'no Spotter / OSPE / atlas pills');
+  assert.ok(await p.evaluate(function () { return ![].some.call(document.querySelectorAll('#view-practical button'), function (x) { return /Image Bank|Image atlas/.test(x.textContent); }); }), 'no Image Bank / atlas buttons');
   await p.context().close();
   // a student
   main.addStudents(K, [{ username: 'ao1', name: 'Admin-only Student', password: PW, mustChange: false }]);
@@ -7687,7 +7693,8 @@ test('🔐 Spotter and OSPE for the Admin only: teacher and student see neither;
   await sp.waitForSelector('#nb-user'); await sp.fill('#nb-user', 'ao1'); await sp.fill('#nb-pass', PW); await sp.click('#neo-boot button[type=submit]');
   await sp.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'student'; }, null, { timeout: 20000 });
   await sp.evaluate(function () { location.hash = '#/apply'; }); await sp.waitForSelector('#view-apply .ux-list', { timeout: 10000 });
-  assert.doesNotMatch(await sp.textContent('#view-apply'), /Pathology Spotter|OSPE exam/);
+  assert.doesNotMatch(await sp.textContent('#view-apply'), /Pathology Spotter|OSPE exam|Image atlas|Image Bank/);
+  await sp.evaluate(function () { location.hash = '#/practical/atlas'; }); await sp.waitForFunction(function () { return location.hash === '#/practical'; }, null, { timeout: 10000 });
   await sp.evaluate(function () { location.hash = '#/study/challenge'; }); await sp.waitForFunction(function () { return location.hash === '#/practical'; }, null, { timeout: 10000 });
   await sp.evaluate(function () { location.hash = '#/practical/ospe'; }); await sp.waitForFunction(function () { return location.hash === '#/practical'; }, null, { timeout: 10000 });
   await sp.context().close();
