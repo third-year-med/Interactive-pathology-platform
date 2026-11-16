@@ -5449,6 +5449,12 @@ test('▶ Present all cases (inflnew): title → pictures in slot order → diag
   await p.evaluate(function () { location.hash = '#/practical'; }); await p.waitForSelector('[data-a=pcp-start]', { timeout: 10000 });
   assert.strictEqual(await p.evaluate(function () { try { localStorage.removeItem('pcp_with_q'); } catch (e) { } return PracPresent.withQ(); }), false, 'question slides start OFF');
   await p.evaluate(function () { localStorage.setItem('pcp_with_q', '1'); });   // this test walks through them: switch on
+  // patch prac-credit-hide: the credit the practical import put into a caption is not shown (internal " — " kept)
+  assert.deepStrictEqual(await p.evaluate(function () { return [
+    PE_figCaption({ caption: 'Case 3 — Lepromatous leprosy · Foamy lepra cells fill the dermis. — ExpertPath (Elsevier) — departmental practical collection, teaching use within this course only.', stain: 'H&E' }),
+    PE_figCaption({ caption: 'Case 9 — Bronchopneumonia · Abscess. — Kumar V, et al. Robbins & Kumar Basic Pathology. © 2023 Elsevier Inc. — departmental practical collection, teaching use within this course only.' }),
+    PE_figCaption({ caption: 'Case 1 — Friction blister · Clear fluid', stain: 'H&E' }) ]; }),
+    ['Case 3 — Lepromatous leprosy · Foamy lepra cells fill the dermis (H&E).', 'Case 9 — Bronchopneumonia · Abscess.', 'Case 1 — Friction blister · Clear fluid (H&E).']);
   await p.click('[data-a=pcp-start]');
   const txt = function () { return p.textContent('.pcp-stage'); };
   if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'prac-present-title.png') });
