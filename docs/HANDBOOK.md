@@ -653,6 +653,12 @@ deleted (questions, stations, results, imports stay). To show them to students a
 **▶ Present all cases** and **🖨 Print PDF** (the complete-set handout; shown when Practical → Settings lets students print the
 set); the "1 · Practical cases" heading is dropped when that box is the only section (students and teachers).
 
+**🩺 Clinical Cases tab (patch `cases-tab`, user 2026-11-16):** the clinical cases are a main tab between Review and Practical
+(Review's hub and pills no longer list them; `#/cases` lights the Cases tab). The cases page has **▶ Present all cases** (the
+practical presentation viewer: Case N + presentation and pictures → each step with its options, the answer hidden until R →
+the case title and take-home points last, as the title may give the diagnosis away) and **🖨 Print PDF** (all cases with steps,
+answers ✓ and take-home points, one case per page).
+
 ### 4.4 Practical standard for EVERY new module (from the Inflammation (New) practical rebuild, user 2026-11-14)
 
 What the user approved on 2026-11-14 is the standard for every module from now on (pathology modules with a practical; for

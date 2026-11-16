@@ -7171,7 +7171,7 @@ test('🎬 Video Lectures: 5th main tab; each module shows its own videos; categ
     await p.addInitScript(function (v) { localStorage.setItem('ci_backend_token_v1', v); }, JSON.stringify({ token: tt.token, expiresAt: tt.expiresAt }));
     await p.goto('https://third-year-med.github.io/cell-injury-teaching-platform/#/videos/_other');   // the "Other lectures" folder (patch video-categories)
     await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
-    assert.deepStrictEqual(await p.$$eval('.nav-btn.nav-area', function (b) { return b.map(function (x) { return x.dataset.view; }); }), ['learn', 'practise', 'apply', 'videos', 'progress'], 'Video Lectures between Practical and My Progress');
+    assert.deepStrictEqual(await p.$$eval('.nav-btn.nav-area', function (b) { return b.map(function (x) { return x.dataset.view; }); }), ['learn', 'practise', 'cases', 'apply', 'videos', 'progress'], 'Video Lectures between Practical and My Progress (Clinical Cases after Review, patch cases-tab)');
     await p.waitForSelector('[data-a=vl-add]', { timeout: 15000 });
     assert.ok(await p.$('.nav-btn.active[data-view=videos]'));
     assert.match(await p.textContent('#view-videos'), /No videos in this category yet/);   // only another module's video exists
@@ -7498,17 +7498,17 @@ test('🧭 Main menu Learn · Review · Practical: labels, Review sections (ques
     const p = await page();
     await openSyntheticModule(p, mod, [], { stubAssess: false });
     const nav = await p.evaluate(function () { return Array.from(document.querySelectorAll('.nav-btn.nav-area .nl-full')).map(function (x) { return x.textContent; }); });
-    assert.deepStrictEqual(nav, ['Learn', 'Review', 'Practical', 'Video Lectures', 'My Progress'], 'main menu (no separate Last-Minute Review button; 🎬 Video Lectures = 5th tab, patch video-lectures)');
+    assert.deepStrictEqual(nav, ['Learn', 'Review', 'Clinical Cases', 'Practical', 'Video Lectures', 'My Progress'], 'main menu (Clinical Cases between Review and Practical, patch cases-tab; no separate Last-Minute Review button; 🎬 Video Lectures = 5th tab, patch video-lectures)');
     const active = function (hash) { return p.evaluate(function (h) { location.hash = h; return new Promise(function (r) { setTimeout(function () { const b = document.querySelector('.nav-btn.active .nl-full'); r(b ? b.textContent : ''); }, 400); }); }, hash); };
     await p.evaluate(function () { location.hash = '#/practise'; }); await p.waitForSelector('#view-practise .ux-h2');
     const rv = await p.evaluate(function () { return { h1: document.querySelector('#view-practise h1, #view-practise .ux-head h2, #view-practise .ux-title') ? document.querySelector('#view-practise h1, #view-practise .ux-head h2, #view-practise .ux-title').textContent : '', h2: Array.from(document.querySelectorAll('#view-practise .ux-h2')).map(function (h) { return h.textContent; }), items: Array.from(document.querySelectorAll('#view-practise .ux-list li b')).map(function (b) { return b.textContent; }) }; });
-    assert.deepStrictEqual(rv.h2, ['1 · Questions and clinical cases', '2 · Other ways to revise', '3 · Before the exam']);
-    assert.deepStrictEqual(rv.items, ['Questions', 'Clinical cases', 'Recall', 'Sequencing', 'Concept maps', 'Comparisons', 'Spaced review', 'Last-Minute Review']);
+    assert.deepStrictEqual(rv.h2, ['1 · Questions', '2 · Other ways to revise', '3 · Before the exam']);
+    assert.deepStrictEqual(rv.items, ['Questions', 'Recall', 'Sequencing', 'Concept maps', 'Comparisons', 'Spaced review', 'Last-Minute Review']);
     assert.match(await p.textContent('#view-practise'), /^\s*\S*\s*Review/);
     await p.evaluate(function () { location.hash = '#/apply'; }); await p.waitForSelector('#view-apply .ux-list');   // no section heading for a student (patch prac-hub-actions)
     const bank = await p.evaluate(function () { return (State.practical || []).length > 0; });   // the Image Bank shows only when it has items (another test may have added one)
     assert.deepStrictEqual(await p.evaluate(function () { return Array.from(document.querySelectorAll('#view-apply .ux-list li b')).map(function (b) { return b.textContent; }); }), ['Practical cases', 'How to answer a practical']);   // Spotter, OSPE, atlas and Image Bank: Admin only (patch prac-admin-only)
-    assert.strictEqual(await active('#/cases'), 'Review', 'clinical cases belong to Review');
+    assert.strictEqual(await active('#/cases'), 'Clinical Cases', 'clinical cases have their own main tab (patch cases-tab)');
     assert.strictEqual(await active('#/review'), 'Review', 'the Last-Minute Review is inside Review');
     assert.strictEqual(await active('#/revision'), 'Review');
     assert.strictEqual(await active('#/practical'), 'Practical');
@@ -7730,4 +7730,59 @@ test('▶ Practical front page: Present all cases + Print PDF in the Practical c
     await p.context().close();
     assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
   } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
+});
+
+/* Clinical Cases tab (patch cases-tab, 2026-11-16): own main tab between Review and Practical; ▶ Present all cases (step answer
+   hidden until R, title on the last slide) and 🖨 Print PDF (all cases, steps, answers) on the cases page. */
+test('🩺 Clinical Cases tab: between Review and Practical; ▶ Present all cases (answer hidden until R); 🖨 Print PDF (real page)', { skip: SKIP || ((!fs.existsSync(AO[0][2]) || !AO[0][3]) && 'module page or content key not available') }, async function () {
+  const F = AO[0], K = F[0];
+  main.ctx.STUDENT_AUTH_MODULES[K] = true; main.ctx.CONTENT_KEYS[K] = F[3];
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const reg = main.call({ module: 'portal', action: 'portalInfo' }).modules;
+  if (K === 'neonew' && !reg.some(function (m) { return m.id === 'neonew'; })) assert.ok(main.call({ module: 'portal', action: 'portalAdminSave', token: t, modules: reg.concat([{ id: 'neonew', title: 'Neoplasia (New)', icon: '🦀', status: 'available',
+    url: 'https://third-year-med.github.io/' + NN[1] + '/', moduleKey: 'neonew', handoff: 'neo', storagePrefix: 'nn_' }]) }).ok);
+  main.addStudents(K, [{ username: 'cc1', name: 'Cases Student', password: PW, mustChange: false }]);
+  const start = errors.length;
+  {
+    const p = await realPage(F, []);
+    await p.goto('https://third-year-med.github.io/' + F[1] + '/');
+    await p.waitForSelector('#nb-user'); await p.fill('#nb-user', 'cc1'); await p.fill('#nb-pass', PW); await p.click('#neo-boot button[type=submit]');
+    await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'student'; }, null, { timeout: 20000 });
+    await p.waitForSelector('.nav-btn.nav-area', { timeout: 15000 });
+    const nav = await p.evaluate(function () { return Array.from(document.querySelectorAll('.nav-btn.nav-area .nl-full')).map(function (x) { return x.textContent; }); });
+    assert.deepStrictEqual(nav.slice(0, 4), ['Learn', 'Review', 'Clinical Cases', 'Practical']);
+    const nCases = await p.evaluate(function () { return CASES.length; });
+    assert.ok(nCases > 0, 'the module has clinical cases');
+    await p.click('.nav-btn[data-area=cases]');
+    await p.waitForSelector('#view-cases [data-a=ccp-present]', { timeout: 10000 });
+    assert.ok(await p.$('#view-cases [data-a=ccp-print]'), 'Print PDF button');
+    assert.strictEqual(await p.evaluate(function () { return document.querySelector('.nav-btn.active .nl-full').textContent; }), 'Clinical Cases');
+    // Present: Case 1 → step 1 with the answer hidden until R → … → the title on the last slide of the case
+    await p.click('#view-cases [data-a=ccp-present]');
+    await p.waitForFunction(function () { return document.body.classList.contains('pcp-open'); }, null, { timeout: 10000 });
+    assert.match(await p.textContent('.pcp-stage'), /Case 1/);
+    const title = await p.evaluate(function () { return CASES[0].title; });
+    assert.ok(!(await p.textContent('.pcp-stage')).includes(title), 'the case title is not on the first slide');
+    await p.keyboard.press('ArrowRight');
+    assert.match(await p.textContent('.pcp-stage'), /Step 1 of/);
+    assert.strictEqual(await p.$('.ccp-opt.ok'), null, 'answer hidden');
+    await p.keyboard.press('r');
+    await p.waitForSelector('.ccp-opt.ok');
+    assert.match(await p.textContent('.pcp-stage'), /Answer:/);
+    const steps = await p.evaluate(function () { return CASES[0].stages.length; });
+    for (let k = 0; k < steps; k++) await p.keyboard.press('ArrowRight');
+    assert.ok((await p.textContent('.pcp-stage')).includes(title), 'the title on the last slide of the case');
+    await p.keyboard.press('Escape');
+    await p.waitForFunction(function () { return !document.body.classList.contains('pcp-open'); });
+    // Print PDF
+    const pr = await p.evaluate(function () { let got = null; const h0 = printHTML; printHTML = function (t, s, body) { got = { t: t, body: body }; }; document.querySelector('[data-a=ccp-print]').click(); printHTML = h0; return got; });
+    assert.strictEqual(pr.t, 'Clinical cases');
+    assert.ok(pr.body.indexOf('Case 1 — ') >= 0 && pr.body.indexOf('Step 1 — ') >= 0 && pr.body.indexOf('✓') >= 0, 'cases, steps and answers in the print');
+    // Review no longer lists the clinical cases
+    await p.evaluate(function () { location.hash = '#/practise'; }); await p.waitForSelector('#view-practise .ux-list');
+    assert.strictEqual(await p.$('#view-practise a[href="#/cases"]'), null);
+    if (process.env.CCP_SHOT) { await p.evaluate(function () { location.hash = '#/cases'; }); await p.waitForSelector('#view-cases [data-a=ccp-present]'); await p.screenshot({ path: process.env.CCP_SHOT }); }
+    await p.context().close();
+  }
 });
