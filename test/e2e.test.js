@@ -7505,7 +7505,7 @@ test('🧭 Main menu Learn · Review · Practical: labels, Review sections (ques
     assert.deepStrictEqual(rv.h2, ['1 · Questions and clinical cases', '2 · Other ways to revise', '3 · Before the exam']);
     assert.deepStrictEqual(rv.items, ['Questions', 'Clinical cases', 'Recall', 'Sequencing', 'Concept maps', 'Comparisons', 'Spaced review', 'Last-Minute Review']);
     assert.match(await p.textContent('#view-practise'), /^\s*\S*\s*Review/);
-    await p.evaluate(function () { location.hash = '#/apply'; }); await p.waitForSelector('#view-apply .ux-h2');
+    await p.evaluate(function () { location.hash = '#/apply'; }); await p.waitForSelector('#view-apply .ux-list');   // no section heading for a student (patch prac-hub-actions)
     const bank = await p.evaluate(function () { return (State.practical || []).length > 0; });   // the Image Bank shows only when it has items (another test may have added one)
     assert.deepStrictEqual(await p.evaluate(function () { return Array.from(document.querySelectorAll('#view-apply .ux-list li b')).map(function (b) { return b.textContent; }); }), ['Practical cases', 'How to answer a practical']);   // Spotter, OSPE, atlas and Image Bank: Admin only (patch prac-admin-only)
     assert.strictEqual(await active('#/cases'), 'Review', 'clinical cases belong to Review');
@@ -7698,4 +7698,36 @@ test('🔐 Spotter, OSPE, Image atlas and Image Bank for the Admin only: teacher
   await sp.evaluate(function () { location.hash = '#/study/challenge'; }); await sp.waitForFunction(function () { return location.hash === '#/practical'; }, null, { timeout: 10000 });
   await sp.evaluate(function () { location.hash = '#/practical/ospe'; }); await sp.waitForFunction(function () { return location.hash === '#/practical'; }, null, { timeout: 10000 });
   await sp.context().close();
+});
+
+/* Practical front page (patch prac-hub-actions, 2026-11-16): ▶ Present all cases and 🖨 Print PDF in the Practical cases box;
+   no "1 · Practical cases" heading for a student (the box is the only section). */
+test('▶ Practical front page: Present all cases + Print PDF in the Practical cases box, no "1 · Practical cases" heading (student)', { skip: SKIP || (!CI_PAGE && 'module page not available') }, async function () {
+  groupFixture();
+  const mod = syntheticModule(CI_PAGE, { topics: [{ id: 't17', title: 'Practical Pathology', summary: 's', sections: [{ id: 's1701', heading: 'Specimen 1', body: 'Text', tables: [], figures: [], keyPoints: [] }] }], images: [] });
+  const keep = main.ctx.CONTENT_KEYS.cellinjury; main.ctx.CONTENT_KEYS.cellinjury = mod.key;
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const tok = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: [{ module: 'cellinjury', group: 'tr-a' }] }).modules['cellinjury-tr-a'];
+  assert.ok(main.call({ module: 'cellinjury-tr-a', action: 'upsert', token: tok.token, collection: 'practicalpub', id: 'prac_hub1', data: { id: 'prac_hub1', number: 1, title: 'Fatty liver', diagnosis: 'Fatty change of the liver', version: 1, objectives: [], specimen: { organ: 'Liver' }, images: [] } }).ok);
+  const start = errors.length;
+  try {
+    const p = await page();
+    await openSyntheticModule(p, mod, [], { stubAssess: false });
+    await p.evaluate(function () { return Backend.syncFromBackend({ full: true }); });
+    await p.evaluate(function () { location.hash = '#/apply'; Views.apply.render(); });
+    await p.waitForSelector('#view-apply [data-a=pha-present]', { timeout: 15000 });
+    assert.ok(await p.$('#view-apply [data-a=pha-print]'), 'Print PDF button');
+    await p.waitForTimeout(100);
+    assert.strictEqual((await p.$$('#view-apply h2.ux-h2')).length, 0, 'no "1 · Practical cases" heading');
+    if (process.env.PHA_SHOT) await p.screenshot({ path: process.env.PHA_SHOT });
+    const printed = await p.evaluate(function () { let got = null; const p0 = PracHandout.print; PracHandout.print = function (list, kind) { got = [list.length, kind]; }; document.querySelector('[data-a=pha-print]').click(); PracHandout.print = p0; return got; });
+    assert.deepStrictEqual(printed, [1, 'set']);
+    assert.strictEqual(await p.evaluate(function () { return location.hash; }), '#/apply', 'the buttons do not open the Practical page');
+    await p.click('#view-apply [data-a=pha-present]');
+    await p.waitForFunction(function () { return document.body.classList.contains('pcp-open'); }, null, { timeout: 10000 });
+    await p.evaluate(function () { PracPresent.close(); });
+    await p.context().close();
+    assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
+  } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
 });
