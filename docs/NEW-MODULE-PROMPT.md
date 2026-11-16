@@ -79,6 +79,7 @@ PICTURE SOURCES — use ALL of them (docs/HANDBOOK.md §4.3), each under its own
 
 PRACTICAL (docs/HANDBOOK.md §4.4 — the standard since 2026-11-14)
 - Use ALL the practical pictures I upload; clinical photographs before the microscopy (gross slot).
+- Every practical picture ALSO in the Learn topic that teaches it (students meet it in the topic first).
 - Practical cases numbered 1…N; Practical questions and Viva questions kept as two groups.
 - Pathology Spotter: about 38 of the HARDEST questions in Practice (one per picture), all questions in Exam mode;
   the exam-only questions also as a 🔒 assessment-bank file for graded practical exams.

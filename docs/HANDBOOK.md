@@ -669,6 +669,12 @@ a module without one, the parts that apply):
   pictures the user supplies are used as course material; Robbins figures already in the module may be added). Best ones in
   the case sections, the rest in gallery sections of the Learn practical topic. Keep good original pictures when a folder
   is empty. Pictures arrive as a picture-import file (never committed).
+- **Every practical picture ALSO in the topics (user, 2026-11-16 — "all teaching pictures should appear in topic pictures, so
+  students are familiar with them when they face the practical case pictures"; the rule for ALL modules):** each practical
+  picture is added a second time to the Learn section that teaches its disease (after the pictures already there; caption
+  without the "Case N —" prefix; pictures already in a topic skipped). The practical cases, Spotter and OSPE keep theirs.
+  Delivered as extra topic picture-import files (only add pictures). Existing modules: Granulomatous, Inflammation (New),
+  Neoplasia (New) — done when the user sends the delivered picture files + content keys.
 - **Practical cases** (practical-import file, `diagnosisConfidence: 'stated'`; removed cases via `replaces`; numbering
   continuous 1…N, no gaps): **clinical photographs in the GROSS slot** (`slot: 'gross', kind: 'clinical'`) so they come
   BEFORE the microscopy; each case keeps two question groups — ❓ Practical questions (typed, written) and 🗣 Viva questions
