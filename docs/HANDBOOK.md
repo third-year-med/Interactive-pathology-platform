@@ -1038,7 +1038,14 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
 - Preserve existing features and data; no redesigns or rewrites unless asked; smallest reliable fix.
 - After each step give: what changed, how it was tested, and the exact deployment steps.
 
-## 10. Current state (updated 2026-11-15)
+## 10. Current state (updated 2026-11-16)
+
+- **2026-11-16 — Granulomatous and Parasitic Diseases rebuilt to §4.4 (build 1.2, preview pushed):** the user's ZIP (238 ExpertPath/WebPath
+  pictures) → 84 topic pictures replacing 22 blurred syllabus scans, 14 practical cases (5 picture-less specimens deleted by the user),
+  4 galleries, Spotter 91, OSPE 18, bank 53. Lessons: (1) another chat had a preview (1.1) waiting — always `git pull` a module and check
+  `preview/` before building; base the new build on the pending preview so one Go live carries both. (2) When figures leave a section,
+  remove the text's "(Fig. 6.N)" references too. (3) The picture import only adds; old teacher pictures are retired by retiring their
+  Learn section in a build (Go live → "target missing" → Remove).
 
 - **2026-11-15 — Neoplasia (New) practical rebuilt to §4.4 (build new-1.2):** 14 cases in the user's folder order, 6 new specimen sections
   (s1513–s1518), 4 galleries (s1519–s1522); 220 departmental pictures (ExpertPath, WebPathology, Robbins) in 3 picture files; 14 practical
