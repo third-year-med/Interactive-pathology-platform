@@ -5965,6 +5965,50 @@ test('🧹 Clean Practical pages (neonew): no guide box / "How to answer" row; s
   await sp.context().close();
 });
 
+/* Practical tidy (patch prac-student-tidy, 2026-11-16): 🔢 Number 1…N gives published practicals serial numbers (they were
+   16, 17 after an import); students see no counts on the Practical hub / Spotter home and take the Spotter exam once. */
+test('🔢 Practicals numbered 1…N (teacher, republished) · students: no counts, one Spotter exam (neonew)', { skip: SKIP || ((!fs.existsSync(NN[2]) || !NN[3]) && 'module page or NN_CONTENT_KEY not available') }, async function () {
+  main.ctx.STUDENT_AUTH_MODULES.neonew = true; main.ctx.CONTENT_KEYS.neonew = NN[3];
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const reg = main.call({ module: 'portal', action: 'portalInfo' }).modules;
+  if (!reg.some(function (m) { return m.id === 'neonew'; })) assert.ok(main.call({ module: 'portal', action: 'portalAdminSave', token: t, modules: reg.concat([{ id: 'neonew', title: 'Neoplasia (New)', icon: '🦀', status: 'available',
+    url: 'https://third-year-med.github.io/' + NN[1] + '/', moduleKey: 'neonew', handoff: 'neo', storagePrefix: 'nn_' }]) }).ok);
+  const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['neonew'] }).modules.neonew;
+  const p = await realPage(NN, []);
+  await p.addInitScript(function (v) { localStorage.setItem('nn_backend_token_v1', v); }, JSON.stringify({ token: tt.token, expiresAt: tt.expiresAt }));
+  await p.goto('https://third-year-med.github.io/' + NN[1] + '/#/practical');
+  await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+  await p.evaluate(async function () {
+    const mk = async function (n, title, pub) { const d = PE_buildDraft({ title: title, number: n, diagnosis: title, diagnosisConfidence: 'stated', specimen: { organ: 'Skin', text: 'History.' } }); await PracData.save(d); if (pub) await PracData.publish(PracData.get(d.id)); return d.id; };
+    await mk(16, 'Case 1 — Tidy A', true); await mk(17, 'Case 2 — Tidy B', true); await mk(3, 'Old draft', false);
+    Views.practical.render();
+  });
+  await p.waitForSelector('[data-a=prac-renumber]', { timeout: 15000 });
+  await p.click('[data-a=prac-renumber]'); await p.waitForSelector('.modal'); assert.match(await p.textContent('.modal'), /2 published practicals will be republished/);
+  await p.click('.modal-foot .btn-primary');
+  await p.waitForFunction(function () { const a = State.practicalPub.filter(function (x) { return /Tidy/.test(x.title); }).map(function (x) { return x.number; }).sort().join(','); return a === '1,2'; }, null, { timeout: 30000 });
+  assert.deepStrictEqual(await p.evaluate(function () { return PracData.list().map(function (d) { return [d.title, d.number]; }); }), [['Case 1 — Tidy A', 1], ['Case 2 — Tidy B', 2], ['Old draft', 3]]);
+  await p.context().close();
+  // a student: no counts, one exam
+  main.addStudents('neonew', [{ username: 'td1', name: 'Tidy Student', password: PW, mustChange: false }]);
+  const sp = await realPage(NN, []);
+  await sp.goto('https://third-year-med.github.io/' + NN[1] + '/');
+  await sp.waitForSelector('#nb-user'); await sp.fill('#nb-user', 'td1'); await sp.fill('#nb-pass', PW); await sp.click('#neo-boot button[type=submit]');
+  await sp.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'student'; }, null, { timeout: 20000 });
+  await sp.evaluate(function () { location.hash = '#/apply'; }); await sp.waitForSelector('#view-apply .ux-list', { timeout: 10000 });
+  assert.doesNotMatch(await sp.textContent('#view-apply'), /\d+\s+(questions?|stations?|cases?)\b/, 'no counts for students');
+  const r = await sp.evaluate(function () {
+    Store.set('spotter_last_exam_v1', { at: Date.now(), score: 3, n: 20, pct: 15 });
+    const host = el('div'); Spotter.home(host); const ex = host.querySelector('[data-a=spot-exam]');
+    let started = false; const s0 = Spotter.run; Spotter.start('exam'); started = !!Spotter.run && Spotter.run !== s0;
+    return { disabled: ex && ex.disabled, text: ex && ex.textContent, counts: /\d+\s+question/.test(host.textContent), started: started };
+  });
+  assert.deepStrictEqual({ disabled: r.disabled, counts: r.counts, started: r.started }, { disabled: true, counts: false, started: false });
+  assert.match(r.text, /one attempt only/);
+  await sp.context().close();
+});
+
 /* ---------------- Granulomatous and Parasitic Diseases (granuloma): the user's syllabus "Chapter 6: Granulomatous and Parasitic Diseases" + practical book Ex. 14–17,
    NOT condensed (2026-11-04). Needs GP_CONTENT_KEY (env only). */
 test('Granulomatous and Parasitic Diseases module (granuloma): every topic, section, view and slide renders with the real course; student and teacher', { skip: SKIP || ((!fs.existsSync(GP[2]) || !GP[3]) && 'Granulomatous and Parasitic Diseases module page or GP_CONTENT_KEY not available') }, async function () {
