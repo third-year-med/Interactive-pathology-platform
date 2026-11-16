@@ -7655,7 +7655,7 @@ const AO = NN[3] ? [NN, 'nn_'] : [REAL[1], 'ih_'];   // the real neonew page, el
 /* Spotter and OSPE for the Administrator only (patch prac-admin-only, 2026-11-16): the Admin (teacherWho admin) sees them;
    a teacher account and a student see neither on the Practical hub, the tabs or the menu pills, and their addresses lead to
    Practical cases. */
-test('🔐 Spotter, OSPE, Image atlas and Image Bank for the Admin only: teacher and student see none; addresses lead to Practical (neonew, or a patched Inflammation & Healing copy)', { skip: SKIP || ((!fs.existsSync(AO[0][2]) || !AO[0][3]) && 'module page or content key not available') }, async function () {
+test('🔐 Spotter, OSPE, Image atlas, Image Bank and Video Lectures for the Admin only: teacher and student see none; addresses lead to Practical (neonew, or a patched Inflammation & Healing copy)', { skip: SKIP || ((!fs.existsSync(AO[0][2]) || !AO[0][3]) && 'module page or content key not available') }, async function () {
   const F = AO[0], K = F[0], PF = AO[1];
   main.ctx.STUDENT_AUTH_MODULES[K] = true; main.ctx.CONTENT_KEYS[K] = F[3];
   main.call({ module: 'portal', action: 'setup', password: TPW });
@@ -7671,8 +7671,11 @@ test('🔐 Spotter, OSPE, Image atlas and Image Bank for the Admin only: teacher
   // Admin: both rows (after teacherWho answers)
   await p.waitForFunction(function () { const v = document.getElementById('view-apply'); return PRAC_ADMIN.known && v && /Pathology Spotter/.test(v.textContent) && /OSPE exam/.test(v.textContent) && /Image atlas/.test(v.textContent); }, null, { timeout: 20000 });
   assert.strictEqual(await p.evaluate(function () { return PRAC_ADMIN.admin; }), true);
+  assert.ok(await p.evaluate(function () { const b = document.querySelector('.nav-btn[data-area=videos]'); return b && b.style.display !== 'none'; }), 'the Admin has the Video Lectures tab');
   // a teacher account (teacherWho admin: false)
-  await p.evaluate(function () { PRAC_ADMIN.admin = false; Views.apply.render(); });
+  await p.evaluate(function () { PRAC_ADMIN.admin = false; Views.apply.render(); pracVideoNav(); });
+  assert.ok(await p.evaluate(function () { const b = document.querySelector('.nav-btn[data-area=videos]'); return !b || b.style.display === 'none'; }), 'a teacher: no Video Lectures tab');
+  await p.evaluate(function () { location.hash = '#/videos'; }); await p.waitForFunction(function () { return location.hash === '#/learn'; }, null, { timeout: 10000 });
   const hub = await p.textContent('#view-apply');
   assert.doesNotMatch(hub, /Pathology Spotter|OSPE exam|Image atlas|Image Bank/); assert.match(hub, /Practical cases/);
   await p.evaluate(function () { location.hash = '#/practical/ospe'; }); await p.waitForFunction(function () { return location.hash === '#/practical'; }, null, { timeout: 10000 });
@@ -7694,6 +7697,8 @@ test('🔐 Spotter, OSPE, Image atlas and Image Bank for the Admin only: teacher
   await sp.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'student'; }, null, { timeout: 20000 });
   await sp.evaluate(function () { location.hash = '#/apply'; }); await sp.waitForSelector('#view-apply .ux-list', { timeout: 10000 });
   assert.doesNotMatch(await sp.textContent('#view-apply'), /Pathology Spotter|OSPE exam|Image atlas|Image Bank/);
+  assert.ok(await sp.evaluate(function () { const b = document.querySelector('.nav-btn[data-area=videos]'); return !b || b.style.display === 'none'; }), 'a student: no Video Lectures tab');
+  await sp.evaluate(function () { location.hash = '#/videos'; }); await sp.waitForFunction(function () { return location.hash === '#/learn'; }, null, { timeout: 10000 });
   await sp.evaluate(function () { location.hash = '#/practical/atlas'; }); await sp.waitForFunction(function () { return location.hash === '#/practical'; }, null, { timeout: 10000 });
   await sp.evaluate(function () { location.hash = '#/study/challenge'; }); await sp.waitForFunction(function () { return location.hash === '#/practical'; }, null, { timeout: 10000 });
   await sp.evaluate(function () { location.hash = '#/practical/ospe'; }); await sp.waitForFunction(function () { return location.hash === '#/practical'; }, null, { timeout: 10000 });

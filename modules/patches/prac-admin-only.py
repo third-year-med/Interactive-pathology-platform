@@ -17,12 +17,14 @@ function pracIsAdmin() {
     if (typeof Backend === 'undefined' || !Backend.isConfigured || !Backend.isConfigured()) { PRAC_ADMIN.known = true; return false; }
     PRAC_ADMIN.wait = Backend.authedPost({ action: 'teacherWho' }, { timeout: 20000 }).then(r => { PRAC_ADMIN.admin = !!(r && r.ok && r.admin); }).catch(() => { })
       .then(() => {
-        PRAC_ADMIN.known = true;
+        PRAC_ADMIN.known = true; try { pracVideoNav(); } catch (e) { }
         if (typeof Router !== 'undefined' && Router.current) { const V = Views[Router.current]; try { if (V && V.render) V.render(); } catch (e) { } try { uxSetNavActive(Router.current, Router.params || []); } catch (e) { } }
       });
   }
   return PRAC_ADMIN.admin;
 }
+/** 🎬 Video Lectures main tab: Admin only (user, 2026-11-16, prac-admin-only v2.1). */
+function pracVideoNav() { const b = document.querySelector('.nav-btn[data-area=videos]'); if (b) b.style.display = pracIsAdmin() ? '' : 'none'; }
 /** A teacher whose Admin status is not known yet: wait for it (the page re-renders when the answer comes) instead of leaving. */
 function pracAdminPending() { const B = window.NEO_BOOT || {}; pracIsAdmin(); return B.role === 'teacher' && !PRAC_ADMIN.known && !PRAC_ADMIN.admin; }
 (function () {
@@ -44,7 +46,7 @@ function pracAdminPending() { const B = window.NEO_BOOT || {}; pracIsAdmin(); re
   }
   if (typeof uxBuildNav === 'function' && typeof UX_AREAS !== 'undefined') {
     const nav0 = uxBuildNav, A = UX_AREAS.find(a => a.id === 'apply'), h = A ? A.hint : '';
-    uxBuildNav = function () { if (A) A.hint = pracIsAdmin() ? h : 'Practical cases'; return nav0.apply(this, arguments); };
+    uxBuildNav = function () { if (A) A.hint = pracIsAdmin() ? h : 'Practical cases'; const r = nav0.apply(this, arguments); try { pracVideoNav(); } catch (e) { } return r; };
   }
   if (typeof pracTabs === 'function') { const t0 = pracTabs; pracTabs = function () { const n = t0.apply(this, arguments); sweep(n); return n; }; }
   if (typeof pracGuideCard === 'function') { const g0 = pracGuideCard; pracGuideCard = function () { const n = g0.apply(this, arguments); sweep(n); return n; }; }
@@ -68,6 +70,17 @@ function pracAdminPending() { const B = window.NEO_BOOT || {}; pracIsAdmin(); re
     Views.practical.render = function () {
       if (HIDE_PAGE.includes((this.params || [])[0]) && !pracIsAdmin()) { if (pracAdminPending()) return; return away(); }
       const r = p0.apply(this, arguments); sweep(document.getElementById('view-practical')); return r;
+    };
+  }
+  if (Views.videos) {   // 🎬 Video Lectures: Admin only
+    const vr0 = Views.videos.render;
+    Views.videos.render = function () { if (!pracIsAdmin()) { if (pracAdminPending()) return; location.hash = '#/learn'; return; } return vr0.apply(this, arguments); };
+    const vl0 = Views.videos.load;
+    if (vl0) Views.videos.load = function () {
+      const args = arguments;
+      if (pracIsAdmin()) return vl0.apply(this, args);
+      if (pracAdminPending() && PRAC_ADMIN.wait) return PRAC_ADMIN.wait.then(() => pracIsAdmin() ? vl0.apply(this, args) : null);
+      return Promise.resolve();
     };
   }
   if (Views.apply) {
@@ -94,6 +107,9 @@ for path in sys.argv[1:]:
     for h in OLD_HEADS:   # upgrade an older copy of this block
         if h in s and s.count(TIDY) == 1:
             i = s.index(h); j = s.index(TIDY); assert i < j, path; s = s[:i] + s[j:]; n += 1
+    HEAD = R[0][1].split('\n', 1)[0]   # an older version under the same heading (v2 → v2.1 …): replace it
+    if R[0][1] not in s and HEAD in s and s.count(TIDY) == 1:
+        i = s.index(HEAD); j = s.index(TIDY); assert i < j, path; s = s[:i] + s[j:]; n += 1
     for a, b in R:
         if b in s: continue
         assert s.count(a) == 1, (path, a[:70]); s = s.replace(a, b); n += 1

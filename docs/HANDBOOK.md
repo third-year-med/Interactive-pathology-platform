@@ -645,7 +645,9 @@ Every entry: the right section, a short "what to look for", source + credit, che
 Spotter and OSPE in all active modules, just keep the clinical cases … available only for admin"; v2 the same day: "hide image atlas
 and image bank from students and teachers, keep only for admin"):** students and teacher accounts see none of them (Practical
 hub rows and intro, menu pills, teacher tabs, practical guide buttons, Study Tools card); `#/study/challenge`, `#/study/spot` and
-`#/practical/ospe|atlas|bank|item|test` lead to Practical cases. The patch upgrades its v1 block in place. The Admin is recognised by Portal.gs `teacherWho` (admin: true, i.e. the module opened
+`#/practical/ospe|atlas|bank|item|test` lead to Practical cases. The patch upgrades its v1 block in place. **Video Lectures too (v2.1, same day:
+"hide the video tab from students and teachers, keep only for admin"):** the 🎬 tab is hidden (display:none until teacherWho says Admin)
+and `#/videos` leads to Learn; the library is not loaded for others. The videos themselves are kept. The Admin is recognised by Portal.gs `teacherWho` (admin: true, i.e. the module opened
 from the Admin's Teaching Modules) or an ✏️ Edit master draft session; a teacher's direct link waits for that answer. Nothing is
 deleted (questions, stations, results, imports stay). To show them to students again: drop the patch from `ORDER` (ask first).
 
