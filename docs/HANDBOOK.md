@@ -675,6 +675,12 @@ a module without one, the parts that apply):
   without the "Case N —" prefix; pictures already in a topic skipped). The practical cases, Spotter and OSPE keep theirs.
   Delivered as extra topic picture-import files (only add pictures). Existing modules: Granulomatous, Inflammation (New),
   Neoplasia (New). Granulomatous delivered 2026-11-16 (`gp-tp-NNN`, 156 in topics-3/4); the other two when the user sends their files + keys.
+- **One picture per finding in a topic (user, 2026-11-16 — "four repeated pictures of acid-fast bacilli … I just want one"):** a
+  "duplicate" is the SAME FINDING shown again, not only the same file. Group each Learn section's pictures by what they show,
+  keep the clearest (a departmental/practical specimen over a look-alike; syllabus figures and atlas pictures are never removed),
+  and remove the rest with a picture-REMOVE file (`neo-picture-remove`, patch `picture-remove`: Teacher Portal → 💾 Backup →
+  🗑 Remove pictures, in ✏️ Edit master draft, then ⬆ Publish draft). Check the busiest sections on a contact sheet before
+  delivering. Granulomatous 2026-11-16: 92 of 240 imported topic pictures removed (`granuloma-pictures-remove-repeats.json`).
 - **Practical cases** (practical-import file, `diagnosisConfidence: 'stated'`; removed cases via `replaces`; numbering
   continuous 1…N, no gaps): **clinical photographs in the GROSS slot** (`slot: 'gross', kind: 'clinical'`) so they come
   BEFORE the microscopy; each case keeps two question groups — ❓ Practical questions (typed, written) and 🗣 Viva questions

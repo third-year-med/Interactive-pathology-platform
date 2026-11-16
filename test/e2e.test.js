@@ -7791,3 +7791,51 @@ test('🩺 Clinical Cases tab: between Review and Practical; ▶ Present all cas
     await p.context().close();
   }
 });
+
+/* 🗑 Remove pictures (patch picture-remove, 2026-11-16): in ✏️ Edit master draft a picture-remove file lists the imported pictures
+   it names, removes them after a confirmation (other pictures stay), and a second run finds nothing to remove. */
+test('🗑 Remove pictures: master draft → remove file → listed → removed (others kept) → again: nothing to remove; another module refused', { skip: SKIP || ((!fs.existsSync(GP[2]) || !GP[3]) && 'module page or GP_CONTENT_KEY not available') }, async function () {
+  main.ctx.STUDENT_AUTH_MODULES.granuloma = true; main.ctx.CONTENT_KEYS.granuloma = GP[3];
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const reg = main.call({ module: 'portal', action: 'portalInfo' }).modules;
+  assert.ok(main.call({ module: 'portal', action: 'portalAdminSave', token: t, modules: reg.filter(function (m) { return m.id !== 'granuloma'; }).concat([{ id: 'granuloma', title: 'Granulomatous and Parasitic Diseases', icon: '🔵', status: 'available',
+    url: 'https://third-year-med.github.io/' + GP[1] + '/', moduleKey: 'granuloma', handoff: 'neo', storagePrefix: 'gp_' }]) }).ok);
+  main.call({ module: 'portal', action: 'dirGet', token: t });
+  main.call({ module: 'portal', action: 'dirSave', token: t, kind: 'module', create: true, record: { moduleId: 'granuloma', title: 'Granulomatous and Parasitic Diseases', url: 'https://third-year-med.github.io/' + GP[1] + '/', storagePrefix: 'gp_' } });   // in the directory (already there: refused, fine)
+  main.call({ module: 'portal', action: 'contentMigrate', token: t, moduleId: 'granuloma', decisions: {} });   // versioned content (an earlier test may already have switched it on)
+  assert.ok(main.call({ module: 'portal', action: 'contentSetMode', token: t, moduleId: 'granuloma', mode: 'on' }).ok);
+  const file = function (o) { return { name: 'remove.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(Object.assign({ format: 'neo-picture-remove', version: 1, module: 'granuloma' }, o))) }; };
+  const p = await realPage(GP, []);
+  await p.route('https://drive.google.com/**', function (route) { return route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from(PNG1, 'base64') }); });
+  await p.goto(HOME + '#/teacher');
+  await p.fill('#t-p', TPW); await p.click('form.card button[type=submit]');
+  await dash(p, 'directory');
+  await p.click('#t-dir .dir-tab[data-t=content]');
+  const card = '#t-dir .content-mod[data-module="granuloma"]';
+  await p.waitForSelector(card + ' [data-a=edit]');
+  await p.click(card + ' [data-a=edit]');
+  await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 30000 });
+  await p.waitForSelector('#pf-draft', { timeout: 15000 });
+  await p.evaluate(function () {   // three imported pictures in the master draft (two of them repeats)
+    const pic = function (k, cap) { return { id: 'm_' + k, type: 'image', url: 'https://drive.google.com/thumbnail?id=RM' + k + 'XXXXXXXX&sz=w2000', caption: cap, importKey: k }; };
+    return saveDoc('custommedia', 's0201', { items: [pic('rm-keep-1', 'Ziehl-Neelsen stain. Red rods.'), pic('rm-dup-1', 'Acid-fast bacilli again.'), pic('rm-dup-2', 'Acid-fast bacilli once more.')] }, { silent: true });
+  });
+  await p.evaluate(function () { location.hash = '#/teacher/backup'; });
+  await p.waitForSelector('.pic-remove input[type=file]');
+  assert.match(await p.textContent('.pic-remove'), /MASTER DRAFT/);
+  // another module's file is refused
+  await p.setInputFiles('.pic-remove input[type=file]', file({ module: 'neonew', keys: ['rm-dup-1'] }));
+  await p.waitForFunction(function () { return /for another module \(neonew\)/.test(document.querySelector('.pic-remove').textContent); });
+  // the plan: 2 found, 1 not in the course
+  await p.setInputFiles('.pic-remove input[type=file]', file({ keys: ['rm-dup-1', 'rm-dup-2', 'rm-none'] }));
+  await p.waitForFunction(function () { return /2 pictures will be removed · 1 not in the course/.test(document.querySelector('.pic-remove').textContent); });
+  assert.match(await p.textContent('.pic-remove-list'), /Acid-fast bacilli again\.? → Topic 2 · Definition and the causative organism/);
+  await p.click('[data-a=pic-remove-go]'); await p.click('.modal button:has-text("Remove pictures")');
+  await p.waitForFunction(function () { return /✓ Removed 2 pictures/.test(document.querySelector('.pic-remove-run').textContent); }, null, { timeout: 30000 });
+  assert.deepStrictEqual(await p.evaluate(function () { return (State.customMedia.s0201 || []).map(function (m) { return m.importKey; }); }), ['rm-keep-1'], 'the other picture stays');
+  await p.setInputFiles('.pic-remove input[type=file]', file({ keys: ['rm-dup-1', 'rm-dup-2'] }));
+  await p.waitForFunction(function () { return /Nothing to remove — 2 pictures already removed/.test(document.querySelector('.pic-remove').textContent); });
+  assert.ok(await p.$eval('[data-a=pic-remove-go]', function (b) { return b.disabled; }));
+  await p.context().close();
+});
