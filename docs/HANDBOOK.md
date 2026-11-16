@@ -674,7 +674,7 @@ a module without one, the parts that apply):
   picture is added a second time to the Learn section that teaches its disease (after the pictures already there; caption
   without the "Case N —" prefix; pictures already in a topic skipped). The practical cases, Spotter and OSPE keep theirs.
   Delivered as extra topic picture-import files (only add pictures). Existing modules: Granulomatous, Inflammation (New),
-  Neoplasia (New) — done when the user sends the delivered picture files + content keys.
+  Neoplasia (New). Granulomatous delivered 2026-11-16 (`gp-tp-NNN`, 156 in topics-3/4); the other two when the user sends their files + keys.
 - **Practical cases** (practical-import file, `diagnosisConfidence: 'stated'`; removed cases via `replaces`; numbering
   continuous 1…N, no gaps): **clinical photographs in the GROSS slot** (`slot: 'gross', kind: 'clinical'`) so they come
   BEFORE the microscopy; each case keeps two question groups — ❓ Practical questions (typed, written) and 🗣 Viva questions
