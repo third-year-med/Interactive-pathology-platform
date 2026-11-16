@@ -641,6 +641,13 @@ the existing modules — and appear in Learn, Presentation (Images slides), Prac
 Every entry: the right section, a short "what to look for", source + credit, checked URL, no duplicate views; about
 3 embedded pictures per section (condensed standard, §4.2). The final report lists pictures and links per source.
 
+**🔐 Spotter and OSPE for the Administrator only (patch `prac-admin-only`, user 2026-11-16 — "hide the Spotter and OSPE in all
+active modules, just keep the clinical cases … available only for admin"):** students and teacher accounts see neither (Practical
+hub rows and intro, menu pills, teacher tabs, practical guide button, atlas link, Study Tools card); `#/study/challenge` and
+`#/practical/ospe` lead to Practical cases. The Admin is recognised by Portal.gs `teacherWho` (admin: true, i.e. the module opened
+from the Admin's Teaching Modules) or an ✏️ Edit master draft session; a teacher's direct link waits for that answer. Nothing is
+deleted (questions, stations, results, imports stay). To show them to students again: drop the patch from `ORDER` (ask first).
+
 ### 4.4 Practical standard for EVERY new module (from the Inflammation (New) practical rebuild, user 2026-11-14)
 
 What the user approved on 2026-11-14 is the standard for every module from now on (pathology modules with a practical; for

@@ -7505,15 +7505,15 @@ test('🧭 Main menu Learn · Review · Practical: labels, Review sections (ques
     assert.match(await p.textContent('#view-practise'), /^\s*\S*\s*Review/);
     await p.evaluate(function () { location.hash = '#/apply'; }); await p.waitForSelector('#view-apply .ux-h2');
     const bank = await p.evaluate(function () { return (State.practical || []).length > 0; });   // the Image Bank shows only when it has items (another test may have added one)
-    assert.deepStrictEqual(await p.evaluate(function () { return Array.from(document.querySelectorAll('#view-apply .ux-list li b')).map(function (b) { return b.textContent; }); }), ['Practical cases', 'How to answer a practical', 'Pathology Spotter', 'OSPE exam', 'Image atlas'].concat(bank ? ['Image Bank'] : []));
+    assert.deepStrictEqual(await p.evaluate(function () { return Array.from(document.querySelectorAll('#view-apply .ux-list li b')).map(function (b) { return b.textContent; }); }), ['Practical cases', 'How to answer a practical', 'Image atlas'].concat(bank ? ['Image Bank'] : []));
     assert.strictEqual(await active('#/cases'), 'Review', 'clinical cases belong to Review');
     assert.strictEqual(await active('#/review'), 'Review', 'the Last-Minute Review is inside Review');
     assert.strictEqual(await active('#/revision'), 'Review');
     assert.strictEqual(await active('#/practical'), 'Practical');
     assert.strictEqual(await active('#/practical/ospe'), 'Practical');
     assert.strictEqual(await active('#/study/challenge'), 'Practical');
-    const pills = await p.evaluate(function () { location.hash = '#/practical/ospe'; return new Promise(function (r) { setTimeout(function () { r(Array.from(document.querySelectorAll('#area-bar .area-pill')).map(function (a) { return (a.classList.contains('on') ? '*' : '') + a.textContent.trim(); })); }, 500); }); });
-    assert.ok(pills.some(function (x) { return /^\*.*OSPE exam$/.test(x); }) && pills.some(function (x) { return /^[^*].*Practical cases$/.test(x); }), 'OSPE pill active, not Practical cases: ' + pills.join(', '));
+    const pills = await p.evaluate(function () { location.hash = '#/practical/atlas'; return new Promise(function (r) { setTimeout(function () { r(Array.from(document.querySelectorAll('#area-bar .area-pill')).map(function (a) { return (a.classList.contains('on') ? '*' : '') + a.textContent.trim(); })); }, 500); }); });
+    assert.ok(!pills.some(function (x) { return /Spotter|OSPE/.test(x); }), 'a student: no Spotter / OSPE pill (Admin only, patch prac-admin-only): ' + pills.join(', '));
     await p.context().close();
     assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
   } finally { main.ctx.CONTENT_KEYS.cellinjury = keep; }
@@ -7646,4 +7646,49 @@ test('▦ Image atlas: includes the pictures added to the Learning Blocks (diagn
     main.call({ module: 'cellinjury-tr-a', action: 'upsert', token: tok.token, collection: 'custommedia', id: 's1801', data: { items: [] } });
     main.ctx.CONTENT_KEYS.cellinjury = keep;
   }
+});
+
+const AO = NN[3] ? [NN, 'nn_'] : [REAL[1], 'ih_'];   // the real neonew page, else a patched copy of Inflammation & Healing (IH_MODULE_HTML)
+/* Spotter and OSPE for the Administrator only (patch prac-admin-only, 2026-11-16): the Admin (teacherWho admin) sees them;
+   a teacher account and a student see neither on the Practical hub, the tabs or the menu pills, and their addresses lead to
+   Practical cases. */
+test('🔐 Spotter and OSPE for the Admin only: teacher and student see neither; addresses lead to Practical (neonew, or a patched Inflammation & Healing copy)', { skip: SKIP || ((!fs.existsSync(AO[0][2]) || !AO[0][3]) && 'module page or content key not available') }, async function () {
+  const F = AO[0], K = F[0], PF = AO[1];
+  main.ctx.STUDENT_AUTH_MODULES[K] = true; main.ctx.CONTENT_KEYS[K] = F[3];
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const reg = main.call({ module: 'portal', action: 'portalInfo' }).modules;
+  if (K === 'neonew' && !reg.some(function (m) { return m.id === 'neonew'; })) assert.ok(main.call({ module: 'portal', action: 'portalAdminSave', token: t, modules: reg.concat([{ id: 'neonew', title: 'Neoplasia (New)', icon: '🦀', status: 'available',
+    url: 'https://third-year-med.github.io/' + NN[1] + '/', moduleKey: 'neonew', handoff: 'neo', storagePrefix: 'nn_' }]) }).ok);
+  const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: [K] }).modules[K];
+  const p = await realPage(F, []);
+  await p.addInitScript(function (v) { localStorage.setItem(v[0] + 'backend_token_v1', v[1]); }, [PF, JSON.stringify({ token: tt.token, expiresAt: tt.expiresAt })]);
+  await p.goto('https://third-year-med.github.io/' + F[1] + '/#/apply');
+  await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+  // Admin: both rows (after teacherWho answers)
+  await p.waitForFunction(function () { const v = document.getElementById('view-apply'); return PRAC_ADMIN.known && v && /Pathology Spotter/.test(v.textContent) && /OSPE exam/.test(v.textContent); }, null, { timeout: 20000 });
+  assert.strictEqual(await p.evaluate(function () { return PRAC_ADMIN.admin; }), true);
+  // a teacher account (teacherWho admin: false)
+  await p.evaluate(function () { PRAC_ADMIN.admin = false; Views.apply.render(); });
+  const hub = await p.textContent('#view-apply');
+  assert.doesNotMatch(hub, /Pathology Spotter|OSPE exam/); assert.match(hub, /Practical cases/);
+  await p.evaluate(function () { location.hash = '#/practical/ospe'; }); await p.waitForFunction(function () { return location.hash === '#/practical'; }, null, { timeout: 10000 });
+  await p.evaluate(function () { location.hash = '#/study/challenge'; }); await p.waitForFunction(function () { return location.hash === '#/practical'; }, null, { timeout: 10000 });
+  await p.waitForSelector('#view-practical .page', { timeout: 10000 });
+  assert.strictEqual(await p.$('#view-practical [data-a=ospe-tab]'), null, 'no OSPE tab for a teacher');
+  const pills = await p.evaluate(function () { uxRenderAreaBar('practical', ['atlas'], 'apply'); return [].map.call(document.querySelectorAll('#area-bar .area-pill'), function (a) { return a.textContent; }).join(' | '); });
+  assert.match(pills, /Practical cases/); assert.match(pills, /Image atlas/);
+  assert.doesNotMatch(pills, /Spotter|OSPE/, 'no Spotter / OSPE pills');
+  await p.context().close();
+  // a student
+  main.addStudents(K, [{ username: 'ao1', name: 'Admin-only Student', password: PW, mustChange: false }]);
+  const sp = await realPage(F, []);
+  await sp.goto('https://third-year-med.github.io/' + F[1] + '/');
+  await sp.waitForSelector('#nb-user'); await sp.fill('#nb-user', 'ao1'); await sp.fill('#nb-pass', PW); await sp.click('#neo-boot button[type=submit]');
+  await sp.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'student'; }, null, { timeout: 20000 });
+  await sp.evaluate(function () { location.hash = '#/apply'; }); await sp.waitForSelector('#view-apply .ux-list', { timeout: 10000 });
+  assert.doesNotMatch(await sp.textContent('#view-apply'), /Pathology Spotter|OSPE exam/);
+  await sp.evaluate(function () { location.hash = '#/study/challenge'; }); await sp.waitForFunction(function () { return location.hash === '#/practical'; }, null, { timeout: 10000 });
+  await sp.evaluate(function () { location.hash = '#/practical/ospe'; }); await sp.waitForFunction(function () { return location.hash === '#/practical'; }, null, { timeout: 10000 });
+  await sp.context().close();
 });
