@@ -6,7 +6,7 @@ quizzes; the teacher still sees it; its pictures keep feeding the Spotter, OSPE 
 nothing is deleted). Applied only to the
 modules in PRAC_CLEAN_MODULES (Inflammation (New)); other modules are skipped. Wraps pracGuideCard and uxList. Idempotent."""
 import sys, re
-PRAC_CLEAN_MODULES = ['inflnew', 'neonew']   # neonew: user, 2026-11-15
+PRAC_CLEAN_MODULES = ['inflnew', 'neonew', 'hematology']   # neonew: user, 2026-11-15; hematology: user, 2026-11-17
 R = [
 ("""/* ==========================================================================
    20_universal_edit.js — UNIVERSAL EDITOR for text, pictures, links and videos""",

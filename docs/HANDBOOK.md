@@ -19,6 +19,7 @@ in this repository, so every new session starts from it. State as of **2026-10-0
 | `neoplasia` | Module **Neoplasia** (Chapter 4, after Inflammation & Healing; 2026-10-19) — a NEW condensed build, one `index.html` (`neoplasm`, `nm_`, its OWN content key) | `…/neoplasia/` |
 | `Granulomatous-and-parasitic-diseases` | Module **Granulomatous and Parasitic Diseases** (Chapter 6, last card after Neoplasia (New); 2026-11-04) — the user's syllabus, NOT condensed, one `index.html` (`granuloma`, `gp_`, its OWN content key) | `…/Granulomatous-and-parasitic-diseases/` (capital G) |
 | `third-year-med-autonomic-nervous-system` | Module **Autonomic Nervous System** (2026-11-11) — the first PHYSIOLOGY module (Medical Physiology, Faculty of Dentistry), very condensed, one `index.html` (`autonomic`, `an_`, its OWN content key); card after Granulomatous and Parasitic Diseases | `…/third-year-med-autonomic-nervous-system/` |
+| `third-year-med-hematology` | Module **Hematology** (2026-11-17) — the user's syllabus "Fundamentals of Pathology" Ch. 5–6 (RBC and WBC disorders), NOT condensed, one `index.html` (`hematology`, `hm_`, its OWN content key); card after Granulomatous and Parasitic Diseases | `…/third-year-med-hematology/` |
 | `pathology-exams` | The Official Exams app — one `index.html` (`?m=<storage>`, `?g=<link code>`) | `…/pathology-exams/` |
 
 **Cancelled (2026-10-10):** the Vulva and Vagina modules (`Vulvar-pathology`, `vaginal-pathology`, their separate
@@ -624,6 +625,34 @@ methyldopa (central α2), guanethidine (release), reserpine (storage); detrusor 
 parasympathetic ganglia naming; T1–L3 vs T1–L2; spleen contraction minor in humans; "metacholine" = methacholine; added intermediate
 salivary nerves and M2 / M3, NN / NM subtypes. e2e test "Autonomic Nervous System module (autonomic)…"; module smoke includes it.
 
+### 4.2.6 Hematology — the user's syllabus, NOT condensed (user, 2026-11-17)
+Repository `third-year-med/third-year-med-hematology` (created empty by the user; page `https://third-year-med.github.io/third-year-med-hematology/`), title
+**"Hematology"**, module key **`hematology`**, prefix **`hm_`**, build `1.0`, own content key (env `HM_CONTENT_KEY`), quiz password `HEMATOLOGY-2026`;
+front-page card after Granulomatous and Parasitic Diseases. App code of `Granulomatous-and-parasitic-diseases` (build 1.2, all patches); module-local
+changes only: title strings, footer source line, UX_UNITS (8 units) / UX_FLOW (anemia work-up chain, unit 1) / UX_EXPECT_* / UX_PREREQ, the Learn intro
+sentence, the practical-topic references t14 → **t17**, `'gp_'`/`'granuloma'` fallbacks → `'hm_'`/`'hematology'`. `hematology` added to `VIVA_MODULES`
+and `PRAC_CLEAN_MODULES` (user asked for both). NEO_CONFIG must be written compact (`"moduleKey":"…"`): `apply.sh` greps for that form and exits
+SILENTLY otherwise (lesson of this build).
+Sources: syllabus PDF "Fundamentals of Pathology" Ch. 5 Red Blood Cell Disorders (pp. 41–52) and Ch. 6 White Blood Cell Disorders (pp. 53–64) — clean
+print; 35 figures cropped from 200-dpi page renders (`fig5_1…fig6_21`, credit "Course syllabus … p. N"), Fig. 6.1 redrawn as SVG; the blurred Fig. 5.14
+(malaria) and faint 5.15 (aplastic marrow) replaced (Commons P. falciparum rings; the MCQ-book marrow picture) and their text references changed. The
+course MCQ book Ch. 20 Hematopathology (69 MCQs + key + explanations; pictures are CMYK JPEGs stored INVERTED — invert the channels before converting).
+User decisions (2026-11-17): out-of-syllabus MCQs NOT used (Q1, 11, 15, 22, 37, 44, 49, 50, 53, 55, 56, 57, 60, 66, 67, 68, 69 — hemostasis, EPO,
+HDN, elliptocytosis, acanthocytosis, transfusion, thymoma, PTLD; Q37 key contradicts the syllabus); the 52 in-syllabus book MCQs are MIXED into the
+module's own question bank (`qb<NN>` = book number, `sourceRef`, 20 with their book picture `mcq_q<N>`); questions that pointed to an earlier
+question repeat that patient's details. Practical material: later (the user will send it).
+Content: 16 syllabus topics t01–t16 (one per syllabus main heading, syllabus order) + Practical t17 (s1701–s1703 revision lists of the blood-film,
+marrow and node findings; the user's practical cases go here later), 61 sections, ≈ 9,900 Learn words; 202 questions (150 own q001–q150 incl. 8
+picture questions in t17, + 52 book), every topic ≥ 8; 157 glossary terms; 12 cases c01–c12; 10 flowcharts / sequences; 17 comparisons; 54 figures
+(35 syllabus, Fig. 6.1 redraw, 18 MCQ-book pictures); 14 Wikimedia Commons atlas pictures `hm-img-001…014` (licence per file, standard 960/500-px
+thumbnails — Commons refuses non-standard sizes with HTTP 429); 18 WebPath link cards (WebPath was reachable this time; PEIR and Libre Pathology
+still refused, Pathology Outlines answered 429). Wording notes kept in the sections: lost arrows/Greek letters of p. 43–44 restored; "Fe receptors
+(CD16)" → Fc; "EBY" → EBV; malaria "P. falciparum — daily fever" (textbooks: irregular/tertian); cladribine called an "adenosine deaminase
+inhibitor" (it resists ADA; pentostatin inhibits it); "Salmonella paratyphi" osteomyelitis kept.
+Deliverables (never committed): `hematology-viva-bank.json` (91 questions `viva_hm_tNN_NN`, 5 marks each, ≥ 5 per topic incl. t17, 34 picture
+questions). e2e tests "Hematology module (hematology)…" and "🎓 Viva Examination (hematology)" (`HM_VIVA_BANK=<file>` tests the real bank); module
+smoke includes it.
+
 ### 4.3 Picture sources (user, 2026-10-19): use ALL of them, each under its own rules
 
 A new module searches every source for every section and practical specimen. Pictures are registered in the course's
@@ -1086,6 +1115,13 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
 - After each step give: what changed, how it was tested, and the exact deployment steps.
 
 ## 10. Current state (updated 2026-11-17)
+
+- **2026-11-17 — NEW module Hematology (`third-year-med/third-year-med-hematology`, `hematology`, `hm_`, build `1.0`, §4.2.6):** pushed; the user
+  still has to: Code.gs four additions (quiz pw `HEMATOLOGY-2026`), platformCheck, Deploy, GitHub Pages (main / root), front-page card after
+  Granulomatous, Platform directory → Modules → Add + Deliveries, platformCheck, incognito test, Migration report → master v1.0 → versioned ON,
+  then ✏️ Edit master draft → 🎓 Viva → ⬆ Import viva bank (91) → ⬆ Publish draft. Practical pictures / cases / Spotter / OSPE / 🔒 bank: when the
+  user sends the practical material (§4.4). Active modules are now intropath, cellcondensed, inflnew, neonew, granuloma, autonomic, genetics and
+  **hematology**.
 
 - **2026-11-16 (late) — student-facing Practical, Cases and pictures (all six active modules, new shared patches):**
   - `prac-credit-hide` (no source credit in practical picture descriptions), `prac-student-tidy` (no counts for students; one Spotter
