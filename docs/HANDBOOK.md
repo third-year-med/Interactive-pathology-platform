@@ -17,6 +17,7 @@ in this repository, so every new session starts from it. State as of **2026-10-0
 | `cell-injury-condensed` | Module **Cell Injury & Cell Death — Condensed** (2026-10-18): an independent ~50 % shorter high-yield version of Cell Injury & Cell Death — one `index.html` (`cellcondensed`, `cc_`, its OWN content key) | `…/cell-injury-condensed/` |
 | `introduction-to-pathology` | Module **Introduction to Pathology** (Chapter 1, first card) — one `index.html` (`intropath`, `ip_`) | `…/introduction-to-pathology/` |
 | `neoplasia` | Module **Neoplasia** (Chapter 4, after Inflammation & Healing; 2026-10-19) — a NEW condensed build, one `index.html` (`neoplasm`, `nm_`, its OWN content key) | `…/neoplasia/` |
+| `genetics` | Module **Genetics and Pediatric Diseases** (Chapter 5, after Neoplasia; 2026-10-23) — a NEW condensed build, one `index.html` (`genetics`, `gen_`, its OWN content key) | `…/genetics/` |
 | `pathology-exams` | The Official Exams app — one `index.html` (`?m=<storage>`, `?g=<link code>`) | `…/pathology-exams/` |
 
 **Cancelled (2026-10-10):** the Vulva and Vagina modules (`Vulvar-pathology`, `vaginal-pathology`, their separate
@@ -438,6 +439,18 @@ the existing modules — and appear in Learn, Presentation (Images slides), Prac
 | **WebPath** (Utah) | link only (`mode: link`, section `links`) | reproduction forbidden without written permission |
 | **WebPathology** | link only | personal viewing only; may not be copied, displayed or framed |
 | **Pathology Outlines** | link only (add a provider `pathout`, `mode: link`) | © PathologyOutlines.com — images may not be reproduced |
+| **CDC Public Health Image Library (PHIL)** (added 2026-10-23) | embed (provider `cdcphil`) — only images whose page says public domain | credit CDC + the photographer + "CDC Public Health Image Library (PHIL), ID …" (the page's own rule); src `https://wwwn.cdc.gov/phil/PHIL_Images/<id>/<id>_lores.jpg`; the PHIL search is JavaScript-only, so look images up by ID |
+| **NHGRI** (genome.gov, Talking Glossary illustrations) | embed (provider `nhgri`, kind `diagram`) | public domain unless otherwise indicated; credit "Courtesy: National Human Genome Research Institute" |
+| **NHGRI Atlas of Human Malformation Syndromes** | link only (`source: 'NHGRI Atlas'`) | patient photos contributed with consent, no open licence shown → never copied |
+| **PubMed Central / Open-i** | embed only CC BY / CC BY-SA figures (check `licenseType`/`ccLicense` in the Open-i API, e.g. `https://openi.nlm.nih.gov/api/search?query=…&it=ph`); CC BY-NC(-ND) → link card to the PMC article | as Commons |
+| Servier Medical Art (CC BY 4.0), NIH BioArt (PD / CC BY) | allowed, but mostly icon-style art — use only when a diagram teaches something the course lacks | credit as their pages say |
+
+**Reachability from a cloud session (2026-10-23):** the environment's network policy must allow the hosts (the user added
+them under Network access). WebPath and PEIR still fail in the container: their certificate chain ends at *emSign Root
+CA - G1*, which no local trust store holds — never disable TLS; WebPath links were confirmed through the web search index
+(page address + caption). upload.wikimedia.org rate-limits the container (429): check Commons files through the Commons API
+(`prop=imageinfo&iiprop=url|extmetadata`) via a web-fetch agent, then see them load in the real-page screenshot.
+NCI Visuals Online (502) and atlasgeneticsoncology.org (403) were not reachable.
 Every entry: the right section, a short "what to look for", source + credit, checked URL, no duplicate views; about
 3 embedded pictures per section (condensed standard, §4.2). The final report lists pictures and links per source.
 
@@ -644,6 +657,17 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   Sessions use. The backend test now clears the directory columns before each module call (`fresh()`) with a Teaching
   Session on the sheet (fails on 2.26, passes on 2.27). **Lesson: every module-request hook that reads a directory sheet
   calls `dirReadable_()` first; tests of module hooks simulate a fresh request.**
+- **Genetics build (2026-10-23) — four lessons.** (1) Every course section must carry `tables`, `figures` and `links` as
+  arrays, even empty — the app and the e2e test read `.length` (a page script stopped on a missing `figures`).
+  (2) The Last-Minute Review reads comparison tables only from SECTION tables (a `comparisons` entry is used through
+  `fromSection` + `tableIndex`, or a table caption with "vs") and Exam Traps only from `> [!CONFUSION]` callouts — a module
+  without them shows 0 traps; put each comparison table in its section and write traps that restate that section's text.
+  (3) A patch must never change text that an earlier patch checks for (`if b in s`): learn-fs-key first edited the
+  learn-fs button title and `apply.sh --check` then said ❌ on every page — add new text BESIDE an earlier patch's text.
+  (4) Module repos added to a session read-only push with 403: attach them with `add_repo` access `push`, then push one at
+  a time (fetch `main` first).
+- **e2e "Teacher Dashboard: compact cards …" (#53) is intermittent** (focus check `dv-h-exams`, 2 failures in 5 full runs on
+  2026-10-24, with and without the day's change; passes alone). Re-run once before treating it as a real failure.
 
 ## 9. How to work with the user
 
@@ -652,7 +676,28 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
 - Preserve existing features and data; no redesigns or rewrites unless asked; smallest reliable fix.
 - After each step give: what changed, how it was tested, and the exact deployment steps.
 
-## 10. Current state (updated 2026-10-19)
+## 10. Current state (updated 2026-10-24)
+
+- **F key for full-screen reading (2026-10-24, patch `learn-fs-key`, user request):** on a Learn topic page **F** turns
+  ⛶ Full-screen reading on, **F** or **Esc** off (as F in Presentation mode); ignored while typing, with Ctrl/Alt/⌘ and
+  while a dialog or the picture viewer is open. Applied to all seven modules; the Neoplasia and Genetics e2e tests press F.
+- **Genetics and Pediatric Diseases (2026-10-23, `third-year-med/genetics`, module key `genetics`, prefix `gen_`, build
+  `1.0`, own content key — env `GEN_CONTENT_KEY` in sessions):** Chapter 5, after Neoplasia; condensed from the start with
+  the app code of `neoplasia` (all patches ✅). Sources: course syllabus (Ch. 8 "Genetic Diseases"), lecture notes, the
+  review-book MCQs, the genetics quiz, the MCQ file and the case questions; **Robbins Basic Pathology 10e Ch. 7 is the source
+  of truth for conflicting facts (user, 2026-10-23)**. 15 topics (no Practical topic, user; t15 = Integration),
+  53 sections, 326 questions (q001–q096 review book, q097–q189 quiz, q190–q220 MCQ file — its keys written by the module
+  where the file has none, marked in `sourceRef`; q221–q262 case questions, q263–q326 written for the module; quiz Q80, Q87,
+  Q90, Q100 left out as off-topic), 150 glossary terms, 16 cases, 11 comparisons (in their sections), 11 sequences,
+  6 flowcharts, 14 Exam-Trap callouts; deck 165 slides; Last-Minute Review 62 facts / 11 comparisons / 14 traps /
+  17 morphology. Pictures: 55 embedded — 47 Wikimedia Commons, 3 CDC PHIL, 5 NHGRI — and 31 link cards (17 WebPath,
+  7 PathologyOutlines, 5 NHGRI Atlas, 2 PubMed Central). Robbins batch: 59 pictures from the Drive folders "Genetics
+  pictures" (Robbins & Kumar Basic Pathology, © 2023) and "Genetics pictures BIG Robbins" (Robbins & Cotran, © 2021) —
+  76 files, 17 repeated figures left out — keys `gen-robbins-01…59`, file `genetics-pictures-robbins.json` (not committed),
+  imported and published by the user 2026-10-24 (26 sections). User's steps done 2026-10-24: four Code.gs additions,
+  platformCheck ✅, Deploy, GitHub Pages ON, front-page card after Neoplasia, Modules → Add + Deliveries, platformCheck ✅
+  (14 links), incognito test, master v1.0 + versioned content ON, Robbins pictures published. e2e test
+  "Genetics and Pediatric Diseases module (genetics)…" and the module smoke test include it.
 
 - **Neoplasia (2026-10-19, `third-year-med/neoplasia`, module key `neoplasm`, prefix `nm_`, build `1.0`, own content key —
   env `NM_CONTENT_KEY` in sessions):** built from scratch, condensed from the start, with the app code of `cell-injury-condensed`
@@ -684,7 +729,7 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   the Teacher Management list, exams in their own section, Teaching Sessions panel with full history); group Live
   Classroom off (`GROUP_CLASSROOM=false`); Learning Module lock (manual + automatic, server-enforced, compact card with
   per-group lists); per-assessment passwords (`apw:<storage>`, `aePwList` / `aePwSet`).
-- **Modules** (intropath, cellinjury, inflhealing, inflcondensed, cellcondensed) carry every patch in `modules/patches/` (all ✅, incl. 🖼 Import pictures
+- **Modules** (intropath, cellinjury, inflhealing, inflcondensed, cellcondensed, neoplasm, genetics) carry every patch in `modules/patches/` (all ✅, incl. 🖼 Import pictures
   2026-10-17). Tests: 91 backend; e2e 57 pass with IH_CONTENT_KEY only (23 skip: 22 need CI_CONTENT_KEY, 1 group
   classroom off); module smoke ✅.
 - **Inflammation & Healing — Condensed (2026-10-18):** repo `third-year-med/third-year-med-inflammation-condensed` (GitHub kept
