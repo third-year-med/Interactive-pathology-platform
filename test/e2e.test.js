@@ -742,6 +742,8 @@ const HM = ['hematology', 'third-year-med-hematology', process.env.HM_MODULE_HTM
 // Autonomic Nervous System (2026-11-11): Medical Physiology for dental students, very condensed (module key autonomic, prefix an_, AN_CONTENT_KEY, env only).
 const AN = ['autonomic', 'third-year-med-autonomic-nervous-system', process.env.AN_MODULE_HTML || '/home/user/third-year-med-autonomic-nervous-system/index.html', process.env.AN_CONTENT_KEY];
 const GEN = ['genetics', 'genetics', process.env.GEN_MODULE_HTML || '/home/user/genetics/index.html', process.env.GEN_CONTENT_KEY];
+// Genetics and Pediatric Diseases (New) (2026-11-17): a VERY condensed version of Genetics (module key genenew, prefix gn_, GN_CONTENT_KEY, env only).
+const GN = ['genenew', 'genetics-new', process.env.GN_MODULE_HTML || '/home/user/genetics-new/index.html', process.env.GN_CONTENT_KEY];
 // Introduction to Pathology (real course; IP_CONTENT_KEY, env only) — served for the viva test (2026-11-15).
 const IP = ['intropath', 'introduction-to-pathology', process.env.IP_MODULE_HTML || '/home/user/introduction-to-pathology/index.html', process.env.IP_CONTENT_KEY];
 const HOME = 'https://third-year-med.github.io/Interactive-pathology-platform/';
@@ -763,7 +765,7 @@ async function realPage(M, calls, ctxOpts) {
   await p.route('https://third-year-med.github.io/**', function (route) {
     const u = new URL(route.request().url());
     if (u.pathname.indexOf('/pathology-exams/') === 0) return route.fulfill({ status: 200, contentType: 'text/html', body: fs.readFileSync(EXAM_HTML) });
-    const own = REAL.concat([IC, CC, NM, GEN, IN, NN, GP, AN, IP, HM]).filter(function (R) { return u.pathname.indexOf('/' + R[1] + '/') === 0; })[0];
+    const own = REAL.concat([IC, CC, NM, GEN, IN, NN, GP, AN, IP, HM, GN]).filter(function (R) { return u.pathname.indexOf('/' + R[1] + '/') === 0; })[0];
     if (own) {
       const sub = /\/preview\/(index\.html)?$/.test(u.pathname) ? own[1] + '/preview/' : own[1] + '/';
       if (SERVE[sub] === null || (sub !== own[1] + '/' && !SERVE[sub])) return route.fulfill({ status: 404, body: '' });
@@ -5873,7 +5875,8 @@ test('Neoplasia (New) module (neonew): every topic, section, view and slide rend
    imported instead and every topic and every picture is checked. */
 [[NN, 'nn_', 'Neoplasia (New)', 'NN', 't15', 'nm-img-076', /Neoplasia/], [GP, 'gp_', 'Granulomatous and Parasitic Diseases', 'GP', 't14', 'gp-img-007', /Granulomatous/],
   [IP, 'ip_', 'Introduction to Pathology', 'IP', 't17', 'c-rotary', /Introduction to Pathology/], [CC, 'cc_', 'Cell Injury & Cell Death', 'CC', 't17', 'peir-kidney-infarct-gross', /Cell Injury/],
-  [GEN, 'gen_', 'Genetics and Pediatric Diseases', 'GEN', 't14', 'wm-rb-leukocoria', /Genetics/], [HM, 'hm_', 'Hematology', 'HM', 't17', 'hm-img-001', /Hematology/]].forEach(function (V) {
+  [GEN, 'gen_', 'Genetics and Pediatric Diseases', 'GEN', 't14', 'wm-rb-leukocoria', /Genetics/], [HM, 'hm_', 'Hematology', 'HM', 't17', 'hm-img-001', /Hematology/],
+  [GN, 'gn_', 'Genetics and Pediatric Diseases (New)', 'GN', 't09', 'wm-rb-leukocoria', /Genetics/]].forEach(function (V) {
   const M = V[0], pfx = V[1], title = V[2], env = V[3], tp = V[4], img = V[5], barRe = V[6], key = M[0];
   test('🎓 Viva Examination (' + key + '): import the bank; student practice with a picture question', { skip: SKIP || ((!fs.existsSync(M[2]) || !M[3]) && title + ' module page or ' + env + '_CONTENT_KEY not available') }, async function () {
     main.ctx.STUDENT_AUTH_MODULES[key] = true; main.ctx.CONTENT_KEYS[key] = M[3];
@@ -6636,6 +6639,146 @@ test('Genetics and Pediatric Diseases module (genetics): every topic, section, v
     await q.waitForSelector('#view-teacher', { state: 'visible', timeout: 10000 });
     const plan = await q.evaluate(function () { return AssessUI.topicQuizPlan().topics.filter(function (x) { return x.ok; }).length; });
     assert.ok(plan >= 14, '⚡ Topic quizzes: every topic has ≥ 5 practice questions (' + plan + ')');
+    await q.context().close();
+    assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
+  } finally {
+    assert.ok(main.call({ module: 'portal', action: 'portalAdminSave', token: t, modules: reg }).ok);   // other tests keep their module list
+  }
+});
+
+/* ---------------- Genetics and Pediatric Diseases (New) (genenew): the REAL page with its REAL course ----------------
+   Registered as the four Code.gs additions and the front-page card register it (HANDBOOK §5), then every learning view
+   is opened as a student and every slide of the generated deck as the teacher. Needs GN_CONTENT_KEY (env only). */
+test('Genetics and Pediatric Diseases (New) module (genenew): every topic, section, view and slide renders with the real course; student and teacher', { skip: SKIP || ((!fs.existsSync(GN[2]) || !GN[3]) && 'genetics-new module page or GN_CONTENT_KEY not available') }, async function () {
+  main.ctx.STUDENT_AUTH_MODULES.genenew = true; main.ctx.CONTENT_KEYS.genenew = GN[3];
+  main.ctx.DEFAULT_QUIZ_PW.genenew = 'GENENEW-2026'; main.ctx.DEFAULT_LIVE_PW.genenew = 'CLASSROOM-2026';
+  main.call({ module: 'portal', action: 'setup', password: TPW });
+  const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
+  const reg = main.call({ module: 'portal', action: 'portalInfo' }).modules;
+  assert.ok(main.call({ module: 'portal', action: 'portalAdminSave', token: t, modules: reg.concat([{ id: 'genenew', title: 'Genetics and Pediatric Diseases (New)', icon: '🧬', status: 'available',
+    url: 'https://third-year-med.github.io/' + GN[1] + '/', moduleKey: 'genenew', handoff: 'neo', storagePrefix: 'gn_' }]) }).ok);
+  main.addStudents('genenew', [{ username: 'gn1', name: 'Genetics New Student', password: PW, mustChange: false }]);
+  const start = errors.length;
+  try {
+    // ---- student: sign in on the module page, then every topic, section and view ----
+    const p = await realPage(GN, []);
+    await p.goto('https://third-year-med.github.io/' + GN[1] + '/');
+    await p.waitForSelector('#nb-user'); await p.fill('#nb-user', 'gn1'); await p.fill('#nb-pass', PW); await p.click('#neo-boot button[type=submit]');
+    await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'student'; }, null, { timeout: 20000 });
+    const info = await p.evaluate(function () { return { cfg: window.NEO_CONFIG, course: COURSE.title, topics: DATA.topics.map(function (t) { return { id: t.id, title: t.title, sections: t.sections.map(function (s) { return { id: s.id, heading: s.heading, tables: s.tables.length, figures: s.figures.length }; }) }; }) }; });
+    assert.strictEqual(info.cfg.moduleKey, 'genenew'); assert.strictEqual(info.cfg.storagePrefix, 'gn_'); assert.strictEqual(info.cfg.platformHome, 'https://third-year-med.github.io/Interactive-pathology-platform/');
+    assert.strictEqual(info.course, 'Genetics and Pediatric Diseases (New)', 'exact title (user, 2026-11-17)');
+    assert.ok(!/condensed|high-yield/i.test(await p.title() + ' ' + await p.textContent('header')), 'no "Condensed" in the name');
+    assert.ok(!/condensed|high-yield|review|teaching module/i.test(await p.title() + ' ' + await p.textContent('header .t1')), 'the exact title only (user, 2026-10-23)');
+    assert.strictEqual(info.topics.length, 10);
+    assert.ok(await p.evaluate(function () { return !!sessionStorage.getItem('gn_stu_session_v1') || !!localStorage.getItem('gn_stu_session_v1'); }), 'its own storage prefix');
+    for (const tp of info.topics) {
+      for (const sc of tp.sections) {
+        await p.evaluate(function (h) { location.hash = h; }, '#/explain/' + tp.id + '/' + sc.id);
+        await p.waitForFunction(function (h) { const v = document.querySelector('#view-explain'); return v && v.offsetParent !== null && v.textContent.indexOf(h) >= 0; }, sc.heading, { timeout: 10000 });
+        const txt = await p.textContent('#view-explain');
+        assert.ok(!/undefined|\[object Object\]|\[!(DEF|FLOW|EXAM|RECALL|CONFUSION|HIGHYIELD|PRACTICAL|CLINICAL|REMEMBER|DX|MUSTKNOW)\]/.test(txt), sc.id + ': raw markup or undefined on the page');
+      }
+    }
+    // ⛶ Full-screen reading (patch learn-fs): only the topic, a centred column, A− / A+, ◀ ▶ keep it, ✕ / Esc / leaving Learn end it
+    const t2 = info.topics[1];
+    await p.evaluate(function (h) { location.hash = h; }, '#/explain/' + t2.id);
+    await p.waitForSelector('#view-explain [data-a=learn-fs]');
+    assert.strictEqual(await p.textContent('#view-explain [data-a=learn-fs]'), '⛶ Full screen');
+    if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'learn-normal.png') });
+    await p.click('#view-explain [data-a=learn-fs]');
+    await p.waitForSelector('#lfs-bar');
+    const vis = function (sel) { return p.evaluate(function (q) { const e = document.querySelector(q); return !!(e && e.offsetParent !== null); }, sel); };
+    assert.deepStrictEqual([await vis('#app-header'), await vis('.ex-sidebar'), await vis('.footer'), await vis('.ex-main')], [false, false, false, true], 'only the topic');
+    assert.strictEqual(await p.textContent('#view-explain [data-a=learn-fs]'), '✕ Exit full screen');
+    const z0 = await p.textContent('#lfs-bar .lfs-z');
+    await p.click('#lfs-bar button[aria-label="Larger text"]');
+    assert.notStrictEqual(await p.textContent('#lfs-bar .lfs-z'), z0, 'A+ makes the text larger');
+    const fsz = function () { return p.evaluate(function () { return parseFloat(getComputedStyle(document.querySelector('#view-explain .sec-title, #view-explain h3, #view-explain .ex-main p') || document.querySelector('.ex-main')).fontSize); }); };
+    const before = await fsz(); await p.click('#lfs-bar button[aria-label="Larger text"]'); assert.ok(await fsz() > before, 'the reading text grows (' + before + ' → ' + await fsz() + ')');
+    await p.click('#lfs-bar button[aria-label="Smaller text"]');
+    await p.waitForTimeout(800);
+    if (process.env.SHOTS) await p.screenshot({ path: path.join(process.env.SHOTS, 'learn-fullscreen.png') });
+    await p.click('#lfs-bar button[aria-label="Smaller text"]');
+    await p.evaluate(function (h) { location.hash = h; }, '#/explain/' + info.topics[2].id);   // the next topic: still full screen
+    await p.waitForFunction(function (h) { return document.querySelector('#view-explain').textContent.indexOf(h) >= 0; }, info.topics[2].title);
+    await p.waitForTimeout(100);
+    assert.ok(!!(await p.$('#lfs-bar')) && !(await vis('#app-header')) && !(await vis('.ex-sidebar')), 'stays on for the next topic');
+    await p.click('#lfs-bar .lfs-x');
+    assert.ok(!(await p.$('#lfs-bar')) && await vis('#app-header') && await vis('.ex-sidebar'), '✕ leaves');
+    // learn-fs-key patch: F turns full-screen reading on and off; F typed in a text box does nothing
+    await p.evaluate(function () { if (document.activeElement) document.activeElement.blur(); });
+    await p.keyboard.press('f'); await p.waitForSelector('#lfs-bar');
+    assert.ok(!(await vis('#app-header')), 'F turns full-screen reading on');
+    await p.keyboard.press('F'); await p.waitForFunction(function () { return !document.getElementById('lfs-bar'); });
+    const note = await p.$('#view-explain textarea');
+    if (note) { await note.focus(); await p.keyboard.press('f'); await p.waitForTimeout(150); assert.ok(!(await p.$('#lfs-bar')), 'F in a text box types, no full screen'); await note.fill(''); await p.evaluate(function () { document.activeElement.blur(); }); }
+    await p.click('#view-explain [data-a=learn-fs]'); await p.waitForSelector('#lfs-bar');
+    await p.keyboard.press('Escape');
+    await p.waitForFunction(function () { return !document.getElementById('lfs-bar') && !document.body.classList.contains('learn-fs'); });
+    await p.click('#view-explain [data-a=learn-fs]'); await p.waitForSelector('#lfs-bar');
+    await p.evaluate(function () { location.hash = '#/practise'; });
+    await p.waitForFunction(function () { return !document.getElementById('lfs-bar') && !document.body.classList.contains('learn-fs'); });
+    const check = await p.evaluate(function () { return uxValidatePathway(); });
+    assert.deepStrictEqual(check.errors, [], 'the learning-unit links (UX_UNITS, UX_FLOW) all point at existing, matching topics and sections');
+    const views = ['#/learn', '#/practise', '#/apply', '#/progress', '#/revision', '#/review', '#/review/facts', '#/review/compare', '#/review/morph', '#/review/traps', '#/review/quick',
+      '#/cases', '#/practical', '#/study/recall', '#/study/sequence', '#/study/compare', '#/study/glossary', '#/study/challenge', '#/study/connect', '#/quiz'];
+    for (const h of views) {
+      await p.evaluate(function (x) { location.hash = x; }, h);
+      await p.waitForTimeout(350);
+      const shown = await p.evaluate(function () { const v = Array.prototype.filter.call(document.querySelectorAll('[id^="view-"]'), function (e) { return e.offsetParent !== null; })[0]; return v ? { id: v.id, n: v.textContent.trim().length, t: v.textContent } : null; });
+      assert.ok(shown && shown.n > 40, h + ' shows a view with content');
+      assert.ok(!/undefined|\[object Object\]/.test(shown.t), h + ': no undefined');
+    }
+    // media-print patch: a wide 3000-px picture added to a section prints fitted to the page (no overflow, nothing shrunk)
+    const pr = await p.evaluate(function () {
+      const c = document.createElement('canvas'); c.width = 3000; c.height = 700; const g = c.getContext('2d'); g.fillStyle = '#c33'; g.fillRect(0, 0, 3000, 700);
+      State.customMedia.s0501 = [{ id: 'mp1', type: 'image', url: c.toDataURL('image/jpeg', .5), caption: 'Wide test picture', credit: 'test' }];
+      let html = ''; const o = window.open; window.open = function () { return { document: { write: function (x) { html += x; }, close: function () {} } }; };
+      try { Views.explain.printChapter(); } finally { window.open = o; delete State.customMedia.s0501; }
+      return html.replace(/<script>window\.onload[\s\S]*?<\/script>/, '');
+    });
+    const pp = await p.context().newPage(); await pp.setViewportSize({ width: 794, height: 1123 }); await pp.setContent(pr, { waitUntil: 'load' });
+    const fit = await pp.evaluate(function () { const im = document.querySelector('.media-item img'), b = document.querySelector('.print-body'); return { img: im ? im.getBoundingClientRect().width : -1, body: b.getBoundingClientRect().width, over: document.documentElement.scrollWidth - document.documentElement.clientWidth, fs: getComputedStyle(document.documentElement).fontSize, links: document.querySelectorAll('.links-card').length, linksShown: Array.prototype.filter.call(document.querySelectorAll('.links-card'), function (x) { return x.offsetParent !== null; }).length, atlasBtn: Array.prototype.filter.call(document.querySelectorAll('button.atl-imgbtn'), function (x) { return getComputedStyle(x).display !== 'none'; }).length, mirror: (function () { const c = document.querySelector('.callout'); return !!c && getComputedStyle(c).backgroundColor !== 'rgba(0, 0, 0, 0)'; })() }; });
+    assert.strictEqual(fit.fs, '17px', 'print-mirror patch: larger print text');
+    assert.ok(fit.mirror, 'print-mirror patch: the printed page carries the screen look (callout colours)');
+    assert.ok(fit.linksShown === 0, 'print-clean patch: picture link cards left out: ' + JSON.stringify(fit));
+    assert.ok(fit.img > 100 && fit.img <= fit.body + 1 && fit.over <= 0, 'an added picture prints within the page width: ' + JSON.stringify(fit));
+    await pp.close();
+    const lmr = await p.evaluate(function () { const d = LMR.data(); return { facts: d.facts.length, comparisons: d.comparisons.length, traps: d.traps.length, morph: d.morphology.length, images: (DATA.images || []).length }; });
+    assert.ok(lmr.facts > 20 && lmr.comparisons >= 3 && lmr.traps >= 5 && lmr.morph >= 3, 'Last-Minute Review is built from the very condensed course (as Autonomic: facts > 20): ' + JSON.stringify(lmr));
+    console.log('# genenew Last-Minute Review: ' + JSON.stringify(lmr));
+    const hy = await p.evaluate(function () { return typeof lmrPrintFacts === 'function' && typeof lmrUnitOf === 'function' && !!window.PlatformHY; });
+    assert.ok(hy, 'High-Yield print: the platform standard takes over lmrPrintFacts (LMR, lmrPrintFacts, lmrUnitOf kept)');
+    await p.context().close();
+
+    // ---- teacher: a fresh teacher pass as the dashboard gives it → every slide of the deck ----
+    const tt = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: ['genenew'] }).modules.genenew;
+    assert.ok(tt && tt.token, 'the front-page card makes the module openable from the dashboard');
+    const q = await realPage(GN, []);
+    await q.addInitScript(function (v) { localStorage.setItem('gn_backend_token_v1', v); }, JSON.stringify({ token: tt.token, expiresAt: tt.expiresAt }));
+    await q.goto('https://third-year-med.github.io/' + GN[1] + '/#/present/slide/1');
+    await q.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'teacher'; }, null, { timeout: 20000 });
+    await q.waitForSelector('#pres-stage .slide', { timeout: 15000 });
+    const n = await q.evaluate(function () { return Views.present.list().length; });
+    assert.ok(n > 50 && n < 200, 'deck size of a very condensed module: ' + n);
+    console.log('# genenew deck: ' + n + ' slides');
+    const bad = await q.evaluate(function () {
+      const out = [], V = Views.present;
+      for (let i = 0; i < V.list().length; i++) {
+        V.go(i); const s = V.cur(), st = document.querySelector('#pres-stage .slide'), tx = st ? st.textContent : '';
+        if (!st) out.push(i + ' no slide');
+        else if (/no longer in the course content|Flowchart not found|Question unavailable|undefined/.test(tx)) out.push(i + ' ' + s.type + ': ' + tx.slice(0, 80));
+        else if (s.type === 'table' && !st.querySelector('table')) out.push(i + ' table missing');
+        else if (s.type === 'content' && !(s.bullets || []).length) out.push(i + ' content without bullets');
+      }
+      return out;
+    });
+    assert.deepStrictEqual(bad, [], 'every slide renders');
+    await q.evaluate(function () { location.hash = '#/teacher'; });
+    await q.waitForSelector('#view-teacher', { state: 'visible', timeout: 10000 });
+    const plan = await q.evaluate(function () { return AssessUI.topicQuizPlan().topics.filter(function (x) { return x.ok; }).length; });
+    assert.ok(plan >= 9, '⚡ Topic quizzes: every topic has ≥ 5 practice questions (' + plan + ')');
     await q.context().close();
     assert.deepStrictEqual(errors.slice(start), [], 'no page errors');
   } finally {

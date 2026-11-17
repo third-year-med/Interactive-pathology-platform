@@ -13,7 +13,7 @@ marks, model answer, examiner notes, follow-up questions with answers, level, ty
     EXAMINER-MARKED. 📊 Viva results (teachers): list, summary per topic / student, details, CSV.
 Applied only to the modules in VIVA_MODULES (Inflammation (New), Neoplasia (New), Granulomatous, Introduction to Pathology, Cell Injury, Genetics — 2026-11-15); other modules are skipped. Idempotent."""
 import sys, re
-VIVA_MODULES = ['inflnew', 'neonew', 'granuloma', 'intropath', 'cellcondensed', 'genetics', 'hematology']
+VIVA_MODULES = ['inflnew', 'neonew', 'granuloma', 'intropath', 'cellcondensed', 'genetics', 'hematology', 'genenew']
 CODE = r"""/* ==========================================================================
    🎓 Viva Examination (patch viva; Portal.gs 2.45) — its own main tab (#/viva)
    ========================================================================== */
