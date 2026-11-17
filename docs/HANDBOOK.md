@@ -1063,6 +1063,21 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
 - **FLOW callouts:** the first step is drawn on a dark pill — **bold** text inside it is dark on dark and unreadable; keep the first step plain.
   Callout titles are shown in CAPITALS — "β3" displays as "Β3"; write "Beta-3".
 
+- **Two patches on ONE anchor break each other (2026-11-16, prac-student-tidy / prac-admin-only, picture-remove):** a patch's "already
+  applied" test is `block + anchor in page`; when a second patch inserts its block before the same anchor, the first block is no longer
+  followed by the anchor and re-inserts itself at every run (`apply.sh --check` ❌). Rule: a new patch inserts its block **just before the
+  previous new patch's header line** (chain: … → prac-admin-only → prac-hub-actions → cases-tab → picture-remove), and NEVER edits text
+  inside another patch's block (wrap the function from outside instead: `const F0 = f; f = function () { … F0.apply(this, arguments) … }`).
+  A patch that changes its own block later uses a versioned header and removes the older block (prac-admin-only v1 → v2 → v2.1).
+  Always run `apply.sh` twice + `--check` on every module after a patch change.
+- **A "duplicate" picture means the same FINDING (2026-11-16):** byte/visual hashing found only 8 identical pictures among 283, but the
+  user saw "four repeated pictures of acid-fast bacilli" — different photographs of the same thing. Group by what the picture shows
+  (captions), keep the clearest, look at the busiest sections on a contact sheet before delivering.
+- **e2e: a module registered with portalAdminSave is NOT in the directory** (DIR.MOD is copied from the registry only on first run) →
+  contentMigrate / contentSetMode answer "Choose a module." Add it with `dirSave` kind `module` (create) before the content calls.
+- **Gated pages with an async Admin check:** a route guard that waits for `teacherWho` must also re-run the LOAD of the page when the
+  answer comes (Video Lectures loaded nothing); redraw the menu bar with `Router.params`, each step in its own try/catch.
+
 ## 9. How to work with the user
 
 - Keep the agreed plan order; finish one step, report, and wait for "continue" before the next.
@@ -1070,7 +1085,26 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
 - Preserve existing features and data; no redesigns or rewrites unless asked; smallest reliable fix.
 - After each step give: what changed, how it was tested, and the exact deployment steps.
 
-## 10. Current state (updated 2026-11-16)
+## 10. Current state (updated 2026-11-17)
+
+- **2026-11-16 (late) — student-facing Practical, Cases and pictures (all six active modules, new shared patches):**
+  - `prac-credit-hide` (no source credit in practical picture descriptions), `prac-student-tidy` (no counts for students; one Spotter
+    exam per student; 🔢 Number 1…N for practicals), `prac-admin-only` v2.1 (🔐 Spotter, OSPE, Image atlas, Image Bank and 🎬 Video
+    Lectures for the Administrator only — teachers and students see none; their addresses lead to Practical / Learn; data kept),
+    `prac-hub-actions` (Practical front page: ▶ Present all cases + 🖨 Print PDF in the Practical cases box, no "1 · Practical cases"
+    heading when it is the only section), `cases-tab` (🩺 Clinical Cases = own main tab between Review and Practical, with ▶ Present
+    all cases — answer of each step hidden until R, the case title last — and 🖨 Print PDF of every case with answers),
+    `picture-remove` (🗑 Remove pictures card under 🖼 Import pictures; `neo-picture-remove` files).
+  - New rules (§4.4): every practical picture ALSO in its Learn topic; ONE picture per finding in a topic.
+  - Granulomatous delivered: `granuloma-pictures-topics-3/4.json` (156 practical pictures into the topics, `gp-tp-NNN`) and
+    `granuloma-pictures-remove-repeats.json` (92 repeats out; 148 imported topic pictures stay). User: import 3 + 4, then the remove
+    file, then ⬆ Publish draft (all in ✏️ Edit master draft).
+  - **Still to do — Inflammation (New) and Neoplasia (New):** the same two steps (practical pictures into the topics, then one picture per
+    finding). Needs from the user: their topic + practical picture files (or a master backup) and the content keys (this chat's machine
+    was fresh on 2026-11-16, so earlier delivered files are not in the scratchpad any more — ask for them, never guess).
+  - Genetics (re-activated by another chat, not cloned here) has none of these 2026-11-16 patches yet → `apply.sh` there.
+  - Neoplasia (New): user still to press 🔢 Number 1…N (after deleting the 15 old drafts) and Publish draft.
+
 
 - **2026-11-16 — Granulomatous and Parasitic Diseases rebuilt to §4.4 (build 1.2, preview pushed):** the user's ZIP (238 ExpertPath/WebPath
   pictures) → 84 topic pictures replacing 22 blurred syllabus scans, 14 practical cases (5 picture-less specimens deleted by the user),
