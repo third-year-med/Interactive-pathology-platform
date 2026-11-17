@@ -20,6 +20,7 @@ in this repository, so every new session starts from it. State as of **2026-10-0
 | `Granulomatous-and-parasitic-diseases` | Module **Granulomatous and Parasitic Diseases** (Chapter 6, last card after Neoplasia (New); 2026-11-04) — the user's syllabus, NOT condensed, one `index.html` (`granuloma`, `gp_`, its OWN content key) | `…/Granulomatous-and-parasitic-diseases/` (capital G) |
 | `third-year-med-autonomic-nervous-system` | Module **Autonomic Nervous System** (2026-11-11) — the first PHYSIOLOGY module (Medical Physiology, Faculty of Dentistry), very condensed, one `index.html` (`autonomic`, `an_`, its OWN content key); card after Granulomatous and Parasitic Diseases | `…/third-year-med-autonomic-nervous-system/` |
 | `third-year-med-hematology` | Module **Hematology** (2026-11-17) — the user's syllabus "Fundamentals of Pathology" Ch. 5–6 (RBC and WBC disorders), NOT condensed, one `index.html` (`hematology`, `hm_`, its OWN content key); card after Granulomatous and Parasitic Diseases | `…/third-year-med-hematology/` |
+| `genetics-new` | Module **Genetics and Pediatric Diseases (New)** (2026-11-17) — a VERY condensed (~28 %) separate version of Genetics and Pediatric Diseases (`genetics` stays unchanged), one `index.html` (`genenew`, `gn_`, its OWN content key); card after Genetics | `…/genetics-new/` |
 | `pathology-exams` | The Official Exams app — one `index.html` (`?m=<storage>`, `?g=<link code>`) | `…/pathology-exams/` |
 
 **Cancelled (2026-10-10):** the Vulva and Vagina modules (`Vulvar-pathology`, `vaginal-pathology`, their separate
@@ -653,6 +654,25 @@ Deliverables (never committed): `hematology-viva-bank.json` (91 questions `viva_
 questions). e2e tests "Hematology module (hematology)…" and "🎓 Viva Examination (hematology)" (`HM_VIVA_BANK=<file>` tests the real bank); module
 smoke includes it.
 
+### 4.2.7 Genetics and Pediatric Diseases (New) — VERY condensed version of Genetics (user, 2026-11-17)
+Repository `third-year-med/genetics-new` (created empty by the user; page `https://third-year-med.github.io/genetics-new/`), title
+**"Genetics and Pediatric Diseases (New)"** (user: "add New"), module key **`genenew`**, prefix **`gn_`**, build `1.0`, own content key (env
+`GN_CONTENT_KEY`), quiz password `GENENEW-2026`; front-page card after Genetics. The original `genetics` module stays as it is (separate module).
+App code = the fully patched Genetics page; module-local changes only (scratchpad `build_new.js`): title strings, footer link list (WebPath, PubMed
+Central), `'gen_'`/`'genetics'` fallbacks → `'gn_'`/`'genenew'`, NEO_CONFIG, UX_UNITS (6 units + finale) / UX_FLOW / UX_EXPECT_* / UX_PREREQ.
+`genenew` added to `VIVA_MODULES`.
+Content (user decisions: separate module, ~2,500–3,000 words, ≈ 130–150 questions that fit the short text, only high-yield pictures):
+10 topics t01–t10 (t01 inheritance, t02 single-gene, t03 lysosomal/MPS, t04 atypical inheritance, t05 chromosomes, t06 molecular diagnosis,
+t07 congenital anomalies/TORCH, t08 perinatal, t09 tumours, t10 integration), 26 sections, ≈ 2,430 body words (≈ 3,380 with tables, key points
+and must-knows; ≈ 28 % of Genetics); 148 questions (selected from Genetics, renumbered q001–q148, the old id kept in `sourceRef` "Genetics module
+qNNN"; text additions made so every kept question is answerable — achondroplasia/FGFR3, inborn errors = AR, CGH/AFP/NEC/β-glucosidase in full);
+74 glossary terms (only terms the text highlights); 8 cases (old c01 c02 c03 c05 c08 c10 c11 c13); 6 sequences; 6 flowcharts; 4 comparisons
+("vs" tables); 14 CONFUSION traps; 20 embedded atlas pictures (one per high-yield finding) + 2 link cards; no Practical topic.
+Deliverables (never committed): `genetics-new-pictures-robbins.json` (20 of the 59 Genetics Robbins figures, keys `gnew-robbins-01…20`) and
+`genetics-new-viva-bank.json` (50 questions `viva_gn_tNN_NN`, 5 per topic, 5 marks each, 18 picture questions), both imported in ✏️ Edit master
+draft. e2e tests "Genetics and Pediatric Diseases (New) module (genenew)" (LMR limits as Autonomic: facts > 20, morph ≥ 3) and "🎓 Viva
+Examination (genenew)" (`GN_VIVA_BANK=<file>`); module smoke includes it.
+
 ### 4.3 Picture sources (user, 2026-10-19): use ALL of them, each under its own rules
 
 A new module searches every source for every section and practical specimen. Pictures are registered in the course's
@@ -1124,6 +1144,12 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   Tested on the real Inflammation (New), Neoplasia (New), Granulomatous and Cell Injury pages (per-module Viva e2e test).
   The per-module Viva e2e test ("🎓 Viva Examination (<key>)") now also presents the topic, reveals answer + follow-ups and checks that
   students have no ▶ Present; VVP_SHOT=<png> saves a screenshot of the answer slide. A synthetic bank question 1 carries a follow-up.
+
+- **2026-11-17 — NEW module Genetics and Pediatric Diseases (New) (`third-year-med/genetics-new`, `genenew`, `gn_`, build `1.0`, §4.2.7):**
+  very condensed separate version of Genetics. The same day Genetics itself got the missing patches (viva-present and the 2026-11-16 patches;
+  `apply.sh --check` ✅). User still to do: Code.gs four additions (quiz pw `GENENEW-2026`), platformCheck, Deploy, GitHub Pages (main / root),
+  front-page card after Genetics, Platform directory → Modules → Add + Deliveries, platformCheck, incognito test, master v1.0 → versioned ON, then
+  ✏️ Edit master draft → import the Robbins pictures (20) and the viva bank (50) → ⬆ Publish draft. Active modules now include **genenew**.
 
 - **2026-11-17 — NEW module Hematology (`third-year-med/third-year-med-hematology`, `hematology`, `hm_`, build `1.0`, §4.2.6):** pushed; the user
   still has to: Code.gs four additions (quiz pw `HEMATOLOGY-2026`), platformCheck, Deploy, GitHub Pages (main / root), front-page card after
