@@ -13,12 +13,33 @@
    Code.gs additions, platformCheck, Deploy, the front-page card and the deliveries.
 5. The new content key is shown ONCE in the chat — save it in your password manager (it is never written to a file).
 
-## Condensed by default (2026-10-19)
+## Condensed by default (2026-10-19) — or full length
 
 New modules are written **condensed** (high-yield, about half the text and slides of a full write-up), and the word
 "condensed" never appears in the module's name — the prompt
 below already says so, and the platform's CLAUDE.md and HANDBOOK §4.2 require it, so a chat follows it even if that
-part of the prompt is missed. For a full-length module, delete the "CONTENT STYLE" section from the prompt.
+part of the prompt is missed. For a full-length module (the syllabus as it is, as for Inflammation (New), Neoplasia (New)
+and Granulomatous), replace the "CONTENT STYLE" section with the "CONTENT STYLE — FULL" section below.
+
+## Full-length module (my syllabus as it is)
+
+Replace the prompt's "CONTENT STYLE — CONDENSED" section with this one:
+
+```
+CONTENT STYLE — FULL (my syllabus as it is, NOT condensed — like Inflammation (New), Neoplasia (New) and
+Granulomatous and Parasitic Diseases)
+- Learn text = my syllabus as it is: every paragraph, definition, classification, table, list and figure,
+  in the syllabus order and with its wording; do not shorten, merge or summarise. Sections follow the
+  syllabus headings; topics follow its chapters / main headings.
+- Add (do not replace): key points, must-know lines, slides, glossary, sequences, comparisons, cases and
+  questions written from the syllabus; the syllabus's own MCQs / questions with their answer key.
+- The syllabus figures: embedded where they are clear (credit "Course syllabus … p. N"); a blurred scan is
+  replaced by a real picture of the same finding, never kept twice.
+- Scientific QA of every topic against the syllabus; tell me anything in the syllabus that looks wrong
+  instead of silently changing it.
+- In the final report: topics / sections / words per topic (vs the syllabus), slides, questions, cases,
+  pictures per source, and anything you were unsure about.
+```
 
 ## The prompt
 
@@ -39,11 +60,11 @@ BEFORE YOU START
 1. Read these files in third-year-med/Interactive-pathology-platform and follow them exactly:
    CLAUDE.md, docs/HANDBOOK.md (especially §5 "Adding the next module — checklist", §6 deployment
    steps and §8 lessons learned), SETUP.md and docs/REBUILD.md.
-2. Use the existing modules as the model: third-year-med/introduction-to-pathology,
-   third-year-med/cell-injury-teaching-platform and third-year-med/inflammation-healing
-   (same architecture, same look, same platform block). For the AMOUNT of text, the model is the
-   condensed modules: third-year-med/third-year-med-inflammation-condensed and
-   third-year-med/cell-injury-condensed.
+2. Use the CURRENT model modules: start from the app code of third-year-med/Granulomatous-and-parasitic-diseases
+   (the newest pathology module with every patch, the practical standard and the viva); look at
+   third-year-med/Neoplasia-new and third-year-med/Inflammation-New for the same look and features.
+   For the AMOUNT of text: a condensed module follows third-year-med/cell-injury-condensed; a FULL module
+   (my syllabus as it is) follows Granulomatous-and-parasitic-diseases, Neoplasia-new and Inflammation-New.
 3. Tell me your plan step by step before changing anything, and keep my plan's order.
 
 CONTENT STYLE — CONDENSED (high-yield) BY DEFAULT
@@ -59,7 +80,7 @@ CONTENT STYLE — CONDENSED (high-yield) BY DEFAULT
 - Scientific QA of every topic against my source material.
 - In the final report give me: Learn word count, slide count and on-slide words, sections per topic,
   pictures kept, and anything you were unsure about.
-[Delete this section only if I want a FULL-length module this time.]
+[For a FULL-length module, replace this whole section with the "CONTENT STYLE — FULL" section below.]
 
 PICTURE SOURCES — use ALL of them (docs/HANDBOOK.md §4.3), each under its own rules
 - Search every source for each section and practical specimen; give every section with a visible
@@ -88,6 +109,12 @@ PRACTICAL (docs/HANDBOOK.md §4.4 — the standard since 2026-11-14)
   the exam-only questions also as a 🔒 assessment-bank file for graded practical exams.
 - OSPE: every station's pictures from one case, gross before micro, text matching the pictures.
 - Clean Practical pages (prac-clean) and the light presentation mode; every import in ✏️ Edit master draft.
+
+VIVA EXAMINATION (patch viva — CLAUDE.md)
+- Add the module key to VIVA_MODULES in modules/patches/viva.py and give me a viva bank file
+  (<module>-viva-bank.json, format neo-viva-bank): at least 5 questions per topic, 5 marks each, model answer points,
+  picture questions where a picture is the point; I import it in ✏️ Edit master draft → 🎓 Viva → ⬆ Import viva bank.
+  Never committed.
 
 STRICT RULES
 - NEVER give me a complete new Code.gs. Give me ONLY the lines to add and exactly where
