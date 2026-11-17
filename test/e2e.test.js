@@ -5922,8 +5922,15 @@ test('Neoplasia (New) module (neonew): every topic, section, view and slide rend
       await a.waitForSelector('[data-a=vvp-answer]');
       assert.match(await a.textContent('[data-a=vvp-answer]'), /Model answer[\s\S]*Marking points/);
       if (process.env.VVP_SHOT) await a.screenshot({ path: process.env.VVP_SHOT });
-      if (fq >= 0) { await a.keyboard.press('r'); await a.waitForSelector('[data-a=vvp-follow]'); assert.match(await a.textContent('[data-a=vvp-follow]'), /Follow-up questions/); }
-      if (!real) assert.match(await a.textContent('[data-a=vvp-follow]'), /Follow-up 1\?[\s\S]*Follow answer 1\./);
+      if (fq >= 0) {   // the follow-up question first, its answer on the next R
+        await a.keyboard.press('r'); await a.waitForSelector('[data-a=vvp-fq]');
+        assert.match(await a.textContent('[data-a=vvp-follow]'), /Follow-up questions/);
+        assert.strictEqual(await a.$('[data-a=vvp-fa]'), null, 'the follow-up answer is hidden first');
+        if (!real) assert.doesNotMatch(await a.textContent('[data-a=vvp-follow]'), /Follow answer 1\./);
+        await a.keyboard.press('r'); await a.waitForSelector('[data-a=vvp-fa]');
+        if (!real) assert.match(await a.textContent('[data-a=vvp-follow]'), /Follow-up 1\?[\s\S]*Follow answer 1\./);
+        if (process.env.VVP_SHOT) await a.screenshot({ path: process.env.VVP_SHOT.replace(/\.png$/, '-follow.png') });
+      }
       await a.keyboard.press('Escape');
       await a.waitForFunction(function () { return !document.body.classList.contains('pcp-open'); });
       await a.context().close();

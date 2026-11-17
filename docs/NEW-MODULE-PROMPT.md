@@ -115,7 +115,7 @@ VIVA EXAMINATION (patch viva — CLAUDE.md)
   (<module>-viva-bank.json, format neo-viva-bank): at least 5 questions per topic, 5 marks each, model answer points,
   picture questions where a picture is the point; I import it in ✏️ Edit master draft → 🎓 Viva → ⬆ Import viva bank.
   Never committed.
-- The viva comes with ▶ Present for teachers (patch viva-present: question → R model answer + marking points → R follow-ups),
+- The viva comes with ▶ Present for teachers (patch viva-present: question → R model answer + marking points → R each follow-up → R its answer),
   so the bank's model answers, marking points and follow-ups must read well on a classroom screen.
 
 STRICT RULES

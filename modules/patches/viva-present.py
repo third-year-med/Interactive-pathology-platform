@@ -2,8 +2,9 @@
 the class"). Teachers only: a ▶ Present button next to the start button of the Viva setup (the questions of the current
 selection — topic, type, difficulty — in the chosen order) and on every 📌 Official viva (that paper's questions). Full-screen
 slides in the light presentation style of ▶ Present all cases (patch prac-present): one question per slide (topic, level,
-question in large text, its picture); R (👁 Reveal) shows the model answer and the marking points with their marks; R again
-shows the follow-up questions with their answers (a question without follow-ups stops at the answer). ← → / swipe, a menu
+question in large text, its picture); R (👁 Reveal) shows the model answer and the marking points with their marks; then each
+follow-up question on its own R and its answer on the next R (user, 2026-11-17: "first reveal a follow-up question without the
+answer, then I can reveal the answer"); a question without follow-ups stops at the answer. ← → / swipe, a menu
 to jump to any question, Esc closes, F full screen (computer). Nothing is recorded. Modules without the viva are untouched
 (runtime check). Inserted just before the picture-remove block (shared anchors would break the other patches' idempotency
 checks); wraps Views.viva.setupPanel and Views.viva.papersBox. Idempotent."""
@@ -27,18 +28,20 @@ R = [
         '.vvp-root .pcp-slide{max-width:1100px;align-items:stretch;text-align:left}.vvp-root .pcp-qtext{text-align:left;max-width:none}' +
         '.vvp-root .vv-pic{margin:.2rem 0;text-align:center}.vvp-root .vv-pic img{max-height:min(46vh,520px);max-width:100%;object-fit:contain;border-radius:10px;background:#fff}' +
         '.vvp-model{white-space:pre-wrap;line-height:1.55}.vvp-root .vv-rub{width:100%;border-collapse:collapse;margin-top:.3rem}.vvp-root .vv-rub td{border-top:1px solid #e3e9f0;padding:.35rem .5rem;vertical-align:top}' +
-        '.vvp-root .vv-rub td.m{width:3.2rem;font-weight:800;color:#0b7d78;text-align:center}.vvp-root .vv-fu{margin:.35rem 0}.vvp-root .vv-fu summary{font-weight:700;cursor:pointer}' +
+        '.vvp-root .vv-rub td.m{width:3.2rem;font-weight:800;color:#0b7d78;text-align:center}.vvp-fq{margin:.45rem 0 .7rem}.vvp-fa{margin-top:.3rem;padding:.45rem .7rem;background:#f3faf9;border-left:4px solid #0e9f9a;border-radius:8px;white-space:pre-wrap}.vvp-fa-hidden{margin-top:.3rem;padding:.4rem .7rem;font-size:.92em}' +
         '.vvp-root .pcp-box h4:first-child{margin-top:0}.vvp-meta{display:flex;flex-wrap:wrap;gap:.4rem}.vvp-meta span{background:#fff;border:1px solid #dbe5ed;border-radius:999px;padding:.15rem .7rem;font-size:.85rem;color:#4a6377}'));
       this.paint();
     },
-    maxLvl(s) { return s && (s.q.follow || []).length ? 2 : 1; },
+    // levels: 0 question · 1 model answer + marking points · then per follow-up k: its question (2 + 2k), its answer (3 + 2k)
+    maxLvl(s) { return 1 + 2 * ((s && s.q.follow) || []).length; },
     reveal() { const s = this.slides[this.i]; if (!s) return; const l = this.lvl[this.i] || 0; this.lvl[this.i] = l >= this.maxLvl(s) ? 0 : l + 1; this.paint(); },
     paint() {
       const s = this.slides[this.i]; if (!s || !this.root) return; const q = s.q, l = this.lvl[this.i] || 0, mx = this.maxLvl(s);
       clear(this.top);
       const sel = el('select', { 'aria-label': 'Go to question', class: 'pcp-sel' }, this.slides.map((x, k) => el('option', { value: String(k), selected: k === this.i }, 'Question ' + (k + 1) + (topicNum(x.q.topic) ? ' · Topic ' + topicNum(x.q.topic) : ''))));
       sel.addEventListener('change', () => { this.go(Number(sel.value)); sel.blur(); });
-      const btnTxt = l === 0 ? '👁 Reveal (R)' : l < mx ? '↪ Follow-ups (R)' : '🙈 Hide (R)';
+      const nf = (q.follow || []).length, fNext = Math.floor((l - 1) / 2) + 1;
+      const btnTxt = l === 0 ? '👁 Reveal (R)' : l >= mx ? '🙈 Hide (R)' : (l % 2 === 1 ? '↪ Follow-up ' + (nf > 1 ? fNext + ' ' : '') + '(R)' : '👁 Its answer (R)');
       pcpPut(this.top, el('span', { class: 'pcp-where' }, '🎓 ' + this.label + ' · ' + s.n + ' of ' + this.total), sel,
         el('button', { class: 'pcp-rev', 'data-a': 'vvp-reveal', onclick: () => this.reveal() }, btnTxt),
         this.touch() ? null : el('button', { onclick: () => this.fullscreen(), title: 'Full screen (F)' }, '⛶'),
@@ -52,9 +55,17 @@ R = [
         const box = el('div', { class: 'pcp-box', 'data-a': 'vvp-answer' }, el('h4', null, '✅ Model answer'), el('div', { class: 'vvp-model' }, q.model || ''));
         if ((q.points || []).length) pcpPut(box, el('h4', null, '📏 Marking points'), V.rubric(q, null, null, true));
         pcpPut(slide, box);
-        if (l === 1 && mx === 2) pcpPut(slide, el('div', { class: 'pcp-hidden' }, 'R again for the ' + plural(q.follow.length, 'follow-up question') + '.'));
+        if (l === 1 && nf) pcpPut(slide, el('div', { class: 'pcp-hidden' }, 'R again for the ' + (nf > 1 ? 'first of ' + nf + ' follow-up questions' : 'follow-up question') + '.'));
       }
-      if (l >= 2) { const fu = V.follow(q, true); if (fu) pcpPut(slide, el('div', { class: 'pcp-box', 'data-a': 'vvp-follow' }, fu)); }
+      if (l >= 2) {   // follow-up questions one by one: the question first, its answer on the next R
+        const shownQ = Math.floor((l - 2) / 2) + 1, box = el('div', { class: 'pcp-box', 'data-a': 'vvp-follow' }, el('h4', null, '↪ Follow-up questions'));
+        q.follow.slice(0, shownQ).forEach((f, k) => {
+          const ansOpen = l >= 3 + 2 * k;
+          pcpPut(box, el('div', { class: 'vvp-fq', 'data-a': 'vvp-fq' }, el('b', null, (k + 1) + '. ' + f.q),
+            ansOpen ? el('div', { class: 'vvp-fa', 'data-a': 'vvp-fa' }, f.a || '') : el('div', { class: 'pcp-hidden vvp-fa-hidden' }, 'Answer — then R for the answer.')));
+        });
+        pcpPut(slide, box);
+      }
       this.stage.classList.remove('pcp-stage-pic');
       clear(this.stage).appendChild(slide); this.stage.scrollTop = 0;
       pcpPut(clear(this.nav), el('button', { 'data-a': 'pcp-prev', disabled: this.i === 0, onclick: () => this.go(this.i - 1) }, '‹ Back'),

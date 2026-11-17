@@ -1119,7 +1119,8 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
 - **2026-11-17 — ▶ Present the viva in class (patch `viva-present`, all seven active modules incl. Hematology):** teachers get ▶ Present
   next to the Viva setup's start button (the current selection — topic, type, difficulty — in the chosen order) and on every 📌 Official
   viva. Full-screen slides in the ▶ Present all cases style (the practical presenter object reused): question + picture → R model answer
-  + marking points (read-only rubric) → R follow-up questions → R hides; menu to any question; nothing recorded; students have no button.
+  + marking points (read-only rubric) → R each follow-up QUESTION → R its ANSWER (user, same day: "first reveal a follow-up question
+  without the answer") → R hides; menu to any question; nothing recorded; students have no button.
   Tested on the real Inflammation (New), Neoplasia (New), Granulomatous and Cell Injury pages (per-module Viva e2e test).
   The per-module Viva e2e test ("🎓 Viva Examination (<key>)") now also presents the topic, reveals answer + follow-ups and checks that
   students have no ▶ Present; VVP_SHOT=<png> saves a screenshot of the answer slide. A synthetic bank question 1 carries a follow-up.
