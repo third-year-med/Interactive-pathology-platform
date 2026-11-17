@@ -1121,6 +1121,8 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   viva. Full-screen slides in the ▶ Present all cases style (the practical presenter object reused): question + picture → R model answer
   + marking points (read-only rubric) → R follow-up questions → R hides; menu to any question; nothing recorded; students have no button.
   Tested on the real Inflammation (New), Neoplasia (New), Granulomatous and Cell Injury pages (per-module Viva e2e test).
+  The per-module Viva e2e test ("🎓 Viva Examination (<key>)") now also presents the topic, reveals answer + follow-ups and checks that
+  students have no ▶ Present; VVP_SHOT=<png> saves a screenshot of the answer slide. A synthetic bank question 1 carries a follow-up.
 
 - **2026-11-17 — NEW module Hematology (`third-year-med/third-year-med-hematology`, `hematology`, `hm_`, build `1.0`, §4.2.6):** pushed; the user
   still has to: Code.gs four additions (quiz pw `HEMATOLOGY-2026`), platformCheck, Deploy, GitHub Pages (main / root), front-page card after
@@ -1144,7 +1146,8 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   - **Still to do — Inflammation (New) and Neoplasia (New):** the same two steps (practical pictures into the topics, then one picture per
     finding). Needs from the user: their topic + practical picture files (or a master backup) and the content keys (this chat's machine
     was fresh on 2026-11-16, so earlier delivered files are not in the scratchpad any more — ask for them, never guess).
-  - Genetics (re-activated by another chat, not cloned here) has none of these 2026-11-16 patches yet → `apply.sh` there.
+  - Genetics (re-activated by another chat, not cloned here) has none of the 2026-11-16 patches nor `viva-present` (2026-11-17) yet →
+    `apply.sh` there and run its Viva e2e test with the Genetics key.
   - Neoplasia (New): user still to press 🔢 Number 1…N (after deleting the 15 old drafts) and Publish draft.
 
 
