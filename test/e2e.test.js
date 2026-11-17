@@ -5888,7 +5888,7 @@ test('Neoplasia (New) module (neonew): every topic, section, view and slide rend
       const bf = process.env[env + '_VIVA_BANK'], real = !!(bf && fs.existsSync(bf));
       const pts = [{ p: 'Point A', m: 2 }, { p: 'Point B', m: 2 }, { p: 'Point C', m: 1 }];
       const bank = real ? JSON.parse(fs.readFileSync(bf, 'utf8')).items : [1, 2, 3, 4, 5].map(function (i) {
-        return { id: 'vx_test_' + i, topic: tp, level: 'basic', type: i === 5 ? 'image' : 'definition', q: 'Viva test ' + i + '?', max: 5, points: pts, model: 'Model ' + i + '.', follow: [], notes: '',
+        return { id: 'vx_test_' + i, topic: tp, level: 'basic', type: i === 5 ? 'image' : 'definition', q: 'Viva test ' + i + '?', max: 5, points: pts, model: 'Model ' + i + '.', follow: i === 1 ? [{ q: 'Follow-up ' + i + '?', a: 'Follow answer ' + i + '.' }] : [], notes: '',
           image: i === 5 ? { atlas: img } : undefined }; });
       const tt0 = main.call({ module: 'portal', action: 'portalTeacherOpen', token: t, modules: [key] }).modules[key];
       const f = path.join(require('os').tmpdir(), 'viva-' + key + '-bank.json'); fs.writeFileSync(f, JSON.stringify({ format: 'neo-viva-bank', version: 1, module: key, items: bank }));
@@ -5909,6 +5909,23 @@ test('Neoplasia (New) module (neonew): every topic, section, view and slide rend
         const missing = await a.evaluate(function (b) { return b.filter(function (x) { return x.image && !vivaPicture(x); }).map(function (x) { return x.id; }); }, bank);
         assert.deepStrictEqual(missing, [], 'every picture is found');
       }
+      // ▶ Present (patch viva-present, teachers): the topic's questions full screen; R → model answer + marking points; R → follow-ups
+      await a.selectOption('#view-viva [data-a=vv-f-topic]', tp);
+      await a.waitForSelector('#view-viva [data-a=vvp-start]', { timeout: 10000 });
+      assert.match(await a.textContent('#view-viva [data-a=vvp-start]'), new RegExp('Present \\(' + nT + ' question'));
+      await a.click('#view-viva [data-a=vvp-start]');
+      await a.waitForFunction(function () { return document.body.classList.contains('pcp-open'); }, null, { timeout: 10000 });
+      assert.match(await a.textContent('.pcp-where'), new RegExp('1 of ' + nT));
+      assert.strictEqual(await a.$('[data-a=vvp-answer]'), null, 'the answer is hidden first');
+      const fq = await a.evaluate(function (n) { let k = -1; for (let i = 0; i < n; i++) if ((VivaPresent.slides[i].q.follow || []).length) { k = i; break; } if (k >= 0) VivaPresent.go(k); return k; }, nT);
+      await a.keyboard.press('r');
+      await a.waitForSelector('[data-a=vvp-answer]');
+      assert.match(await a.textContent('[data-a=vvp-answer]'), /Model answer[\s\S]*Marking points/);
+      if (process.env.VVP_SHOT) await a.screenshot({ path: process.env.VVP_SHOT });
+      if (fq >= 0) { await a.keyboard.press('r'); await a.waitForSelector('[data-a=vvp-follow]'); assert.match(await a.textContent('[data-a=vvp-follow]'), /Follow-up questions/); }
+      if (!real) assert.match(await a.textContent('[data-a=vvp-follow]'), /Follow-up 1\?[\s\S]*Follow answer 1\./);
+      await a.keyboard.press('Escape');
+      await a.waitForFunction(function () { return !document.body.classList.contains('pcp-open'); });
       await a.context().close();
       // student: the 🎓 tab → Practice of the picture questions of the topic
       const p = await realPage(M, []);
@@ -5918,6 +5935,7 @@ test('Neoplasia (New) module (neonew): every topic, section, view and slide rend
       await p.evaluate(function () { location.hash = '#/viva'; });
       await p.waitForSelector('#view-viva .vv-toolbar [data-a=vv-f-topic]', { timeout: 20000 });
       await p.selectOption('#view-viva [data-a=vv-f-topic]', tp);
+      assert.strictEqual(await p.$('#view-viva [data-a=vvp-start]'), null, 'students have no ▶ Present');
       await p.selectOption('#view-viva [data-a=vv-f-type]', 'image');
       await p.click('#view-viva [data-a=vv-start]');
       await p.waitForSelector('#view-viva .vv-bar');

@@ -1116,6 +1116,12 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
 
 ## 10. Current state (updated 2026-11-17)
 
+- **2026-11-17 — ▶ Present the viva in class (patch `viva-present`, all seven active modules incl. Hematology):** teachers get ▶ Present
+  next to the Viva setup's start button (the current selection — topic, type, difficulty — in the chosen order) and on every 📌 Official
+  viva. Full-screen slides in the ▶ Present all cases style (the practical presenter object reused): question + picture → R model answer
+  + marking points (read-only rubric) → R follow-up questions → R hides; menu to any question; nothing recorded; students have no button.
+  Tested on the real Inflammation (New), Neoplasia (New), Granulomatous and Cell Injury pages (per-module Viva e2e test).
+
 - **2026-11-17 — NEW module Hematology (`third-year-med/third-year-med-hematology`, `hematology`, `hm_`, build `1.0`, §4.2.6):** pushed; the user
   still has to: Code.gs four additions (quiz pw `HEMATOLOGY-2026`), platformCheck, Deploy, GitHub Pages (main / root), front-page card after
   Granulomatous, Platform directory → Modules → Add + Deliveries, platformCheck, incognito test, Migration report → master v1.0 → versioned ON,
