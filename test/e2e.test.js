@@ -8042,6 +8042,10 @@ test('🩺 Clinical Cases tab: between Review and Practical; ▶ Present all cas
     const steps = await p.evaluate(function () { return CASES[0].stages.length; });
     for (let k = 0; k < steps; k++) await p.keyboard.press('ArrowRight');
     assert.ok((await p.textContent('.pcp-stage')).includes(title), 'the title on the last slide of the case');
+    // 🔠 patch cases-present-large: the take-home points in large text (user, 2026-11-18)
+    const thSize = await p.evaluate(function () { const b = document.querySelector('.pcp-stage .pcp-box'); return b ? parseFloat(getComputedStyle(b).fontSize) : 99; });
+    assert.ok(thSize >= 20, 'take-home points in large text: ' + thSize + 'px');
+    if (process.env.CCP_SHOT) await p.screenshot({ path: process.env.CCP_SHOT });
     await p.keyboard.press('Escape');
     await p.waitForFunction(function () { return !document.body.classList.contains('pcp-open'); });
     // Print PDF
