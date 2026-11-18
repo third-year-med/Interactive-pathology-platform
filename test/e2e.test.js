@@ -5924,6 +5924,8 @@ test('Neoplasia (New) module (neonew): every topic, section, view and slide rend
       await a.keyboard.press('r');
       await a.waitForSelector('[data-a=vvp-answer]');
       assert.match(await a.textContent('[data-a=vvp-answer]'), /Model answer[\s\S]*Marking points/);
+      const vSize = await a.evaluate(function () { return parseFloat(getComputedStyle(document.querySelector('[data-a=vvp-answer]')).fontSize); });
+      assert.ok(vSize >= 20, 'viva answer in large text (patch present-large): ' + vSize + 'px');
       if (process.env.VVP_SHOT) await a.screenshot({ path: process.env.VVP_SHOT });
       if (fq >= 0) {   // the follow-up question first, its answer on the next R
         await a.keyboard.press('r'); await a.waitForSelector('[data-a=vvp-fq]');
@@ -7995,6 +7997,8 @@ test('▶ Practical front page: Present all cases + Print PDF in the Practical c
     assert.strictEqual(await p.evaluate(function () { return location.hash; }), '#/apply', 'the buttons do not open the Practical page');
     await p.click('#view-apply [data-a=pha-present]');
     await p.waitForFunction(function () { return document.body.classList.contains('pcp-open'); }, null, { timeout: 10000 });
+    const pSize = await p.evaluate(function () { const e = document.querySelector('.pcp-root .pcp-clin, .pcp-root .pcp-qtext, .pcp-root .pcp-box'); return e ? parseFloat(getComputedStyle(e).fontSize) : 99; });
+    assert.ok(pSize >= 20, 'practical presentation in large text (patch present-large): ' + pSize + 'px');
     await p.evaluate(function () { PracPresent.close(); });
     await p.context().close();
     assert.deepStrictEqual(errors.slice(start), [], 'no page errors');

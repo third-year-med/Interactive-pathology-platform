@@ -1145,6 +1145,8 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   The per-module Viva e2e test ("🎓 Viva Examination (<key>)") now also presents the topic, reveals answer + follow-ups and checks that
   students have no ▶ Present; VVP_SHOT=<png> saves a screenshot of the answer slide. A synthetic bank question 1 carries a follow-up.
 
+- **2026-11-18 — 🔠 Larger text in the Practical and Viva presentations too (patch `present-large`, all nine active modules):** user: "Do the
+  same for Practical and Viva presentations". e2e: the Practical front-page test and the per-module Viva test check ≥ 20 px.
 - **2026-11-18 — 🔠 Larger text in the clinical-cases presentation (patch `cases-present-large`, all nine active modules):** user: "Please
   enlarge the writing in presentation mode in clinical cases". CSS only, scoped to `.pcp-root[aria-label^="Clinical cases"]`; the Clinical Cases
   e2e test checks the take-home points are ≥ 20 px (`CCP_SHOT=<png>` saves a screenshot).
