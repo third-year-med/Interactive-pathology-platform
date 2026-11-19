@@ -7,7 +7,7 @@ build of a module; `SETUP.md` is the user-facing setup guide.
 Essentials:
 - **ACTIVE MODULES ONLY (user, 2026-10-31 — applies to every task until the user changes it):** work only on
   `introduction-to-pathology` (`intropath`), `cell-injury-condensed` (`cellcondensed`), `inflammation-new` (`inflnew`),
-  `neoplasia-new` (`neonew`), `Granulomatous-and-parasitic-diseases` (`granuloma`, added 2026-11-04), `third-year-med-autonomic-nervous-system` (`autonomic`, added 2026-11-11) and `genetics` (`genetics`, **re-activated 2026-11-15** at the user's request: brought up to date with all patches + the viva) and `third-year-med-hematology` (`hematology`, added 2026-11-17) and `genetics-new` (`genenew`, added 2026-11-17). All other modules are ARCHIVED (`modules/INACTIVE`: `cellinjury`, `inflhealing`, `inflcondensed`,
+  `neoplasia-new` (`neonew`), `Granulomatous-and-parasitic-diseases` (`granuloma`, added 2026-11-04), `third-year-med-autonomic-nervous-system` (`autonomic`, added 2026-11-11) and `genetics` (**Genetic Diseases**, renamed 2026-11-19 from "Genetics and Pediatric Diseases"; `genetics`, **re-activated 2026-11-15** at the user's request: brought up to date with all patches + the viva) and `third-year-med-hematology` (`hematology`, added 2026-11-17) and `genetics-new` (`genenew`, added 2026-11-17). All other modules are ARCHIVED (`modules/INACTIVE`: `cellinjury`, `inflhealing`, `inflcondensed`,
   `neoplasm`): never modify, rebuild, patch, refresh or delete them, even to fix an error — `apply.sh` and
   `tools/module-release.js` refuse them. A change to a shared component (patches, Portal.gs, platform-nav, tests) that
   could affect other modules needs the user's explicit approval first. Token policy: inspect only the files the task

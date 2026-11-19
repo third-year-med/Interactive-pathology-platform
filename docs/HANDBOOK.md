@@ -1145,6 +1145,9 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
   The per-module Viva e2e test ("🎓 Viva Examination (<key>)") now also presents the topic, reveals answer + follow-ups and checks that
   students have no ▶ Present; VVP_SHOT=<png> saves a screenshot of the answer slide. A synthetic bank question 1 carries a follow-up.
 
+- **2026-11-19 — Genetics renamed "Genetic Diseases" (user):** page, header, footer, NEO_CONFIG.title and course title (re-encrypted with the
+  SAME key); module key `genetics`, prefix, repository, URL, fileStem, build and all IDs unchanged (as the 2026-10-19 renames, §4.2). The user
+  renames the front-page card (Teacher Dashboard → module list → Edit) and the Platform directory module title. Genetics (New) keeps its name.
 - **2026-11-19 — 🙈 Learn print buttons hidden from students (patch `learn-print-hide`, all nine active modules):** user: "the students were
   complaining of too many PDF pages". Students no longer see 🎞️ Present / 🖨 Print (topic header) or 🖨️ Print Entire Chapter (topic header +
   Course Overview); teachers and the Admin keep them; 📄 Print Condensed Handout stays. Lesson: changing the Print button line broke patch

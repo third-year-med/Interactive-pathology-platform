@@ -5875,7 +5875,7 @@ test('Neoplasia (New) module (neonew): every topic, section, view and slide rend
    imported instead and every topic and every picture is checked. */
 [[NN, 'nn_', 'Neoplasia (New)', 'NN', 't15', 'nm-img-076', /Neoplasia/], [GP, 'gp_', 'Granulomatous and Parasitic Diseases', 'GP', 't14', 'gp-img-007', /Granulomatous/],
   [IP, 'ip_', 'Introduction to Pathology', 'IP', 't17', 'c-rotary', /Introduction to Pathology/], [CC, 'cc_', 'Cell Injury & Cell Death', 'CC', 't17', 'peir-kidney-infarct-gross', /Cell Injury/],
-  [GEN, 'gen_', 'Genetics and Pediatric Diseases', 'GEN', 't14', 'wm-rb-leukocoria', /Genetics/], [HM, 'hm_', 'Hematology', 'HM', 't17', 'hm-img-001', /Hematology/],
+  [GEN, 'gen_', 'Genetic Diseases', 'GEN', 't14', 'wm-rb-leukocoria', /Genetic Diseases/], [HM, 'hm_', 'Hematology', 'HM', 't17', 'hm-img-001', /Hematology/],
   [GN, 'gn_', 'Genetics and Pediatric Diseases (New)', 'GN', 't09', 'wm-rb-leukocoria', /Genetics/]].forEach(function (V) {
   const M = V[0], pfx = V[1], title = V[2], env = V[3], tp = V[4], img = V[5], barRe = V[6], key = M[0];
   test('🎓 Viva Examination (' + key + '): import the bank; student practice with a picture question', { skip: SKIP || ((!fs.existsSync(M[2]) || !M[3]) && title + ' module page or ' + env + '_CONTENT_KEY not available') }, async function () {
@@ -6511,13 +6511,13 @@ test('Neoplasia module (neoplasm): every topic, section, view and slide renders 
 /* ---------------- Genetics and Pediatric Diseases (genetics): the REAL page with its REAL course ----------------
    Registered as the four Code.gs additions and the front-page card register it (HANDBOOK §5), then every learning view
    is opened as a student and every slide of the generated deck as the teacher. Needs GEN_CONTENT_KEY (env only). */
-test('Genetics and Pediatric Diseases module (genetics): every topic, section, view and slide renders with the real course; student and teacher', { skip: SKIP || ((!fs.existsSync(GEN[2]) || !GEN[3]) && 'genetics module page or GEN_CONTENT_KEY not available') }, async function () {
+test('Genetic Diseases module (genetics): every topic, section, view and slide renders with the real course; student and teacher', { skip: SKIP || ((!fs.existsSync(GEN[2]) || !GEN[3]) && 'genetics module page or GEN_CONTENT_KEY not available') }, async function () {
   main.ctx.STUDENT_AUTH_MODULES.genetics = true; main.ctx.CONTENT_KEYS.genetics = GEN[3];
   main.ctx.DEFAULT_QUIZ_PW.genetics = 'GENETICS-2026'; main.ctx.DEFAULT_LIVE_PW.genetics = 'CLASSROOM-2026';
   main.call({ module: 'portal', action: 'setup', password: TPW });
   const t = main.call({ module: 'portal', action: 'login', password: TPW }).token;
   const reg = main.call({ module: 'portal', action: 'portalInfo' }).modules;
-  assert.ok(main.call({ module: 'portal', action: 'portalAdminSave', token: t, modules: reg.concat([{ id: 'genetics', title: 'Genetics and Pediatric Diseases', icon: '🧬', status: 'available',
+  assert.ok(main.call({ module: 'portal', action: 'portalAdminSave', token: t, modules: reg.concat([{ id: 'genetics', title: 'Genetic Diseases', icon: '🧬', status: 'available',
     url: 'https://third-year-med.github.io/' + GEN[1] + '/', moduleKey: 'genetics', handoff: 'neo', storagePrefix: 'gen_' }]) }).ok);
   main.addStudents('genetics', [{ username: 'gen1', name: 'Genetics Student', password: PW, mustChange: false }]);
   const start = errors.length;
@@ -6529,7 +6529,7 @@ test('Genetics and Pediatric Diseases module (genetics): every topic, section, v
     await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'student'; }, null, { timeout: 20000 });
     const info = await p.evaluate(function () { return { cfg: window.NEO_CONFIG, course: COURSE.title, topics: DATA.topics.map(function (t) { return { id: t.id, title: t.title, sections: t.sections.map(function (s) { return { id: s.id, heading: s.heading, tables: s.tables.length, figures: s.figures.length }; }) }; }) }; });
     assert.strictEqual(info.cfg.moduleKey, 'genetics'); assert.strictEqual(info.cfg.storagePrefix, 'gen_'); assert.strictEqual(info.cfg.platformHome, 'https://third-year-med.github.io/Interactive-pathology-platform/');
-    assert.strictEqual(info.course, 'Genetics and Pediatric Diseases', 'exact title (user, 2026-10-23)');
+    assert.strictEqual(info.course, 'Genetic Diseases', 'exact title (user, renamed 2026-11-19)');
     assert.ok(!/condensed|high-yield/i.test(await p.title() + ' ' + await p.textContent('header')), 'no "Condensed" in the name');
     assert.ok(!/condensed|high-yield|review|teaching module/i.test(await p.title() + ' ' + await p.textContent('header .t1')), 'the exact title only (user, 2026-10-23)');
     assert.strictEqual(info.topics.length, 15);
