@@ -6329,6 +6329,37 @@ test('Autonomic Nervous System module (autonomic): every topic, section, view an
   }
 });
 
+/* ---------------- 🖨 Compact practical printout (patch prac-print-compact, 2026-11-20): handout, answer key, set — no objectives / headings, pictures in rows of four ---------------- */
+test('Practical printout is compact: no objectives or headings, answers on the question line, pictures in a grid of four (patch prac-print-compact)', { skip: SKIP || ((!fs.existsSync(GP[2]) || !GP[3]) && 'Granulomatous module page or GP_CONTENT_KEY not available') }, async function () {
+  main.ctx.STUDENT_AUTH_MODULES.granuloma = true; main.ctx.CONTENT_KEYS.granuloma = GP[3];
+  main.call({ module: 'portal', action: 'setup', password: TPW }); main.addStudents('granuloma', [{ username: 'pc1', name: 'Print Student', password: PW, mustChange: false }]);
+  const p = await realPage(GP, []);
+  await p.goto('https://third-year-med.github.io/' + GP[1] + '/');
+  await p.waitForSelector('#nb-user'); await p.fill('#nb-user', 'pc1'); await p.fill('#nb-pass', PW); await p.click('#neo-boot button[type=submit]');
+  await p.waitForFunction(function () { return window.NEO_BOOT && window.NEO_BOOT.role === 'student'; }, null, { timeout: 20000 });
+  const r = await p.evaluate(function () {
+    const mk = function (n) {
+      const d = PE_buildDraft({ number: n, title: 'Case ' + n + ' — Test lesion', objectives: ['Recognise it'], specimen: { organ: 'Lung', type: 'Gross specimen', condition: 'Test lesion', text: 'A 40-year-old man with cough.' }, gross: 'Gross text.', microscopic: 'Micro text.', stain: 'H&E', keyFeatures: ['Feature one', 'Feature two'],
+        diagnosis: 'Test lesion', differential: 'Other lesion', clinical: 'Clinical text', teachingPoints: ['Point one'], questions: [{ type: 'diagnosis', q: 'What is the diagnosis?', a: 'Test lesion' }], viva: [{ q: 'Name a complication.', a: 'Spread' }], diagnosisConfidence: 'stated' }, {});
+      d.id = 'p' + n; d.version = 1; d.settings = Object.assign({}, d.settings, { includeAnswers: false, includeQuestions: true, includeViva: true, includeImages: true, includeTeachingPoints: true });
+      d.images = [0, 1, 2, 3, 4].map(function (k) { return { id: 'i' + k, slot: k < 2 ? 'gross' : 'micro', kind: k < 2 ? 'gross' : 'micro', url: 'data:image/gif;base64,R0lGODlhAQABAAAAACw=', caption: 'Case ' + n + ' — Test lesion · Picture ' + k + '.', active: true }; });
+      return d;
+    };
+    const cfg = Object.assign({}, PE_DEFAULT_CFG, { footerEnabled: true });
+    const std = PH_html(PE_handoutModel([mk(1), mk(2)], { mode: 'student' }), { cfg: cfg, courseName: 'Course', kind: 'set', imageSrc: function (im) { return im.url; } });
+    const key = PH_html(PE_handoutModel([mk(1)], { mode: 'answerKey', teacher: true }), { cfg: cfg, courseName: 'Course', kind: 'answerKey', imageSrc: function (im) { return im.url; } });
+    return { std: std, key: key, grids: (std.match(/class="grid"/g) || []).length, figs: (std.match(/<figure/g) || []).length };
+  });
+  assert.ok(!/Learning Objectives|Specimen \/ Material|Real Microscopic|Practical Questions|Version 1|PRACTICAL 1/.test(r.std), 'no objectives / headings / version lines');
+  assert.ok(/<b>Gross:<\/b>/.test(r.std) && /<b>Microscopy:<\/b>/.test(r.std) && /<b>Key features:<\/b> Feature one; Feature two\./.test(r.std) && /<b>Diagnosis:<\/b> Test lesion/.test(r.std), 'run-in labels');
+  assert.ok(!/Case 1 — Test lesion · Picture/.test(r.std.replace(/<h1>[\s\S]*?<\/h1>/g, '')), 'the repeated "Case n — title ·" is dropped from the picture captions');
+  assert.strictEqual(r.figs, 10, 'all five pictures of both practicals are printed');
+  assert.ok(r.grids >= 4 && /grid-template-columns: repeat\(4, 1fr\)/.test(r.std), 'pictures sit in rows of four');
+  assert.ok(!/→ Test lesion/.test(r.std), 'a student handout has no answers');
+  assert.ok(/ANSWER KEY/.test(r.key) && /→ Test lesion/.test(r.key) && /Questions — answers/.test(r.key), 'the answer key has the answers on the question line');
+  await p.context().close();
+});
+
 /* ---------------- Neoplasia (neoplasm): the REAL page with its REAL course ----------------
    Registered as the four Code.gs additions and the front-page card register it (HANDBOOK §5), then every learning view
    is opened as a student and every slide of the generated deck as the teacher. Needs NM_CONTENT_KEY (env only). */
