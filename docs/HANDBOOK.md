@@ -1149,6 +1149,7 @@ the e2e tests use `syntheticModule(CI_PAGE)` + `openSyntheticModule()` for the s
 - After each step give: what changed, how it was tested, and the exact deployment steps.
 
 ## 10. Current state (updated 2026-11-17)
+- **Compact practical printout (2026-11-20, patch `prac-print-compact`, user: "a very compact printout of the practicals all over the modules"):** replaces `PH_html` (the HTML print of 🖨 Print PDF / handout / answer key / set / handbook; the model `PE_handoutModel` and the PDF writer are unchanged). Layout: one title line, no objectives / specimen table / headings, run-in bold labels, key features and teaching points on one line, answers after the question (→), pictures in rows of four (34 mm high, one-line captions with the repeated "Case n — title ·" dropped), practicals flow without page breaks, two-column contents. Test sample 13 practicals × 6 pictures: 53 → 9 pages. e2e "Practical printout is compact…". Rolled out the same day to intropath, cellcondensed, inflnew, neonew, granuloma, autonomic, genetics, hematology, genenew (each +87 lines, smoke ✓).
 
 - **2026-11-17 — ▶ Present the viva in class (patch `viva-present`, all seven active modules incl. Hematology):** teachers get ▶ Present
   next to the Viva setup's start button (the current selection — topic, type, difficulty — in the chosen order) and on every 📌 Official
