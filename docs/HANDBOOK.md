@@ -591,6 +591,20 @@ network policy (TLS refused) → no link cards; Wikimedia Commons answered then 
 and sarcoidosis Commons pictures were added; a later session can add more (atlas ids continue at gp-img-015). No Robbins pictures were
 attached (the user ticked "Robbins pictures" — attach them or name the Drive folder for a picture-import batch `gp-robbins-NN`).
 e2e test "Granulomatous and Parasitic Diseases module (granuloma)…"; module smoke includes it.
+**Build 1.3 (2026-11-20, user's lecture-note pages 49–56, one by one):** the user sent scanned pages with red crosses/arrows = cancelled items
+(cancelled and NOT added: p. 49 granuloma drawings, primary-complex box items 1–3, "Methods of spread", "Tuberculous peritonitis" p. 56; the
+box's item 4 "primary skin complex" went into 4.3's list). New sections: primary pulmonary TB (`s0405`, shown 4.4, after 4.3), secondary pulmonary
+TB `s0406`/`s0407`, acute forms (table) `s0408`, primary / secondary intestinal TB `s0409`/`s0410`, Pott's disease `s0411`/`s0412`. At the user's request
+**topic 4 was split into four topics**: `t04` (spread + primary TB), new `t15` Secondary TB (starts with the syllabus section `s0404`, moved up),
+`t16` Intestinal TB, `t17` Pott's disease — new IDs, placed right after t04 (positions of later topics shift; the practical topic t14 stays last).
+The split touches the app code (module-local): `UX_UNITS` u2 lists t15–t17, `UX_FLOW` last step → `t15`, `UX_EXPECT_TOPIC`. Also moved with their
+sections: q041/q043/q045, glossary "Secondary tuberculosis", case c02, comparison cmp01, the exam question "Compare primary and secondary TB"; the
+practical topic's reference to the topic by name. Added: 36 practice questions (q182–q211 → every topic ≥ 6; e2e now expects 17 topics and 17 quiz-ready
+topics), 5 glossary terms, 4 clinical cases c11–c14, atlas pictures gp-img-015…018 (Commons: intestinal TB gross specimens; Pott's kyphosis + mummy) and
+the existing Ghon-focus / cavity / miliary pictures attached to the new sections. Deliverables (never committed): assessment bank v2 (103 items: the
+MCQ-book questions now covered by the notes added, Q245/246 → t15) and `granuloma-viva-bank-additions.json` (21 viva questions). The viva bank
+imported earlier keeps its questions under t04. Rebuild procedure: REBUILD.md (the live page had moved on — build 1.2 by another session — so the new course
+was swapped into the CURRENT live page: `swap`-style, only the encrypted course and the four app-code lines changed).
 
 ### 4.2.5 Autonomic Nervous System — the first PHYSIOLOGY module, VERY condensed (user, 2026-11-11)
 Repository `third-year-med/third-year-med-autonomic-nervous-system` (created by the user as "autonomic-nervous-system"; GitHub kept the owner
