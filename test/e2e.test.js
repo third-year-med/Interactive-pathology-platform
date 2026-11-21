@@ -4109,6 +4109,11 @@ test('⚡ Topic quizzes: one quiz per topic (pool of its practice questions, 5 r
     await t.evaluate(function () { AssessUI.render(AssessUI.box); });   // the "done" window stays open (the next step closes it)
     await t.waitForFunction(function () { return document.querySelectorAll('[data-a=ac-reopen]').length === 2 && document.querySelectorAll('[data-a=ac-repeat]').length === 2; }, null, { timeout: 30000 });
     assert.match(await t.textContent('#view-teacher'), /⏱ closes 5 h after the first student starts/);
+    // the row fits the screen: both buttons under the title, actions wrapped, no horizontal overflow (user 2026-11-21)
+    const fitv = await t.evaluate(function () { var b = document.querySelector('[data-a=ac-repeat]'), r = document.querySelector('[data-a=ac-reopen]'), sc = b.closest('.table-scroll'), vw = document.documentElement.clientWidth;
+      return { title: b.closest('td').classList.contains('ae-lib-title') && r.closest('td') === b.closest('td'), visible: b.getBoundingClientRect().right <= vw && r.getBoundingClientRect().right <= vw, fits: sc.scrollWidth <= sc.clientWidth + 2,
+        del: [].slice.call(document.querySelectorAll('td.ae-lib-actions .btn-danger')).every(function (x) { return x.getBoundingClientRect().right <= vw; }) }; });
+    assert.deepStrictEqual(fitv, { title: true, visible: true, fits: true, del: true });
     // 🔁 Repeat for the class (Portal.gs 2.50): confirm → the quiz's clock restarts (setting "since")
     await t.evaluate(function () { var m = document.querySelector('.modal'); if (m) { var x = m.querySelector('.modal-head .icon-btn'); if (x) x.click(); } });
     await t.evaluate(function () { document.querySelector('[data-a=ac-repeat]').click(); });
@@ -4116,6 +4121,7 @@ test('⚡ Topic quizzes: one quiz per topic (pool of its practice questions, 5 r
     await t.click('.modal button:has-text("🔁 Repeat")');
     await t.waitForFunction(function () { return /repeated /.test(document.querySelector('#view-teacher').textContent); }, null, { timeout: 30000 });
     assert.strictEqual(a.filter(function (x) { return main.ctx.acloseMap_(ST)[x.id].since > 0; }).length, 1, 'one quiz repeated');
+    if (process.env.SHOTS) { await t.evaluate(function () { document.querySelector('table.ae-lib-fit').scrollIntoView(); }); await (await t.$('table.ae-lib-fit')).screenshot({ path: path.join(process.env.SHOTS, 'assess-library-fit.png') }); }
     // the student's list: topic quizzes in topic order (Topic 1 first), after any other assessment
     const sp = await page();
     await openSyntheticModule(sp, mod, [], { stubAssess: false });
