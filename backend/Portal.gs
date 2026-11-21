@@ -199,7 +199,7 @@
  * backend the front page is configured with (config.js → backendUrl).
  * ========================================================================== */
 var PORTAL_MODULE = 'portal';
-var PORTAL_VERSION = '2.49';
+var PORTAL_VERSION = '2.50';
 /** 2.40: the ARCHIVED modules (the platform repository's modules/INACTIVE, user 2026-10-31). Their deliveries are left out of
  *  the overall reports (Overall Pathology Attendance, Pathology Overall Results) even while still switched on. Keep this
  *  list equal to modules/INACTIVE (a test checks it); re-activating a module = remove it from both, then redeploy. */
@@ -3807,8 +3807,12 @@ function assessPwHook_(storage, act, p) {
   if (act === 'submitAttempt') {
     var lk = LockService.getScriptLock(); lk.waitLock(30000);
     try {
-      var cx = acloseSubmitCheck_(storage, String(p.attemptId || ''), st.username); if (cx) return cx;   // 2.43
+      var cx = acloseSubmitCheck_(storage, String(p.attemptId || ''), st.username); if (cx) { console.log('submit refused (closed) · ' + storage + ' · ' + st.username + ' · ' + p.attemptId); return cx; }   // 2.43
       var sr = assessSvc_(storage).submitAttempt(String(p.attemptId || ''), email, p.responses || {});
+      if (!(sr && sr.ok)) {   // 2.50: every refused submission is written to the Apps Script log (Executions) — what, who, why
+        console.log('submit refused · ' + storage + ' · ' + st.username + ' · ' + p.attemptId + ' · ' + (sr && sr.code) + ' · ' + (sr && sr.error));
+        if (sr && sr.code === 'notfound') sr.error = 'Your quiz could not be found on the class server, so it was not submitted. Please tell your teacher now — they can let you take it again.';
+      }
       try { if (sr && sr.ok && !sr.already) aeFixSubmitted_(storage, sr); } catch (e) { }   // 2.41: the fixed matching marking at once
       return sr;
     } finally { lk.releaseLock(); }
@@ -3833,7 +3837,11 @@ function assessPwHook_(storage, act, p) {
     c.remove(fk);
   }
   var lock2 = LockService.getScriptLock(); lock2.waitLock(30000);
-  try { var out = assessSvc_(storage).startAttempt(a.id, email, st.name); llForget_(storage); return out; } finally { lock2.releaseLock(); }
+  try {
+    var out = assessSvc_(storage).startAttempt(a.id, email, st.name); llForget_(storage);
+    if (out && out.ok && !out.resumed && out.attempt && out.attempt.id && !assessStore_(storage).get('attempt', out.attempt.id)) console.log('start NOT saved · ' + storage + ' · ' + st.username + ' · ' + out.attempt.id);   // 2.50: diagnosis
+    return out;
+  } finally { lock2.releaseLock(); }
 }
 
 /* ======================================================================
@@ -4381,20 +4389,26 @@ function aeMarkHook_(S, act, p) {
  * the FIRST student of this group started it. After that: a student who has not started cannot start (the list shows it
  * closed); an attempt that was started before the closing time can still be submitted until its own time limit (or the
  * closing time) + 15 minutes; later submissions are refused. A teacher can reopen it for one student for some hours.
- *   aeAutoClose  teacher: {assessmentIds: [...], hours} (0 = never closes)
+ *   aeAutoClose  teacher: {assessmentIds: [...], hours, restart} (0 = never closes; 2.50: restart = repeat it for the class)
  *   aeReopen     teacher: {assessmentId, studentId, hours}
  * ====================================================================== */
 var ACLOSE_GRACE_MS = 15 * 60000;
+/* 2.50 (user 2026-11-21: Neoplasia (New) Topic 12/13 quizzes disappeared 1 h after the first start): a quiz that closes by itself
+ * stays open at least ACLOSE_MIN_H hours after the first start (a smaller saved value counts as 5; 0 = never closes, as before),
+ * and aeAutoClose {restart: true} REPEATS a quiz for the class: its clock starts again at the first start after that moment
+ * (setting "since"; earlier attempts and results are kept). */
+var ACLOSE_MIN_H = 5;
+function acloseHours_(c) { var h = Number(c && c.h); return h > 0 ? Math.max(h, ACLOSE_MIN_H) : 0; }
 function acloseMap_(S) { try { return JSON.parse(getSetting_('aclose:' + S) || '{}') || {}; } catch (e) { return {}; } }
-/** {assessmentId: earliest startedAt of any attempt in this storage}. */
+/** {assessmentId: earliest startedAt of any attempt in this storage} — 2.50: only attempts started after a repeat ("since"). */
 function acloseFirstStarts_(S) {
-  var o = {};
-  assessStore_(S).list('attempt').forEach(function (t) { var a = t.assessmentId, s = Number(t.startedAt) || 0; if (a && s && (!o[a] || s < o[a])) o[a] = s; });
+  var o = {}, cm = acloseMap_(S);
+  assessStore_(S).list('attempt').forEach(function (t) { var a = t.assessmentId, s = Number(t.startedAt) || 0, since = Number(cm[a] && cm[a].since) || 0; if (a && s && s >= since && (!o[a] || s < o[a])) o[a] = s; });
   return o;
 }
 function acloseState_(cm, t0, id, username, now) {
-  var c = cm[id]; if (!c || !(Number(c.h) > 0) || !t0[id]) return { closed: false };
-  var closeAt = t0[id] + Number(c.h) * 3600000, ro = c.reopen && c.reopen[normUser_(username)];
+  var c = cm[id]; if (!c || !(acloseHours_(c) > 0) || !t0[id]) return { closed: false };
+  var closeAt = t0[id] + acloseHours_(c) * 3600000, ro = c.reopen && c.reopen[normUser_(username)];
   return { closed: now > closeAt && !(ro && now < Number(ro)), closeAt: closeAt, reopenedUntil: ro && now < Number(ro) ? Number(ro) : 0 };
 }
 function acloseRefusal_(title) { return { ok: false, code: 'closed', error: '“' + String(title || 'This quiz') + '” was held in class and is now closed. Ask your teacher if you think this is a mistake.' }; }
@@ -4417,7 +4431,8 @@ function acloseHook_(S, act, p) {
         var ids = (Array.isArray(p.assessmentIds) ? p.assessmentIds : [p.assessmentId]).map(function (x) { return String(x || '').trim().slice(0, 120); }).filter(Boolean).slice(0, 500);
         if (!ids.length) return { ok: false, error: 'Choose an assessment.' };
         var h = Math.round(Number(p.hours) * 10) / 10; if (!(h >= 0 && h <= 720)) return { ok: false, error: 'Hours: 0 (never) to 720.' };
-        ids.forEach(function (id) { if (!h) delete m[id]; else m[id] = Object.assign({}, m[id] || {}, { h: h, at: now, by: String(p.by || '').slice(0, 60) }); });
+        var again = p.restart === true || p.restart === 'true';   // 2.50: repeat for the class — the clock starts again
+        ids.forEach(function (id) { if (!h) delete m[id]; else { m[id] = Object.assign({}, m[id] || {}, { h: h, at: now, by: String(p.by || '').slice(0, 60) }); if (again) { m[id].since = now; delete m[id].reopen; } } });
       } else {
         var id2 = String(p.assessmentId || '').trim(), u = normUser_(p.studentId), hh = Number(p.hours);
         if (!m[id2]) return { ok: false, error: 'This quiz does not close by itself.' };

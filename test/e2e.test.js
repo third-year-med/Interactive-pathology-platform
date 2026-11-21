@@ -4103,12 +4103,19 @@ test('⚡ Topic quizzes: one quiz per topic (pool of its practice questions, 5 r
     assert.strictEqual(a[0].questionIds.length, 7);
     assert.notStrictEqual(main.ctx.apwMap_(ST)[a[0].id].pw, main.ctx.apwMap_(ST)[a[1].id].pw, 'a password per quiz');
     assert.strictEqual(autos(MS).length, 2, 'copied to Misrata A');
-    // patch tq-autoclose: the closing time (default 3 h) is set on this group's topic quizzes BEFORE copying, so the copies carry it
-    assert.deepStrictEqual(a.map(function (x) { return main.ctx.acloseMap_(ST)[x.id] && main.ctx.acloseMap_(ST)[x.id].h; }), [3, 3]);
-    assert.deepStrictEqual(a.map(function (x) { return main.ctx.acloseMap_(MS)[x.id] && main.ctx.acloseMap_(MS)[x.id].h; }), [3, 3], 'copies carry it');
+    // patch tq-autoclose (+ tq-autoclose-5h, 2026-11-21): the closing time (default 5 h) is set on this group's topic quizzes BEFORE copying, so the copies carry it
+    assert.deepStrictEqual(a.map(function (x) { return main.ctx.acloseMap_(ST)[x.id] && main.ctx.acloseMap_(ST)[x.id].h; }), [5, 5]);
+    assert.deepStrictEqual(a.map(function (x) { return main.ctx.acloseMap_(MS)[x.id] && main.ctx.acloseMap_(MS)[x.id].h; }), [5, 5], 'copies carry it');
     await t.evaluate(function () { AssessUI.render(AssessUI.box); });   // the "done" window stays open (the next step closes it)
-    await t.waitForFunction(function () { return document.querySelectorAll('[data-a=ac-reopen]').length === 2; }, null, { timeout: 30000 });
-    assert.match(await t.textContent('#view-teacher'), /⏱ closes 3 h after the first student starts/);
+    await t.waitForFunction(function () { return document.querySelectorAll('[data-a=ac-reopen]').length === 2 && document.querySelectorAll('[data-a=ac-repeat]').length === 2; }, null, { timeout: 30000 });
+    assert.match(await t.textContent('#view-teacher'), /⏱ closes 5 h after the first student starts/);
+    // 🔁 Repeat for the class (Portal.gs 2.50): confirm → the quiz's clock restarts (setting "since")
+    await t.evaluate(function () { var m = document.querySelector('.modal'); if (m) { var x = m.querySelector('.modal-head .icon-btn'); if (x) x.click(); } });
+    await t.evaluate(function () { document.querySelector('[data-a=ac-repeat]').click(); });
+    await t.waitForSelector('.modal button:has-text("🔁 Repeat")', { timeout: 10000 });
+    await t.click('.modal button:has-text("🔁 Repeat")');
+    await t.waitForFunction(function () { return /repeated /.test(document.querySelector('#view-teacher').textContent); }, null, { timeout: 30000 });
+    assert.strictEqual(a.filter(function (x) { return main.ctx.acloseMap_(ST)[x.id].since > 0; }).length, 1, 'one quiz repeated');
     // the student's list: topic quizzes in topic order (Topic 1 first), after any other assessment
     const sp = await page();
     await openSyntheticModule(sp, mod, [], { stubAssess: false });
@@ -4127,8 +4134,8 @@ test('⚡ Topic quizzes: one quiz per topic (pool of its practice questions, 5 r
     assert.strictEqual(st.attempt.questions.length, 5);
     assert.ok(st.attempt.questions.every(function (q) { return /^tA-q\d$/.test(q.id); }));
     assert.ok(st.attempt.deadlineAt && st.attempt.deadlineAt - Date.now() <= 5 * 60000 + 5000, 'timed: 5 minutes');
-    // a second run: both exist (kept), nothing duplicated
-    await t.click('.modal .modal-foot .btn-primary');
+    // a second run: both exist (kept), nothing duplicated (the "done" window was closed before 🔁 Repeat)
+    if (await t.$('.modal .modal-foot .btn-primary')) await t.click('.modal .modal-foot .btn-primary');
     await t.click('[data-a=topic-quizzes]'); await t.waitForSelector('.modal .tq');
     assert.match(await t.textContent('.modal'), /1Cell adaptations7• exists[\s\S]*3Cell death5• exists/);
     await t.click('.modal .modal-foot .btn-primary');

@@ -3103,3 +3103,30 @@ test('2.43 in-class quizzes close by themselves: h hours after the first start n
   assert.ok(A(a2, 'submitAttempt', { attemptId: s2.attempt.id, responses: { x1: true } }).ok);
   assert.deepStrictEqual(T('aePwList').autoClose, {});
 });
+
+test('2.50 in-class quizzes stay open at least 5 hours; 🔁 repeat for the class restarts the clock at the first new start', function () {
+  const S = tsSetup(), CI = 'cellinjury-razi-a-26', X = S.b.ctx;
+  const ttok = assessFixture(S, CI), a1 = login(S, CI, 'b1', 'basma-pass-1').token, a2 = login(S, CI, 'ahmed', PW).token;
+  const T = function (action, o) { return S.call(Object.assign({ module: CI, action: action, token: ttok }, o || {})); };
+  const A = function (tok, action, o) { return S.call(Object.assign({ module: CI, action: action, stoken: tok }, o || {})); };
+  T('aePwSet', { assessmentId: 'q1', password: 'Class-26' });
+  assert.ok(T('aeAutoClose', { assessmentIds: ['q1'], hours: 1 }).ok);   // the Neoplasia (New) group had 1 hour
+  const s1 = A(a1, 'startAttempt', { assignmentId: 'asg1', password: 'class-26' }); assert.ok(s1.ok, JSON.stringify(s1));
+  const store = X.assessStore_(CI), mv = function (id, ms) { const t = store.get('attempt', id); t.startedAt = Date.now() - ms; store.put('attempt', t.id, t); };
+  mv(s1.attempt.id, 2 * 3600e3);   // first start 2 h ago: with 1 h it would be closed — now still open (5 h minimum)
+  const it = function (tok) { return A(tok, 'getMyAssessments').items.filter(function (i) { return i.assignment.id === 'asg1'; })[0]; };
+  assert.strictEqual(!!it(a2).closedAfterClass, false, 'open 2 h after the first start');
+  const s2 = A(a2, 'startAttempt', { assignmentId: 'asg1', password: 'class-26' }); assert.ok(s2.ok, JSON.stringify(s2));
+  assert.ok(A(a2, 'submitAttempt', { attemptId: s2.attempt.id, responses: { x1: true } }).ok, 'submitted 2 h after the first start');
+  mv(s1.attempt.id, 6 * 3600e3); mv(s2.attempt.id, 6 * 3600e3);   // 6 h later: closed
+  assert.strictEqual(it(a2).closedAfterClass, true, 'closed after 5 h');
+  // 🔁 repeat for the class: open again for everybody; the 5 h start at the first new start; earlier attempts kept
+  const rp = T('aeAutoClose', { assessmentIds: ['q1'], hours: 5, restart: true }); assert.ok(rp.ok && rp.autoClose.q1.since > 0, JSON.stringify(rp));
+  assert.strictEqual(!!it(a2).closedAfterClass, false, 'open again');
+  const s3 = A(a1, 'startAttempt', { assignmentId: 'asg1', password: 'class-26' }); assert.ok(s3.ok, JSON.stringify(s3));
+  assert.ok(A(a1, 'submitAttempt', { attemptId: s3.attempt.id, responses: { x1: true } }).ok, 'the repeat is submitted');
+  assert.ok(store.get('attempt', s2.attempt.id), 'earlier attempts are kept');
+  // a submission whose attempt is missing gets a clear message
+  const gone = A(a2, 'submitAttempt', { attemptId: 'att_missing', responses: {} });
+  assert.strictEqual(gone.ok, false); assert.match(gone.error, /could not be found on the class server|not found/i);
+});
